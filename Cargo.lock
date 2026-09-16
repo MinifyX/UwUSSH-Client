@@ -5358,6 +5358,7 @@ dependencies = [
  "tracing",
  "uuid",
  "uwussh-proto",
+ "uwussh-store",
  "zeroize",
 ]
 

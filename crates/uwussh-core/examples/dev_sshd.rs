@@ -8,12 +8,16 @@
 //! `help`, `colors`, `flood <MiB>`, `exit` — but the SSH underneath is real:
 //! key exchange, host key, password auth, a pty, window changes.
 //!
+//! It also accepts public-key auth for keys listed, one OpenSSH line each, in
+//! the file named by `UWUSSH_DEV_SSHD_AUTHORIZED_KEYS` — which is how the
+//! end-to-end run logs in with a key from the vault.
+//!
 //! The host key is kept in the temp directory, so the fingerprint stays the
 //! same between runs. Delete that file (the path is printed on start) to see
 //! how UwUSSH reacts to a changed host key.
 
 use russh::keys::ssh_key::LineEnding;
-use russh::keys::{Algorithm, HashAlg, PrivateKey};
+use russh::keys::{Algorithm, HashAlg, PrivateKey, PublicKey};
 use russh::server::{self, Auth, Msg, Server as _, Session};
 use russh::{Channel, ChannelId};
 use std::sync::Arc;
@@ -28,13 +32,18 @@ const PROMPT: &str = "\x1b[38;5;211muwu\x1b[0m@\x1b[38;5;117mdev-sshd\x1b[0m:~$ 
 #[derive(Clone, Default)]
 struct DevShell {
     line: String,
+    /// Public keys allowed to log in as `USER`. Shared by every client.
+    authorized: Arc<Vec<PublicKey>>,
 }
 
 impl server::Server for DevShell {
     type Handler = Self;
     fn new_client(&mut self, peer: Option<std::net::SocketAddr>) -> Self {
         println!("connection from {peer:?}");
-        Self::default()
+        Self {
+            line: String::new(),
+            authorized: Arc::clone(&self.authorized),
+        }
     }
 }
 
@@ -45,6 +54,28 @@ impl server::Handler for DevShell {
         let accepted = user == USER && password == PASSWORD;
         println!(
             "password for {user}: {}",
+            if accepted { "accepted" } else { "rejected" }
+        );
+        Ok(if accepted {
+            Auth::Accept
+        } else {
+            Auth::Reject {
+                proceed_with_methods: None,
+                partial_success: false,
+            }
+        })
+    }
+
+    /// Called after russh has verified the client owns the key. Accept it if
+    /// it is one of the authorized keys for `USER`.
+    async fn auth_publickey(
+        &mut self,
+        user: &str,
+        public_key: &PublicKey,
+    ) -> Result<Auth, Self::Error> {
+        let accepted = user == USER && self.authorized.iter().any(|key| key == public_key);
+        println!(
+            "publickey for {user}: {}",
             if accepted { "accepted" } else { "rejected" }
         );
         Ok(if accepted {
@@ -222,6 +253,22 @@ fn host_key() -> PrivateKey {
     key
 }
 
+/// Public keys the server will accept, from the file named by
+/// `UWUSSH_DEV_SSHD_AUTHORIZED_KEYS` (one OpenSSH line each). Absent means
+/// password-only.
+fn authorized_keys() -> Vec<PublicKey> {
+    let Some(path) = std::env::var_os("UWUSSH_DEV_SSHD_AUTHORIZED_KEYS") else {
+        return Vec::new();
+    };
+    let contents = std::fs::read_to_string(&path).unwrap_or_default();
+    contents
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .filter_map(|line| PublicKey::from_openssh(line).ok())
+        .collect()
+}
+
 #[tokio::main]
 async fn main() {
     let key = host_key();
@@ -229,6 +276,9 @@ async fn main() {
         "fingerprint: {}",
         key.public_key().fingerprint(HashAlg::Sha256)
     );
+
+    let authorized = authorized_keys();
+    println!("authorized keys: {}", authorized.len());
 
     let config = Arc::new(server::Config {
         auth_rejection_time: Duration::from_millis(300),
@@ -242,8 +292,11 @@ async fn main() {
         .expect("port 2222 is taken");
     println!("listening on 127.0.0.1:2222 — user {USER}, password {PASSWORD}");
 
-    DevShell::default()
-        .run_on_socket(config, &listener)
-        .await
-        .expect("server stopped");
+    DevShell {
+        line: String::new(),
+        authorized: Arc::new(authorized),
+    }
+    .run_on_socket(config, &listener)
+    .await
+    .expect("server stopped");
 }

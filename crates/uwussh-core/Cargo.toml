@@ -25,3 +25,7 @@ zeroize.workspace = true
 serde_json.workspace = true
 # The same rand russh uses, only to generate throwaway keys for the SSH tests.
 rand = "0.10"
+# The seed_vault_key example puts a vault key into a store for the end-to-end
+# run; it lives here, next to dev_sshd, because both are E2E fixtures and this
+# is where a real key is already generated.
+uwussh-store.workspace = true
