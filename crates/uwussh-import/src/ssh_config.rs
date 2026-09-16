@@ -10,6 +10,8 @@
 //!   are skipped and reported rather than silently turned into junk entries.
 
 use crate::{ImportError, ImportResult, ImportedHost, Importer, Result, Source};
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 pub struct SshConfigImporter {
     text: String,
@@ -24,6 +26,177 @@ impl SshConfigImporter {
         let text = std::fs::read_to_string(path).map_err(|e| ImportError::Read(e.to_string()))?;
         Ok(Self::from_text(text))
     }
+}
+
+/// `~/.ssh/config`, on Windows too — or wherever `UWUSSH_SSH_CONFIG` points,
+/// which the end-to-end run uses to import from a fixture instead of the real
+/// file.
+pub fn default_config_path() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("UWUSSH_SSH_CONFIG") {
+        return Some(PathBuf::from(path));
+    }
+    home_dir().map(|home| home.join(".ssh").join("config"))
+}
+
+/// Whether there is a config worth importing.
+pub fn has_config() -> bool {
+    default_config_path().is_some_and(|path| path.is_file())
+}
+
+/// Read the user's `~/.ssh/config`, following `Include` directives, and import
+/// every real host. A missing file is not an error — there is simply nothing to
+/// import.
+pub fn read_default() -> Result<ImportResult> {
+    match default_config_path() {
+        Some(path) if path.is_file() => read_file(&path),
+        _ => Ok(ImportResult::default()),
+    }
+}
+
+/// Read one config file and everything it includes, then import.
+pub fn read_file(path: &Path) -> Result<ImportResult> {
+    // Relative includes resolve against the directory of the top config, which
+    // is how OpenSSH treats the user config's `~/.ssh`.
+    let base = path.parent().map(Path::to_path_buf).unwrap_or_default();
+    let mut lines = Vec::new();
+    let mut skipped = Vec::new();
+    let mut visited = HashSet::new();
+    expand(path, &base, 0, &mut lines, &mut skipped, &mut visited);
+
+    let mut result = match SshConfigImporter::from_text(lines.join("\n")).import() {
+        Ok(result) => result,
+        // No hosts in the file is "nothing to import", not a failure, once we
+        // are reading a real file rather than a caller-supplied string.
+        Err(ImportError::Empty) => ImportResult::default(),
+        Err(other) => return Err(other),
+    };
+    result.skipped.extend(skipped);
+    Ok(result)
+}
+
+/// How deep `Include` nesting is followed; also the guard against a cycle.
+const MAX_INCLUDE_DEPTH: usize = 16;
+
+/// Read `path` into `lines`, splicing each `Include`d file in at the point it
+/// appears — the order OpenSSH applies them in.
+fn expand(
+    path: &Path,
+    base: &Path,
+    depth: usize,
+    lines: &mut Vec<String>,
+    skipped: &mut Vec<(String, String)>,
+    visited: &mut HashSet<PathBuf>,
+) {
+    let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    if depth > MAX_INCLUDE_DEPTH || !visited.insert(canonical) {
+        return;
+    }
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(_) => {
+            skipped.push((path.display().to_string(), "could not be read".into()));
+            return;
+        }
+    };
+
+    for raw in text.lines() {
+        let line = raw.trim();
+        if let Some(rest) = include_directive(line) {
+            for pattern in rest.split_whitespace() {
+                match resolve_include(pattern, base) {
+                    Ok(files) if files.is_empty() => {}
+                    Ok(files) => {
+                        for file in files {
+                            expand(&file, base, depth + 1, lines, skipped, visited);
+                        }
+                    }
+                    Err(reason) => skipped.push((format!("Include {pattern}"), reason.into())),
+                }
+            }
+        } else {
+            lines.push(raw.to_string());
+        }
+    }
+}
+
+/// The tail of an `Include` line, or `None` if this is not one.
+fn include_directive(line: &str) -> Option<&str> {
+    let (key, value) = split_option(line)?;
+    key.eq_ignore_ascii_case("include").then_some(value)
+}
+
+/// Resolve one `Include` pattern to the files it matches, sorted. Supports a
+/// `*`/`?` wildcard in the final path component, which is the common
+/// `config.d/*` case.
+fn resolve_include(pattern: &str, base: &Path) -> std::result::Result<Vec<PathBuf>, &'static str> {
+    let expanded = expand_home(pattern);
+    let full = if expanded.is_absolute() {
+        expanded
+    } else {
+        base.join(expanded)
+    };
+
+    let name = full
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or("has no file name")?;
+
+    if !name.contains(['*', '?']) {
+        return Ok(if full.is_file() {
+            vec![full]
+        } else {
+            Vec::new()
+        });
+    }
+    if full
+        .parent()
+        .is_some_and(|p| p.to_string_lossy().contains(['*', '?']))
+    {
+        return Err("wildcards in a directory name are not supported");
+    }
+
+    let dir = full.parent().unwrap_or(Path::new("."));
+    let mut matches: Vec<PathBuf> = std::fs::read_dir(dir)
+        .map_err(|_| "directory could not be read")?
+        .flatten()
+        .filter(|entry| entry.path().is_file())
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_str()
+                .is_some_and(|file| wildcard_match(name, file))
+        })
+        .map(|entry| entry.path())
+        .collect();
+    matches.sort();
+    Ok(matches)
+}
+
+/// A minimal `*`/`?` glob match for one file name.
+fn wildcard_match(pattern: &str, name: &str) -> bool {
+    fn go(p: &[u8], n: &[u8]) -> bool {
+        match p.first() {
+            None => n.is_empty(),
+            Some(b'*') => go(&p[1..], n) || (!n.is_empty() && go(p, &n[1..])),
+            Some(b'?') => !n.is_empty() && go(&p[1..], &n[1..]),
+            Some(&c) => n.first() == Some(&c) && go(&p[1..], &n[1..]),
+        }
+    }
+    go(pattern.as_bytes(), name.as_bytes())
+}
+
+fn expand_home(path: &str) -> PathBuf {
+    match path.strip_prefix("~/").or_else(|| path.strip_prefix("~\\")) {
+        Some(rest) => match home_dir() {
+            Some(home) => home.join(rest),
+            None => PathBuf::from(path),
+        },
+        None => PathBuf::from(path),
+    }
+}
+
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from)
 }
 
 impl Importer for SshConfigImporter {
@@ -207,5 +380,76 @@ Host edge-bastion
         assert!(SshConfigImporter::from_text("# nothing here\n")
             .import()
             .is_err());
+    }
+
+    #[test]
+    fn wildcard_matches_stars_and_question_marks() {
+        assert!(wildcard_match("*", "anything"));
+        assert!(wildcard_match("*.conf", "prod.conf"));
+        assert!(wildcard_match("host?", "host9"));
+        assert!(wildcard_match("a*b*c", "axxbyyc"));
+        assert!(!wildcard_match("*.conf", "conf.bak"));
+        assert!(!wildcard_match("host?", "host10"));
+    }
+
+    #[test]
+    fn include_pulls_in_other_files_at_that_point() {
+        let dir = std::env::temp_dir().join(format!("uwussh-sshcfg-{}", std::process::id()));
+        let confd = dir.join("config.d");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&confd).unwrap();
+
+        std::fs::write(
+            dir.join("config"),
+            "Host top\n  HostName 10.0.0.1\n\nInclude config.d/*.conf\n",
+        )
+        .unwrap();
+        std::fs::write(
+            confd.join("10-work.conf"),
+            "Host work\n  HostName work.example.com\n  User lorin\n",
+        )
+        .unwrap();
+        std::fs::write(
+            confd.join("20-home.conf"),
+            "Host nas\n  HostName 10.0.0.9\n",
+        )
+        .unwrap();
+        // Not matched by *.conf, so it must not be imported.
+        std::fs::write(confd.join("notes.txt"), "Host ghost\n  HostName ghost\n").unwrap();
+
+        let result = read_file(&dir.join("config")).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+
+        let names: Vec<_> = result.hosts.iter().map(|h| h.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["top", "work", "nas"],
+            "top first, then the sorted include"
+        );
+        assert!(result.hosts.iter().all(|h| h.name != "ghost"));
+    }
+
+    #[test]
+    fn a_missing_config_is_empty_not_an_error() {
+        let result = read_file(Path::new("/uwussh/definitely/no/such/config")).unwrap();
+        assert!(result.hosts.is_empty());
+    }
+
+    #[test]
+    fn an_unreadable_include_is_reported() {
+        let dir = std::env::temp_dir().join(format!("uwussh-sshcfg-miss-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("config"),
+            "Include gone.d/*\nHost real\n  HostName 1.2.3.4\n",
+        )
+        .unwrap();
+
+        let result = read_file(&dir.join("config")).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        // The one real host still imports; the missing include is just absent.
+        assert_eq!(result.hosts.len(), 1);
+        assert_eq!(result.hosts[0].name, "real");
     }
 }

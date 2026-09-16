@@ -145,7 +145,7 @@ export function HostList({
             Host hinzufügen
           </button>
           <button className="quiet" onClick={onImport}>
-            Aus Termius, PuTTY oder KiTTY importieren
+            Aus Termius, PuTTY, KiTTY oder ssh_config importieren
           </button>
         </div>
       )}

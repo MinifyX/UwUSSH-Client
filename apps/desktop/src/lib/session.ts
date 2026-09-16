@@ -232,7 +232,7 @@ export function lockVault(): Promise<void> {
 // ── Import ────────────────────────────────────────────────────────────────
 
 /** The sources UwUSSH can import from, by id. */
-export type ImportSource = 'termius' | 'putty' | 'kitty';
+export type ImportSource = 'termius' | 'putty' | 'kitty' | 'openssh';
 
 export type ImportSummary = {
   hosts: number;

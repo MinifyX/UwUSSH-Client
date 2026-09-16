@@ -7,12 +7,13 @@
 // 127.0.0.1, runs phase A, rebuilds the server's host key the way a
 // reinstalled server would, runs phase B, then swaps in a seeded database and a
 // key-authorizing server for phase C (logging in with a key from the vault),
-// and stops everything again.
+// then imports a fixture ~/.ssh/config and connects to what it brought for
+// phase D, and stops everything again.
 //
 // Windows only: it drives WebView2 over the Chrome DevTools Protocol.
 
 import { execSync, spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, openSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -98,12 +99,13 @@ async function waitForNoApp() {
   }, 'the app to stop');
 }
 
-function startApp(name, db) {
+function startApp(name, db, extraEnv = {}) {
   return start(name, 'pnpm', ['tauri', 'dev'], {
     cwd: desktop,
     env: {
       ...process.env,
       UWUSSH_DB: db,
+      ...extraEnv,
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:
         '--remote-debugging-port=9223 --remote-debugging-address=127.0.0.1',
     },
@@ -166,7 +168,28 @@ try {
     passedC = await phase('phase-c.mjs', [sshd.log]);
   }
 
-  const ok = passedA && passedB && passedC;
+  // Phase D: import from ~/.ssh/config and connect to what it brought. A
+  // secretless source, so it needs no vault; UWUSSH_SSH_CONFIG points the app
+  // at a fixture instead of the real file. With Termius also present the import
+  // dialog shows its source picker, which nothing else exercises.
+  let passedD = passedC;
+  if (passedD) {
+    stop(app.child);
+    stop(sshd.child);
+    await waitForNoApp();
+
+    const sshConfig = join(runDir, 'ssh_config');
+    writeFileSync(sshConfig, 'Host dev-sshd\n  HostName 127.0.0.1\n  Port 2222\n  User uwu\n');
+    const opensshDb = join(runDir, 'openssh.db');
+    for (const suffix of ['', '-wal', '-shm']) rmSync(opensshDb + suffix, { force: true });
+
+    sshd = await startSshd('sshd-d');
+    app = startApp('app-d', opensshDb, { UWUSSH_SSH_CONFIG: sshConfig });
+    await waitForApp();
+    passedD = await phase('phase-d.mjs', [sshd.log]);
+  }
+
+  const ok = passedA && passedB && passedC && passedD;
   console.log(ok ? '\nEND TO END OK' : '\nEND TO END FAILED');
   process.exitCode = ok ? 0 : 1;
 } catch (error) {

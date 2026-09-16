@@ -11,7 +11,7 @@ use serde::Serialize;
 use tauri::State;
 use uwussh_core::public_key_fingerprint;
 use uwussh_import::termius::{self, TermiusError};
-use uwussh_import::{putty, ImportBundle, Source};
+use uwussh_import::{putty, ssh_config, ImportBundle, ImportResult, Source};
 use uwussh_store::{
     HostInput, IdentityInput, ImportSet, KeyInput, KnownHostInput, SnippetInput, VaultStatus,
 };
@@ -50,6 +50,7 @@ pub(crate) fn lock_vault(state: State<'_, AppState>) {
 const TERMIUS: &str = "termius";
 const PUTTY: &str = "putty";
 const KITTY: &str = "kitty";
+const OPENSSH: &str = "openssh";
 
 /// Which sources have something to import on this machine.
 #[tauri::command]
@@ -63,6 +64,9 @@ pub(crate) fn available_imports() -> Vec<&'static str> {
     }
     if putty::has_sessions(putty::KITTY_REGISTRY_PATH) {
         sources.push(KITTY);
+    }
+    if ssh_config::has_config() {
+        sources.push(OPENSSH);
     }
     sources
 }
@@ -149,19 +153,26 @@ fn read_bundle(source: &str) -> Result<ImportBundle, String> {
         }),
         PUTTY => sessions_bundle(putty::PUTTY_REGISTRY_PATH, Source::Putty),
         KITTY => sessions_bundle(putty::KITTY_REGISTRY_PATH, Source::Kitty),
+        OPENSSH => ssh_config::read_default()
+            .map(sessions_result)
+            .map_err(|e| e.to_string()),
         other => Err(format!("unknown import source: {other}")),
     }
 }
 
-/// PuTTY and KiTTY produce hosts with an inline username and key-file path,
-/// and nothing else — no shared identities, no vault keys.
+/// PuTTY, KiTTY and ssh_config produce hosts with an inline username and
+/// key-file path, and nothing else — no shared identities, no vault keys.
 fn sessions_bundle(path: &str, source: Source) -> Result<ImportBundle, String> {
     let result = putty::read_sessions(path, source).map_err(|e| e.to_string())?;
-    Ok(ImportBundle {
+    Ok(sessions_result(result))
+}
+
+fn sessions_result(result: ImportResult) -> ImportBundle {
+    ImportBundle {
         hosts: result.hosts,
         skipped: result.skipped,
         ..Default::default()
-    })
+    }
 }
 
 /// Map the importer's bundle onto the store's input, collecting the reasons

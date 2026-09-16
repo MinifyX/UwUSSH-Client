@@ -22,6 +22,7 @@ const LABEL: Record<ImportSource, string> = {
   termius: 'Termius',
   putty: 'PuTTY',
   kitty: 'KiTTY',
+  openssh: 'OpenSSH (~/.ssh/config)',
 };
 
 type Step =
@@ -103,9 +104,9 @@ export function ImportDialog({ onClose, onImported }: Props) {
       case 'none':
         return (
           <p className="import-note">
-            Auf diesem Rechner wurde nichts zum Importieren gefunden. UwUSSH liest Termius, PuTTY
-            und KiTTY dort, wo sie ihre Daten ablegen — es gibt keine Export-Datei, die du vorher
-            erzeugen müsstest.
+            Auf diesem Rechner wurde nichts zum Importieren gefunden. UwUSSH liest Termius, PuTTY,
+            KiTTY und <code>~/.ssh/config</code> dort, wo sie ihre Daten ablegen — es gibt keine
+            Export-Datei, die du vorher erzeugen müsstest.
           </p>
         );
 
