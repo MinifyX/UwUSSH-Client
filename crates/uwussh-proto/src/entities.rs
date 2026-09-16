@@ -25,6 +25,9 @@ pub struct SyncHeader {
 
 /// What kind of record a blob holds. Part of the AAD when encrypting, so a
 /// malicious server cannot hand back a key where a snippet was expected.
+///
+/// **Append only.** The discriminant is what goes into the AAD; reordering
+/// would make every sealed record unreadable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EntityKind {
@@ -36,6 +39,8 @@ pub enum EntityKind {
     PortForward,
     KnownHost,
     TerminalProfile,
+    /// A password, private key or passphrase, which records point at by id.
+    Secret,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

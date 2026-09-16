@@ -12,11 +12,14 @@
 
 pub mod crypto;
 pub mod kdf;
+pub mod vault;
 
 pub use crypto::{decrypt_record, encrypt_record, Sealed};
 pub use kdf::{
-    derive_master_secrets, MasterSecrets, KDF_MEMORY_KIB, KDF_PARALLELISM, KDF_TIME_COST,
+    derive_master_secrets, derive_master_secrets_with, KdfParams, MasterSecrets, KDF_MEMORY_KIB,
+    KDF_PARALLELISM, KDF_TIME_COST,
 };
+pub use vault::{create, UnlockedVault, VaultHeader};
 
 #[derive(Debug, thiserror::Error)]
 pub enum VaultError {

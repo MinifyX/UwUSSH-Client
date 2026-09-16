@@ -31,12 +31,44 @@ impl std::fmt::Debug for MasterSecrets {
     }
 }
 
+/// Argon2id's cost parameters. Stored with each vault, so raising the defaults
+/// later does not lock anyone out of a vault created with the old ones.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KdfParams {
+    pub memory_kib: u32,
+    pub time_cost: u32,
+    pub parallelism: u32,
+}
+
+impl KdfParams {
+    pub const RECOMMENDED: Self = Self {
+        memory_kib: KDF_MEMORY_KIB,
+        time_cost: KDF_TIME_COST,
+        parallelism: KDF_PARALLELISM,
+    };
+
+    /// For tests only: fast, and worthless against guessing.
+    pub const INSECURE_FOR_TESTS: Self = Self {
+        memory_kib: 8,
+        time_cost: 1,
+        parallelism: 1,
+    };
+}
+
 /// Derive both secrets from the master password.
 ///
 /// `salt` must be at least 8 bytes and is stored with the vault — it is not
 /// secret, it just has to be unique per vault.
 pub fn derive_master_secrets(password: &[u8], salt: &[u8]) -> Result<MasterSecrets> {
-    let params = Params::new(KDF_MEMORY_KIB, KDF_TIME_COST, KDF_PARALLELISM, Some(64))
+    derive_master_secrets_with(password, salt, KdfParams::RECOMMENDED)
+}
+
+pub fn derive_master_secrets_with(
+    password: &[u8],
+    salt: &[u8],
+    kdf: KdfParams,
+) -> Result<MasterSecrets> {
+    let params = Params::new(kdf.memory_kib, kdf.time_cost, kdf.parallelism, Some(64))
         .map_err(|e| VaultError::Kdf(e.to_string()))?;
     let argon = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
 
