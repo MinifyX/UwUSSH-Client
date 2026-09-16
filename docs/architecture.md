@@ -5,16 +5,16 @@ long version.
 
 ## The stack
 
-| Layer | Choice | Why |
-| --- | --- | --- |
-| Shell | Tauri 2 | Same as UwUMail. ~12 MB instead of Electron's 150, WebView2 on Windows, mobile support built in. |
-| UI | React + TypeScript, Node 24, pnpm 11 | UwUMail's stack, so tokens, components and Nyu carry over. |
-| Terminal | `xterm.js` + WebGL addon | What VS Code and Termius use. Canvas fallback. |
-| SSH | `russh`, `russh-keys`, `russh-sftp` | Pure Rust, async, no libssh2 FFI pain. |
-| Local shell | `portable-pty` | ConPTY on Windows, PTY elsewhere. |
-| Store | `rusqlite` with WAL | One file, offline-first, trivial to back up. |
-| Crypto | `argon2`, `chacha20poly1305`, `zeroize` | Established RustCrypto crates. Nothing home-made. |
-| Server | Rust + `axum`, SQLite | One language across the stack, one Docker image. |
+| Layer       | Choice                                  | Why                                                                                              |
+| ----------- | --------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Shell       | Tauri 2                                 | Same as UwUMail. ~12 MB instead of Electron's 150, WebView2 on Windows, mobile support built in. |
+| UI          | React + TypeScript, Node 24, pnpm 11    | UwUMail's stack, so tokens, components and Nyu carry over.                                       |
+| Terminal    | `xterm.js` + WebGL addon                | What VS Code and Termius use. Canvas fallback.                                                   |
+| SSH         | `russh`, `russh-keys`, `russh-sftp`     | Pure Rust, async, no libssh2 FFI pain.                                                           |
+| Local shell | `portable-pty`                          | ConPTY on Windows, PTY elsewhere.                                                                |
+| Store       | `rusqlite` with WAL                     | One file, offline-first, trivial to back up.                                                     |
+| Crypto      | `argon2`, `chacha20poly1305`, `zeroize` | Established RustCrypto crates. Nothing home-made.                                                |
+| Server      | Rust + `axum`, SQLite                   | One language across the stack, one Docker image.                                                 |
 
 ## The secret boundary
 
@@ -40,14 +40,29 @@ Terminal throughput across the IPC boundary. A `cat bigfile.log` pushes several
 MB/s, and Tauri's classic `emit` events serialise to JSON, which does not carry
 that.
 
-The plan is `tauri::ipc::Channel<&[u8]>` with raw bytes, PTY output batched into
-8 ms frames in the core instead of per read, backpressure through a bounded
-channel, and deliberately dropping frames on overflow — the scrollback truth
-lives in xterm.js' buffer anyway. If that measurably isn't enough, the fallback
-is a local WebSocket on `127.0.0.1` with a one-time token and binary frames.
+The implementation sends raw bytes over a `tauri::ipc::Channel`, with PTY output
+batched into 8 ms frames in the core instead of one crossing per read, and
+backpressure through a bounded channel. If that measurably isn't enough, the
+fallback is a local WebSocket on `127.0.0.1` with a one-time token and binary
+frames.
 
 **M0 starts with measuring this**, not with the UI. It is the only question that
-could invalidate the whole design.
+could invalidate the whole design — see [the spike](m0-spike.md) for how to run
+it and how to read the numbers.
+
+### Backpressure, not dropped frames
+
+An earlier draft of the concept said frames would be dropped on overflow, with
+xterm.js keeping the scrollback truth. That was wrong: dropping bytes before
+xterm.js cuts escape sequences in half, so the buffer holds corrupted output
+rather than truth.
+
+The bounded channel applies backpressure instead — the reader waits, the PTY
+buffer fills, and the program on the far end slows down, which is exactly what
+already happens when you `cat` a large file into a slow terminal. Nothing is
+dropped, and a stall counter records how often the reader had to wait. That
+counter is also the better measurement: it shows where the ceiling is instead of
+hiding it behind discarded data.
 
 ## Data model
 
@@ -94,13 +109,13 @@ server can neither swap blobs between records nor reinterpret their type.
 
 Offline-first: everything lands in SQLite first, the server is a relay.
 
-| Endpoint | Purpose |
-| --- | --- |
-| `GET /v1/sync?since=<seq>` | Blobs newer than a cursor, paginated |
-| `POST /v1/sync` | Batch push, each record with its `base_rev` |
-| `WS /v1/stream` | "Changes from seq N" — the client then pulls |
-| `POST /v1/auth/login` | Login hash → session token + `wrapped_vault_key` |
-| `GET/DELETE /v1/devices` | List and revoke devices |
+| Endpoint                   | Purpose                                          |
+| -------------------------- | ------------------------------------------------ |
+| `GET /v1/sync?since=<seq>` | Blobs newer than a cursor, paginated             |
+| `POST /v1/sync`            | Batch push, each record with its `base_rev`      |
+| `WS /v1/stream`            | "Changes from seq N" — the client then pulls     |
+| `POST /v1/auth/login`      | Login hash → session token + `wrapped_vault_key` |
+| `GET/DELETE /v1/devices`   | List and revoke devices                          |
 
 The cursor is a monotonic server sequence number, not a timestamp. Clocks across
 devices are a bug source; sequence numbers are not.

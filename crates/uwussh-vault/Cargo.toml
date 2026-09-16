@@ -1,0 +1,18 @@
+[package]
+name = "uwussh-vault"
+description = "Key derivation and record encryption for UwUSSH"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+uwussh-proto.workspace = true
+
+argon2.workspace = true
+chacha20poly1305.workspace = true
+rand.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+zeroize.workspace = true

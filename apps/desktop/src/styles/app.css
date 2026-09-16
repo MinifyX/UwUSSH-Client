@@ -1,0 +1,274 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--uwu-canvas);
+  color: var(--uwu-ink);
+  font-family: var(--uwu-font);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+:focus-visible {
+  outline: 2px solid var(--uwu-pink);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ── Shell ─────────────────────────────────────────────── */
+
+.shell {
+  display: grid;
+  grid-template-rows: 38px 1fr;
+  height: 100%;
+}
+
+.titlebar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--uwu-hairline);
+  background: var(--uwu-surface);
+  user-select: none;
+}
+
+.titlebar .wordmark {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.titlebar .wordmark span {
+  color: var(--uwu-pink-solid);
+}
+
+.titlebar .spacer {
+  flex: 1;
+}
+
+.titlebar .hint {
+  font-family: var(--uwu-mono);
+  font-size: 11px;
+  color: var(--uwu-muted);
+}
+
+.body {
+  display: grid;
+  grid-template-columns: 236px 1fr;
+  min-height: 0;
+}
+
+/* ── Sidebar ───────────────────────────────────────────── */
+
+.sidebar {
+  border-right: 1px solid var(--uwu-hairline);
+  background: var(--uwu-surface);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.sidebar h2 {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--uwu-muted);
+}
+
+.host-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.host {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border-radius: var(--uwu-radius-control);
+  cursor: default;
+}
+
+.host:hover {
+  background: var(--uwu-elevated);
+}
+
+.host[aria-selected='true'] {
+  background: var(--uwu-pink-tint);
+  color: var(--uwu-pink-ink);
+}
+
+.host .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--uwu-online);
+  flex: none;
+}
+
+.host .dot[data-state='offline'] {
+  background: var(--uwu-offline);
+}
+
+.host .meta {
+  margin-left: auto;
+  font-family: var(--uwu-mono);
+  font-size: 10.5px;
+  color: var(--uwu-muted);
+}
+
+.demo-note {
+  margin-top: auto;
+  padding: 10px;
+  border: 1px dashed var(--uwu-border);
+  border-radius: var(--uwu-radius-control);
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--uwu-muted);
+}
+
+/* ── Main ──────────────────────────────────────────────── */
+
+.main {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-width: 0;
+  min-height: 0;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--uwu-hairline);
+  background: var(--uwu-surface);
+  flex-wrap: wrap;
+}
+
+button {
+  font: inherit;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 7px 14px;
+  border-radius: var(--uwu-radius-control);
+  border: 1px solid var(--uwu-border);
+  background: var(--uwu-surface);
+  color: var(--uwu-ink);
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: var(--uwu-elevated);
+}
+
+button.primary {
+  background: var(--uwu-pink-solid);
+  border-color: var(--uwu-pink-solid);
+  color: var(--uwu-on-pink);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.terminal-wrap {
+  min-height: 0;
+  padding: 10px 14px 14px;
+  background: var(--uwu-canvas);
+}
+
+.terminal-host {
+  height: 100%;
+  border-radius: var(--uwu-radius-card);
+  overflow: hidden;
+  background: #141016;
+  padding: 10px;
+}
+
+/* ── HUD ───────────────────────────────────────────────── */
+
+.hud {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.stat {
+  border: 1px solid var(--uwu-border);
+  border-radius: var(--uwu-radius-pill);
+  padding: 4px 12px;
+  font-family: var(--uwu-mono);
+  font-size: 11px;
+  color: var(--uwu-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.stat b {
+  color: var(--uwu-ink);
+  font-weight: 500;
+}
+
+/* Stalls are the number M0 is actually looking for, so it gets to shout. */
+.stat[data-alarm='true'] {
+  border-color: var(--uwu-alarm);
+  color: var(--uwu-alarm);
+}
+
+.stat[data-alarm='true'] b {
+  color: var(--uwu-alarm);
+}
+
+/* ── Nyu ───────────────────────────────────────────────── */
+
+.empty-state {
+  height: 100%;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 14px;
+  text-align: center;
+  color: var(--uwu-muted);
+}
+
+.empty-state p {
+  margin: 0;
+  max-width: 34ch;
+  line-height: 1.5;
+}
+
+@keyframes nyu-blink {
+  0%,
+  92%,
+  100% {
+    transform: scaleY(1);
+  }
+  95% {
+    transform: scaleY(0.1);
+  }
+}
+
+.nyu-eyes {
+  animation: nyu-blink 6s infinite;
+  transform-origin: center;
+}

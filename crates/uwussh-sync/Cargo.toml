@@ -1,0 +1,20 @@
+[package]
+name = "uwussh-sync"
+description = "Offline-first sync client for UwUSSH: outbox, clocks, conflict resolution"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+uwussh-proto.workspace = true
+
+parking_lot.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+
+# The HTTP half lands with M2:
+#   cargo add reqwest --features json,rustls-tls

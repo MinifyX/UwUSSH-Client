@@ -1,0 +1,114 @@
+//! Hybrid logical clock.
+//!
+//! Wall-clock timestamps across devices are a bug source: laptops sleep, phones
+//! drift, and "last write wins" then means "whoever's clock is fastest wins".
+//! An HLC keeps the wall clock for human readability but adds a counter that
+//! breaks ties deterministically, so two devices can never disagree about which
+//! of two edits came later.
+
+use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
+
+/// A hybrid logical clock timestamp: wall time, a tie-break counter, and the
+/// device that produced it (so even identical (wall, counter) pairs order
+/// stably instead of flapping).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Hlc {
+    /// Milliseconds since the Unix epoch.
+    pub wall_ms: u64,
+    /// Incremented when two events share the same millisecond.
+    pub counter: u32,
+    /// Truncated device id, only used to break exact ties.
+    pub device: u32,
+}
+
+impl Hlc {
+    pub fn new(wall_ms: u64, counter: u32, device: u32) -> Self {
+        Self { wall_ms, counter, device }
+    }
+
+    /// Produce the next local timestamp.
+    ///
+    /// `now_ms` normally moves the clock forward. If it did not (same
+    /// millisecond, or the system clock went backwards), the counter advances
+    /// instead — which is the whole point: time never appears to stand still
+    /// or run back as far as ordering is concerned.
+    pub fn tick(self, now_ms: u64) -> Self {
+        if now_ms > self.wall_ms {
+            Self { wall_ms: now_ms, counter: 0, device: self.device }
+        } else {
+            Self { wall_ms: self.wall_ms, counter: self.counter + 1, device: self.device }
+        }
+    }
+
+    /// Merge a timestamp received from another device into the local clock.
+    pub fn merge(self, remote: Hlc, now_ms: u64) -> Self {
+        let max_wall = now_ms.max(self.wall_ms).max(remote.wall_ms);
+
+        let counter = if max_wall == self.wall_ms && max_wall == remote.wall_ms {
+            self.counter.max(remote.counter) + 1
+        } else if max_wall == self.wall_ms {
+            self.counter + 1
+        } else if max_wall == remote.wall_ms {
+            remote.counter + 1
+        } else {
+            0
+        };
+
+        Self { wall_ms: max_wall, counter, device: self.device }
+    }
+}
+
+impl Ord for Hlc {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.wall_ms
+            .cmp(&other.wall_ms)
+            .then(self.counter.cmp(&other.counter))
+            .then(self.device.cmp(&other.device))
+    }
+}
+
+impl PartialOrd for Hlc {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn counter_advances_within_the_same_millisecond() {
+        let a = Hlc::new(1_000, 0, 7);
+        let b = a.tick(1_000);
+        assert_eq!(b.wall_ms, 1_000);
+        assert_eq!(b.counter, 1);
+        assert!(b > a);
+    }
+
+    #[test]
+    fn counter_resets_when_wall_time_moves_on() {
+        let a = Hlc::new(1_000, 5, 7);
+        let b = a.tick(1_001);
+        assert_eq!(b.counter, 0);
+        assert!(b > a);
+    }
+
+    #[test]
+    fn a_backwards_system_clock_cannot_reorder_events() {
+        let a = Hlc::new(5_000, 0, 7);
+        // The laptop woke up and thinks it is earlier than it was.
+        let b = a.tick(4_000);
+        assert!(b > a, "an edit made later must never sort before an earlier one");
+    }
+
+    #[test]
+    fn merge_dominates_both_sides() {
+        let local = Hlc::new(1_000, 3, 1);
+        let remote = Hlc::new(1_000, 9, 2);
+        let merged = local.merge(remote, 1_000);
+        assert!(merged > local);
+        assert!(merged > remote);
+    }
+}

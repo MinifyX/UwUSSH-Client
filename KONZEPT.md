@@ -2,14 +2,14 @@
 
 > SSH-Client mit Termius-Ruhe, PuTTY-Tiefe und einem Sync-Server, der dir gehört.
 
-| | |
-|---|---|
-| **Stand** | 2026-09-16 · Entwurf v0.2 |
-| **Basis** | Tauri 2 + React + SQLite — identisch zu UwUMail |
-| **Bundle-ID** | `app.uwussh.desktop` |
-| **Repo** | [MinifyX/UwUSSH-Client](https://github.com/MinifyX/UwUSSH-Client) · GPL-3.0 |
-| **Maskottchen** | Nyu, jetzt als Terminal-Katze |
-| **Plattformen** | Windows zuerst, dann Linux/macOS, später Android/iOS |
+|                 |                                                                             |
+| --------------- | --------------------------------------------------------------------------- |
+| **Stand**       | 2026-09-16 · Entwurf v0.2                                                   |
+| **Basis**       | Tauri 2 + React + SQLite — identisch zu UwUMail                             |
+| **Bundle-ID**   | `app.uwussh.desktop`                                                        |
+| **Repo**        | [MinifyX/UwUSSH-Client](https://github.com/MinifyX/UwUSSH-Client) · GPL-3.0 |
+| **Maskottchen** | Nyu, jetzt als Terminal-Katze                                               |
+| **Plattformen** | Windows zuerst, dann Linux/macOS, später Android/iOS                        |
 
 ---
 
@@ -24,7 +24,7 @@ UwUSSH besetzt die Lücke: **Termius-Optik, PuTTY-Funktionsumfang, Sync auf dein
 
 **Zielgruppe:** Homelabber und Admins mit 20–200 Hosts, drei Geräten und einer gesunden Abneigung gegen fremde Clouds.
 
-**Versprechen in einem Satz:** *Deine Hosts, deine Keys, dein Server.*
+**Versprechen in einem Satz:** _Deine Hosts, deine Keys, dein Server._
 
 ### Nicht-Ziele (v1)
 
@@ -37,26 +37,30 @@ UwUSSH besetzt die Lücke: **Termius-Optik, PuTTY-Funktionsumfang, Sync auf dein
 
 ## 2. Tech-Stack
 
-| Schicht | Wahl | Warum |
-|---|---|---|
-| App-Shell | **Tauri 2** | Wie UwUMail. ~12 MB Binary statt 150 MB Electron, WebView2 auf Windows, Mobile-Support in v2. |
-| Frontend | **React + TypeScript**, Node 24, pnpm 11 | Exakt der UwUMail-Stack. Tokens, Komponenten, Nyu und die Build-Pipeline lassen sich übernehmen. |
-| UI-Font | **Manrope** (variabel, gebündelt) | Wie UwUMail — keine Netzwerk-Fonts. Terminal-Font separat: JetBrains Mono. |
-| Terminal | **xterm.js** + `@xterm/addon-webgl` | Das, was VS Code und Termius benutzen. WebGL-Renderer, Fallback auf Canvas. |
-| SSH | **`russh`** (+ `russh-keys`, `russh-sftp`) | Pure Rust, async/Tokio, kein libssh2-FFI-Schmerz. Unterstützt Agent, Port-Forwarding, SFTP. |
-| Lokale Shell | **`portable-pty`** (WezTerm-Crate) | ConPTY auf Windows, PTY auf Unix — lokale Tabs für PowerShell/WSL/bash. |
-| Seriell | **`serialport`** | PuTTY-Parität für COM-Ports. |
-| Store | **SQLite** (`rusqlite`, WAL) | Wie UwUMail. Eine Datei, offline-first, einfach zu sichern. |
-| Krypto | `argon2`, `chacha20poly1305`, `zeroize` (RustCrypto) | Etablierte Crates. Nichts selbst bauen. |
-| Sync-Server | **Rust + Axum**, SQLite (optional Postgres) | Eine Sprache, ein Docker-Image, wenig RAM im Leerlauf. |
+| Schicht      | Wahl                                                 | Warum                                                                                            |
+| ------------ | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| App-Shell    | **Tauri 2**                                          | Wie UwUMail. ~12 MB Binary statt 150 MB Electron, WebView2 auf Windows, Mobile-Support in v2.    |
+| Frontend     | **React + TypeScript**, Node 24, pnpm 11             | Exakt der UwUMail-Stack. Tokens, Komponenten, Nyu und die Build-Pipeline lassen sich übernehmen. |
+| UI-Font      | **Manrope** (variabel, gebündelt)                    | Wie UwUMail — keine Netzwerk-Fonts. Terminal-Font separat: JetBrains Mono.                       |
+| Terminal     | **xterm.js** + `@xterm/addon-webgl`                  | Das, was VS Code und Termius benutzen. WebGL-Renderer, Fallback auf Canvas.                      |
+| SSH          | **`russh`** (+ `russh-keys`, `russh-sftp`)           | Pure Rust, async/Tokio, kein libssh2-FFI-Schmerz. Unterstützt Agent, Port-Forwarding, SFTP.      |
+| Lokale Shell | **`portable-pty`** (WezTerm-Crate)                   | ConPTY auf Windows, PTY auf Unix — lokale Tabs für PowerShell/WSL/bash.                          |
+| Seriell      | **`serialport`**                                     | PuTTY-Parität für COM-Ports.                                                                     |
+| Store        | **SQLite** (`rusqlite`, WAL)                         | Wie UwUMail. Eine Datei, offline-first, einfach zu sichern.                                      |
+| Krypto       | `argon2`, `chacha20poly1305`, `zeroize` (RustCrypto) | Etablierte Crates. Nichts selbst bauen.                                                          |
+| Sync-Server  | **Rust + Axum**, SQLite (optional Postgres)          | Eine Sprache, ein Docker-Image, wenig RAM im Leerlauf.                                           |
 
 ### Der eine Punkt, an dem Tauri wehtun kann
 
 Terminal-Durchsatz. Ein `cat bigfile.log` schiebt mehrere MB/s durch die IPC-Grenze. Tauris klassische `emit`-Events serialisieren nach JSON — das reicht dafür nicht.
 
-**Lösung:** `tauri::ipc::Channel<&[u8]>` mit Raw-Bytes, PTY-Output im Rust-Core auf ~8-ms-Frames gebündelt (statt pro Read), Backpressure über einen begrenzten Channel, bei Overflow bewusst Frames verwerfen ("catch-up") — die Scrollback-Wahrheit landet ohnehin in xterm.js' Buffer.
+**Lösung:** Raw-Bytes über einen `tauri::ipc::Channel`, PTY-Output im Rust-Core auf 8-ms-Frames gebündelt statt eine Überquerung pro Read, Backpressure über einen begrenzten Channel.
 
-**Fallback, falls das messbar nicht reicht:** lokaler WebSocket auf `127.0.0.1` mit Einmal-Token, binäre Frames. Das sollte in M0 als Erstes gemessen werden — `yes` als Lasttest, Ziel: flüssige UI ohne Frame-Drops bei ≥ 20 MB/s.
+**Fallback, falls das messbar nicht reicht:** lokaler WebSocket auf `127.0.0.1` mit Einmal-Token, binäre Frames. Gemessen wird das in M0 als Allererstes — siehe [`docs/m0-spike.md`](docs/m0-spike.md).
+
+> **Korrektur gegenüber v0.1.** Hier stand ursprünglich, bei Overflow würden Frames bewusst verworfen, weil die Scrollback-Wahrheit ohnehin in xterm.js' Buffer lande. Beim Implementieren wurde klar, dass das falsch ist: Bytes vor xterm.js zu verwerfen zerschneidet Escape-Sequenzen, und im Buffer landet dann kaputte Ausgabe statt Wahrheit.
+>
+> Gebaut ist stattdessen das, was ein echtes Terminal tut — **Backpressure**. Der begrenzte Channel lässt den Reader warten, der PTY-Puffer läuft voll, und das Programm am anderen Ende wird langsamer; genau das passiert heute schon, wenn man eine große Datei in ein langsames Terminal `cat`tet. Nichts geht verloren, und ein Stall-Zähler misst, wie oft der Reader warten musste. Dieser Zähler ist auch die bessere Messgröße: Er zeigt die Decke, statt sie hinter weggeworfenen Daten zu verstecken.
 
 ---
 
@@ -105,17 +109,17 @@ deleted     bool            -- Tombstone, TTL 90 Tage
 vault_id    UUID            -- Personal / Work / Shared
 ```
 
-| Entität | Felder (Auszug) |
-|---|---|
-| **Host** | name, address, port, group_id, identity_id, jump_host_id, tags[], color, charset, env[], keepalive, agent_forward, startup_snippet_id, terminal_profile_id, backspace_mode |
-| **Group** | name, parent_id, icon, sort |
-| **Identity** | label, username, auth_type (`password` \| `key` \| `agent` \| `keyboard-interactive` \| `cert`), secret_ref |
-| **Key** | label, type (`ed25519` \| `rsa` \| `ecdsa`), private_pem (verschlüsselt), public, passphrase_ref, certificate |
-| **Snippet** | label, body, shell, targets[] (Host/Gruppe/Tag) |
-| **PortForward** | host_id, kind (`local` \| `remote` \| `dynamic`), bind, target, autostart |
-| **KnownHost** | hostname, port, key_type, fingerprint_sha256, first_seen, verified_by |
-| **TerminalProfile** | font, size, theme, cursor, scrollback, bell |
-| **SessionLog** | host_id, started_at, duration, bytes — **lokal, synct per Default nicht** |
+| Entität             | Felder (Auszug)                                                                                                                                                            |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Host**            | name, address, port, group_id, identity_id, jump_host_id, tags[], color, charset, env[], keepalive, agent_forward, startup_snippet_id, terminal_profile_id, backspace_mode |
+| **Group**           | name, parent_id, icon, sort                                                                                                                                                |
+| **Identity**        | label, username, auth_type (`password` \| `key` \| `agent` \| `keyboard-interactive` \| `cert`), secret_ref                                                                |
+| **Key**             | label, type (`ed25519` \| `rsa` \| `ecdsa`), private_pem (verschlüsselt), public, passphrase_ref, certificate                                                              |
+| **Snippet**         | label, body, shell, targets[] (Host/Gruppe/Tag)                                                                                                                            |
+| **PortForward**     | host_id, kind (`local` \| `remote` \| `dynamic`), bind, target, autostart                                                                                                  |
+| **KnownHost**       | hostname, port, key_type, fingerprint_sha256, first_seen, verified_by                                                                                                      |
+| **TerminalProfile** | font, size, theme, cursor, scrollback, bell                                                                                                                                |
+| **SessionLog**      | host_id, started_at, duration, bytes — **lokal, synct per Default nicht**                                                                                                  |
 
 `jump_host_id` als Selbstreferenz gibt ProxyJump-Ketten umsonst: `laptop → bastion → db-01` ist eine verkettete Liste, die der SessionManager rekursiv auflöst (max. Tiefe 8, Zyklenerkennung).
 
@@ -182,14 +186,14 @@ Jedes Gerät bekommt eine `device_id` + eigenes Keypair für Server-Auth, einzel
 
 ### Protokoll
 
-| Endpoint | Zweck |
-|---|---|
-| `GET /v1/sync?since=<seq>` | Alle Blobs mit `seq > since`, paginiert |
-| `POST /v1/sync` | Batch-Push, jeder Record mit `base_rev` |
-| `WS /v1/stream` | Push-Notify: "es gibt Änderungen ab seq N" → Client pullt |
-| `POST /v1/auth/login` | Login-Hash → Session-Token + `wrapped_vault_key` |
-| `GET/DELETE /v1/devices` | Geräte listen, widerrufen |
-| `GET /healthz`, `/metrics` | Ops, Prometheus |
+| Endpoint                   | Zweck                                                     |
+| -------------------------- | --------------------------------------------------------- |
+| `GET /v1/sync?since=<seq>` | Alle Blobs mit `seq > since`, paginiert                   |
+| `POST /v1/sync`            | Batch-Push, jeder Record mit `base_rev`                   |
+| `WS /v1/stream`            | Push-Notify: "es gibt Änderungen ab seq N" → Client pullt |
+| `POST /v1/auth/login`      | Login-Hash → Session-Token + `wrapped_vault_key`          |
+| `GET/DELETE /v1/devices`   | Geräte listen, widerrufen                                 |
+| `GET /healthz`, `/metrics` | Ops, Prometheus                                           |
 
 Der Cursor ist eine **monotone Server-Sequenznummer**, kein Zeitstempel. Zeitstempel über Geräte hinweg sind eine Fehlerquelle, Sequenznummern nicht.
 
@@ -215,11 +219,11 @@ Ein Binary. Ein Docker-Image. Eine SQLite-Datei.
 services:
   uwussh:
     image: ghcr.io/<user>/uwussh-server:latest
-    ports: ["8080:8080"]
-    volumes: ["./data:/data"]
+    ports: ['8080:8080']
+    volumes: ['./data:/data']
     environment:
       UWUSSH_DB: /data/uwussh.db
-      UWUSSH_REGISTRATION: invite   # open | invite | closed
+      UWUSSH_REGISTRATION: invite # open | invite | closed
 ```
 
 - **TLS macht der Reverse-Proxy** (Caddy/Traefik/nginx). Der Server spricht HTTP und wertet `X-Forwarded-*` aus.
@@ -240,13 +244,13 @@ Homelab-Setups haben oft schon einen IdP, und Login per SSO ist bequem. Aber: **
 
 Niemand tippt 80 Hosts neu ab. Der Import entscheidet, ob die App am ersten Abend benutzbar ist oder wieder zugemacht wird — deshalb steht er **in M1, nicht in M5**.
 
-| Quelle | Wo die Daten liegen | Aufwand |
-|---|---|---|
-| **PuTTY** | Registry `HKCU\Software\SimonTatham\PuTTY\Sessions`, ein Schlüssel pro Session, URL-enkodierte Namen | klein — reines Registry-Lesen |
-| **KiTTY** | PuTTY-Fork: Registry unter `HKCU\Software\9bis.com\KiTTY\Sessions`, im Portable-Modus stattdessen ein `Sessions\`-Ordner mit einer Datei pro Session (**beides am echten KiTTY verifizieren**) | klein — selbes Key/Value-Format wie PuTTY, nur anderer Pfad |
-| **OpenSSH** | `~/.ssh/config` inkl. `Host`-Patterns, `ProxyJump`, `IdentityFile`, `Match`-Blöcke | mittel — echter Parser nötig |
-| **Termius** | Je nach Version JSON- oder CSV-Export; die lokale Termius-Datenbank ist verschlüsselt und kommt nur in Frage, wenn der Nutzer sein Termius-Passwort eingibt (**am echten Export verifizieren, bevor wir es versprechen**) | mittel — Format hängt an der Version |
-| WinSCP, mRemoteNG, MobaXterm | INI- bzw. XML-Exportdateien | klein, wenn die Grundstruktur steht |
+| Quelle                       | Wo die Daten liegen                                                                                                                                                                                                       | Aufwand                                                     |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| **PuTTY**                    | Registry `HKCU\Software\SimonTatham\PuTTY\Sessions`, ein Schlüssel pro Session, URL-enkodierte Namen                                                                                                                      | klein — reines Registry-Lesen                               |
+| **KiTTY**                    | PuTTY-Fork: Registry unter `HKCU\Software\9bis.com\KiTTY\Sessions`, im Portable-Modus stattdessen ein `Sessions\`-Ordner mit einer Datei pro Session (**beides am echten KiTTY verifizieren**)                            | klein — selbes Key/Value-Format wie PuTTY, nur anderer Pfad |
+| **OpenSSH**                  | `~/.ssh/config` inkl. `Host`-Patterns, `ProxyJump`, `IdentityFile`, `Match`-Blöcke                                                                                                                                        | mittel — echter Parser nötig                                |
+| **Termius**                  | Je nach Version JSON- oder CSV-Export; die lokale Termius-Datenbank ist verschlüsselt und kommt nur in Frage, wenn der Nutzer sein Termius-Passwort eingibt (**am echten Export verifizieren, bevor wir es versprechen**) | mittel — Format hängt an der Version                        |
+| WinSCP, mRemoteNG, MobaXterm | INI- bzw. XML-Exportdateien                                                                                                                                                                                               | klein, wenn die Grundstruktur steht                         |
 
 **Gemeinsame Mechanik statt vier Einzellösungen:** jeder Importer ist ein Adapter, der in ein neutrales `ImportedHost`-Zwischenformat schreibt. Danach läuft für alle derselbe Weg — Vorschau mit Checkboxen, Duplikaterkennung über `address:port`, Zuordnung zu Gruppen, und erst dann der Schreibvorgang. Neue Quellen kosten dann nur noch einen Adapter.
 
@@ -312,12 +316,12 @@ Hier entsteht der Abstand zu Termius:
 
 Kein zweites Designsystem. Die Tokens aus `apps/desktop/src/styles/tokens.css` von UwUMail werden 1:1 übernommen, inklusive Namensschema `--uwu-*`:
 
-| Token | Hell | Dunkel |
-|---|---|---|
-| `--uwu-canvas` | `#f8f4f6` | `#141016` |
-| `--uwu-surface` | `#ffffff` | `#1c171f` |
-| `--uwu-ink` | `#1c1420` | `#f8f2f6` |
-| `--uwu-pink` | `#ff4d8d` | `#ff7fac` |
+| Token              | Hell      | Dunkel    |
+| ------------------ | --------- | --------- |
+| `--uwu-canvas`     | `#f8f4f6` | `#141016` |
+| `--uwu-surface`    | `#ffffff` | `#1c171f` |
+| `--uwu-ink`        | `#1c1420` | `#f8f2f6` |
+| `--uwu-pink`       | `#ff4d8d` | `#ff7fac` |
 | `--uwu-pink-solid` | `#e11d74` | `#ff7fac` |
 
 Zwei Pinks aus demselben Grund wie bei UwUMail: weißer Text auf `#ff4d8d` schafft nur 3,1:1, gefüllte Buttons brauchen deshalb `#e11d74`.
@@ -335,16 +339,16 @@ Quellen in `brand/` (Icon, Symbol, Mono-Symbol) und `apps/desktop/src/components
 
 **Szenen** (`NyuScene`, 320 × 220) für die Leerzustände, die es in einem SSH-Client gibt:
 
-| Szene | Wann |
-|---|---|
-| Willkommen | Erststart, noch kein Host |
-| Import geschafft | Nach PuTTY/KiTTY/Termius-Import, mit Anzahl |
-| Vault schläft | Vault gesperrt — Nyu schläft auf dem Schlüssel |
-| Nichts gefunden | Suche ohne Treffer |
-| Verbindung weg | Reconnect-Banner, Nyu wartet mit Kabel |
-| Alles offline | Kein Host erreichbar |
-| Tunnel läuft | Port-Forward-Panel ohne aktive Weiterleitung |
-| Ordner leer | Leerer SFTP-Ordner |
+| Szene            | Wann                                           |
+| ---------------- | ---------------------------------------------- |
+| Willkommen       | Erststart, noch kein Host                      |
+| Import geschafft | Nach PuTTY/KiTTY/Termius-Import, mit Anzahl    |
+| Vault schläft    | Vault gesperrt — Nyu schläft auf dem Schlüssel |
+| Nichts gefunden  | Suche ohne Treffer                             |
+| Verbindung weg   | Reconnect-Banner, Nyu wartet mit Kabel         |
+| Alles offline    | Kein Host erreichbar                           |
+| Tunnel läuft     | Port-Forward-Panel ohne aktive Weiterleitung   |
+| Ordner leer      | Leerer SFTP-Ordner                             |
 
 **Bewegung:** Nyu blinzelt in Szenen, zuckt bei Hover mit den Ohren, und der Cursor auf ihrem Bildschirm blinkt im Terminal-Takt. Einstellungen → Darstellung → Animationen (System / An / Aus) löst wie bei UwUMail nach `<html data-motion="full|reduced">` auf; bei `reduced` steht Nyu still.
 
@@ -352,13 +356,13 @@ Quellen in `brand/` (Icon, Symbol, Mono-Symbol) und `apps/desktop/src/components
 
 Verspielt als Default, **Einstellungen → Tonfall → Neutral** tauscht die Worte, nie Layout oder Farben. Strings liegen in `locales/<lang>/neutral.json` und `playful.json`, wie bei UwUMail.
 
-| Situation | Neutral | Verspielt |
-|---|---|---|
-| Kein Host | Noch keine Hosts | Ganz schön leer hier (・_・;) Lass uns deine PuTTY-Sessions holen |
-| Verbunden | Verbunden mit prox-1 | Drin! ✨ |
-| Import fertig | 47 Hosts importiert | 47 Hosts eingesammelt (๑˃ᴗ˂)ﻭ |
-| Verbindung verloren | Verbindung getrennt. Neuer Versuch in 5 s | Ups, weg (╥﹏╥) Ich probier's in 5 s nochmal |
-| Vault gesperrt | Vault gesperrt | Nyu passt auf deine Schlüssel auf ᶻ 𝗓 𐰁 |
+| Situation           | Neutral                                   | Verspielt                                                         |
+| ------------------- | ----------------------------------------- | ----------------------------------------------------------------- |
+| Kein Host           | Noch keine Hosts                          | Ganz schön leer hier (・_・;) Lass uns deine PuTTY-Sessions holen |
+| Verbunden           | Verbunden mit prox-1                      | Drin! ✨                                                          |
+| Import fertig       | 47 Hosts importiert                       | 47 Hosts eingesammelt (๑˃ᴗ˂)ﻭ                                     |
+| Verbindung verloren | Verbindung getrennt. Neuer Versuch in 5 s | Ups, weg (╥﹏╥) Ich probier's in 5 s nochmal                      |
+| Vault gesperrt      | Vault gesperrt                            | Nyu passt auf deine Schlüssel auf ᶻ 𝗓 𐰁                           |
 
 **Die eine harte Ausnahme: Sicherheitswarnungen sind nie verspielt.** Geänderter Host-Key, fehlgeschlagene Vault-Entsperrung, Zustimmung zu Agent-Forwarding — dort verschwinden Kaomoji und Nyu vollständig, in beiden Tonfällen. Ein `(╥﹏╥)` neben einer möglichen Man-in-the-Middle-Warnung macht genau das kaputt, was die Warnung leisten soll. Gleiches gilt weiterhin für Buttons, die auf Daten wirken: `Löschen` bleibt `Löschen`.
 
@@ -381,13 +385,13 @@ Drei Schritte, nicht mehr: **Vault anlegen → "Nur lokal" oder Server verbinden
 
 ### Threat Model — was bekommt ein Angreifer?
 
-| Szenario | Bekommt | Bekommt **nicht** |
-|---|---|---|
-| **Sync-Server kompromittiert** | Chiffrat-Blobs, Anzahl Records, Änderungszeiten, Geräte-IDs | Hostnamen, Adressen, Keys, Passwörter, Snippet-Inhalte |
-| **Netzwerk-MITM** | Nichts über TLS hinaus; Blobs sind zusätzlich Ende-zu-Ende verschlüsselt | — |
-| **Gerät gestohlen, Vault gesperrt** | SQLite-Datei mit Chiffrat | Klartext — Argon2id (64 MiB) macht Brute-Force teuer |
-| **Gerät gestohlen, Vault entsperrt** | Alles | — *(deshalb Auto-Lock als Default)* |
-| **XSS in der WebView** | Terminal-Bytes, Metadaten, kann Sessions stören | Private Keys, Passwörter — die liegen im Rust-Core |
+| Szenario                             | Bekommt                                                                  | Bekommt **nicht**                                      |
+| ------------------------------------ | ------------------------------------------------------------------------ | ------------------------------------------------------ |
+| **Sync-Server kompromittiert**       | Chiffrat-Blobs, Anzahl Records, Änderungszeiten, Geräte-IDs              | Hostnamen, Adressen, Keys, Passwörter, Snippet-Inhalte |
+| **Netzwerk-MITM**                    | Nichts über TLS hinaus; Blobs sind zusätzlich Ende-zu-Ende verschlüsselt | —                                                      |
+| **Gerät gestohlen, Vault gesperrt**  | SQLite-Datei mit Chiffrat                                                | Klartext — Argon2id (64 MiB) macht Brute-Force teuer   |
+| **Gerät gestohlen, Vault entsperrt** | Alles                                                                    | — _(deshalb Auto-Lock als Default)_                    |
+| **XSS in der WebView**               | Terminal-Bytes, Metadaten, kann Sessions stören                          | Private Keys, Passwörter — die liegen im Rust-Core     |
 
 Die ehrliche Zeile ist die vierte: Gegen ein entsperrtes, entwendetes Gerät hilft Krypto nicht. Deshalb ist der Auto-Lock keine Komforteinstellung, sondern die eigentliche Verteidigung.
 
@@ -395,15 +399,15 @@ Die ehrliche Zeile ist die vierte: Gegen ein entsperrtes, entwendetes Gerät hil
 
 ## 11. Roadmap
 
-| Meilenstein | Inhalt | Grob |
-|---|---|---|
-| **M0 · Fundament** | Tauri-Shell, xterm.js, `russh` connect, Passwort+Key-Auth, SQLite-Schema, Host-Liste. **Zuerst: Durchsatz messen.** | 2–3 Wochen |
-| **M1 · Daily Driver** | Tabs/Splits, `known_hosts`, Agent, ProxyJump, Snippets, Themes, **Import aus PuTTY, KiTTY, `ssh_config` und Termius**, erste Nyu-Szenen | 3–4 Wochen |
-| **M2 · Vault & Sync** | Vault-Krypto, Server v1, Device-Pairing, Konfliktauflösung, Recovery Kit | 4–5 Wochen |
-| **M3 · SFTP & Tunnel** | SFTP-Browser, Port-Forward-Manager, Remote-Edit | 3 Wochen |
-| **M4 · Politur** | Updater, Portable-Build, Linux/macOS, Onboarding, Accessibility | 2–3 Wochen |
-| **M5 · Homelab** | Tailscale-, Proxmox-, Netbox-Import, lokale Shells, Recording | offen |
-| **M6 · Mobil & Teams** | iOS/Android, Shared Vaults | offen |
+| Meilenstein            | Inhalt                                                                                                                                  | Grob       |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| **M0 · Fundament**     | Tauri-Shell, xterm.js, `russh` connect, Passwort+Key-Auth, SQLite-Schema, Host-Liste. **Zuerst: Durchsatz messen.**                     | 2–3 Wochen |
+| **M1 · Daily Driver**  | Tabs/Splits, `known_hosts`, Agent, ProxyJump, Snippets, Themes, **Import aus PuTTY, KiTTY, `ssh_config` und Termius**, erste Nyu-Szenen | 3–4 Wochen |
+| **M2 · Vault & Sync**  | Vault-Krypto, Server v1, Device-Pairing, Konfliktauflösung, Recovery Kit                                                                | 4–5 Wochen |
+| **M3 · SFTP & Tunnel** | SFTP-Browser, Port-Forward-Manager, Remote-Edit                                                                                         | 3 Wochen   |
+| **M4 · Politur**       | Updater, Portable-Build, Linux/macOS, Onboarding, Accessibility                                                                         | 2–3 Wochen |
+| **M5 · Homelab**       | Tailscale-, Proxmox-, Netbox-Import, lokale Shells, Recording                                                                           | offen      |
+| **M6 · Mobil & Teams** | iOS/Android, Shared Vaults                                                                                                              | offen      |
 
 **Die Risikoreihenfolge ist Absicht:** M0 klärt zuerst die einzige Frage, die das ganze Konzept kippen könnte — ob die IPC-Grenze den Terminal-Durchsatz trägt. Krypto und Sync kommen erst, wenn das steht.
 
@@ -413,11 +417,11 @@ Die ehrliche Zeile ist die vierte: Gegen ein entsperrtes, entwendetes Gerät hil
 
 Gleiche Aufteilung wie bei UwUMail — drei Repos, GPL-3.0:
 
-| Repo | Inhalt | Status |
-|---|---|---|
-| **UwUSSH-Client** | Die App: React-UI, Rust-Engine, Brand, Docs | angelegt |
-| **UwUSSH-Server** | Der Sync-Server (Axum, Docker) | kommt mit M2 |
-| **UwUSSH-Releases** | Downloads und Update-Feed | kommt mit M4 |
+| Repo                | Inhalt                                      | Status       |
+| ------------------- | ------------------------------------------- | ------------ |
+| **UwUSSH-Client**   | Die App: React-UI, Rust-Engine, Brand, Docs | angelegt     |
+| **UwUSSH-Server**   | Der Sync-Server (Axum, Docker)              | kommt mit M2 |
+| **UwUSSH-Releases** | Downloads und Update-Feed                   | kommt mit M4 |
 
 ```
 UwUSSH-Client/

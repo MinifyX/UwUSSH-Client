@@ -1,0 +1,25 @@
+[package]
+name = "uwussh-core"
+description = "Session engine for UwUSSH: PTY and SSH sessions, framing, port forwarding"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+uwussh-proto.workspace = true
+
+anyhow.workspace = true
+parking_lot.workspace = true
+portable-pty.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+
+# Not here yet, on purpose — see the note in the workspace Cargo.toml.
+# The M0 throughput spike runs against a local PTY, which pushes far more
+# bytes per second than an SSH session ever will. SSH lands in M1:
+#   cargo add russh russh-keys russh-sftp

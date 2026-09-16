@@ -1,0 +1,19 @@
+[package]
+name = "uwussh-import"
+description = "Importers for PuTTY, KiTTY, OpenSSH config, Termius and friends"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+# Reading PuTTY and KiTTY sessions out of the registry needs one platform crate.
+# The *mapping* — which is where all the real work and all the edge cases are —
+# is already implemented and tested here against plain key/value maps, so this
+# is glue rather than logic:
+#   cargo add winreg --target cfg(windows)

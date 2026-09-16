@@ -9,18 +9,18 @@ bubblegum pink. The terminal is the one place that stays a terminal.
 Tokens come from UwUMail unchanged, including the `--uwu-*` naming, and live in
 `apps/desktop/src/styles/tokens.css`. Components never use raw hex values.
 
-| Token | Light | Dark | Use |
-| --- | --- | --- | --- |
-| `--uwu-canvas` | `#f8f4f6` | `#141016` | App background |
-| `--uwu-surface` | `#ffffff` | `#1c171f` | Host tree, panels, cards |
-| `--uwu-elevated` | `#fcf8fa` | `#241e28` | Hover rows, popovers |
-| `--uwu-ink` | `#1c1420` | `#f8f2f6` | Primary text |
-| `--uwu-muted` | `#716672` | `#b3a8b3` | Secondary text |
-| `--uwu-hairline` | `#f2e8ee` | `#2c2430` | Dividers |
-| `--uwu-border` | `#e9dde4` | `#3a3040` | Control borders |
-| `--uwu-pink` | `#ff4d8d` | `#ff7fac` | **Brand.** Status dots, selection, focus, logo |
-| `--uwu-pink-solid` | `#e11d74` | `#ff7fac` | Filled buttons with text |
-| `--uwu-pink-tint` | `#ffe4ef` | `#3a1a2a` | Selected host, active row |
+| Token              | Light     | Dark      | Use                                            |
+| ------------------ | --------- | --------- | ---------------------------------------------- |
+| `--uwu-canvas`     | `#f8f4f6` | `#141016` | App background                                 |
+| `--uwu-surface`    | `#ffffff` | `#1c171f` | Host tree, panels, cards                       |
+| `--uwu-elevated`   | `#fcf8fa` | `#241e28` | Hover rows, popovers                           |
+| `--uwu-ink`        | `#1c1420` | `#f8f2f6` | Primary text                                   |
+| `--uwu-muted`      | `#716672` | `#b3a8b3` | Secondary text                                 |
+| `--uwu-hairline`   | `#f2e8ee` | `#2c2430` | Dividers                                       |
+| `--uwu-border`     | `#e9dde4` | `#3a3040` | Control borders                                |
+| `--uwu-pink`       | `#ff4d8d` | `#ff7fac` | **Brand.** Status dots, selection, focus, logo |
+| `--uwu-pink-solid` | `#e11d74` | `#ff7fac` | Filled buttons with text                       |
+| `--uwu-pink-tint`  | `#ffe4ef` | `#3a1a2a` | Selected host, active row                      |
 
 **Why two pinks?** White text on `#ff4d8d` reaches only 3.1:1. Filled buttons
 therefore use `#e11d74` (4.5:1, WCAG AA). The brighter brand pink stays for
@@ -97,16 +97,16 @@ screen is the face: UwU eyes, `w` mouth, blush.
 **Scenes** (`NyuScene`, 320 × 220), for the empty states an SSH client actually
 has:
 
-| Scene | When |
-| --- | --- |
-| Welcome | First start, no hosts yet |
-| Import done | After a PuTTY/KiTTY/Termius import, with the count |
-| Vault asleep | Vault locked — Nyu naps on the key |
-| Nothing found | Search with no matches |
-| Connection lost | Reconnect banner, Nyu waiting with a cable |
-| All offline | No host reachable |
-| No tunnels | Port forwarding panel with nothing running |
-| Empty folder | Empty SFTP directory |
+| Scene           | When                                               |
+| --------------- | -------------------------------------------------- |
+| Welcome         | First start, no hosts yet                          |
+| Import done     | After a PuTTY/KiTTY/Termius import, with the count |
+| Vault asleep    | Vault locked — Nyu naps on the key                 |
+| Nothing found   | Search with no matches                             |
+| Connection lost | Reconnect banner, Nyu waiting with a cable         |
+| All offline     | No host reachable                                  |
+| No tunnels      | Port forwarding panel with nothing running         |
+| Empty folder    | Empty SFTP directory                               |
 
 **Motion.** Nyu blinks in scenes, twitches her ears on hover, and the cursor on
 her screen blinks at terminal rhythm. Settings → Appearance → Animations
@@ -123,13 +123,13 @@ Playful by default: kaomoji, warm little jokes, soft animation. Settings → Ton
 lives in `locales/<lang>/neutral.json`, with the playful variant under the same
 key in `playful.json`; missing playful keys fall back to neutral.
 
-| Situation | Neutral | Playful |
-| --- | --- | --- |
-| No hosts | No hosts yet | Pretty empty in here (・_・;) Let's go get your PuTTY sessions |
-| Connected | Connected to prox-1 | We're in! ✨ |
-| Import done | Imported 47 hosts | Collected 47 hosts (๑˃ᴗ˂)ﻭ |
-| Connection lost | Disconnected. Retrying in 5s | Whoops, gone (╥﹏╥) Trying again in 5s |
-| Vault locked | Vault locked | Nyu's watching your keys ᶻ 𝗓 𐰁 |
+| Situation       | Neutral                      | Playful                                                        |
+| --------------- | ---------------------------- | -------------------------------------------------------------- |
+| No hosts        | No hosts yet                 | Pretty empty in here (・_・;) Let's go get your PuTTY sessions |
+| Connected       | Connected to prox-1          | We're in! ✨                                                   |
+| Import done     | Imported 47 hosts            | Collected 47 hosts (๑˃ᴗ˂)ﻭ                                     |
+| Connection lost | Disconnected. Retrying in 5s | Whoops, gone (╥﹏╥) Trying again in 5s                         |
+| Vault locked    | Vault locked                 | Nyu's watching your keys ᶻ 𝗓 𐰁                                 |
 
 Rules for playful copy:
 
@@ -137,7 +137,7 @@ Rules for playful copy:
 2. **Short.** One kaomoji at most, never in buttons that act on data.
 3. **Kind.** Never mock the user; the app laughs at itself.
 4. **Security is never playful.** A changed host key, a failed vault unlock, a
-   request to forward your agent: no kaomoji, no Nyu, in *both* tones. A sad
+   request to forward your agent: no kaomoji, no Nyu, in _both_ tones. A sad
    face next to a possible man-in-the-middle warning destroys exactly what the
    warning is for.
 

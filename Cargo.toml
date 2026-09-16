@@ -1,0 +1,57 @@
+[workspace]
+resolver = "2"
+members = ["crates/*", "apps/desktop/src-tauri"]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+license = "GPL-3.0-only"
+repository = "https://github.com/MinifyX/UwUSSH-Client"
+rust-version = "1.77"
+
+[workspace.dependencies]
+uwussh-core = { path = "crates/uwussh-core" }
+uwussh-import = { path = "crates/uwussh-import" }
+uwussh-proto = { path = "crates/uwussh-proto" }
+uwussh-sync = { path = "crates/uwussh-sync" }
+uwussh-vault = { path = "crates/uwussh-vault" }
+
+anyhow = "1"
+parking_lot = "0.12"
+portable-pty = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
+tracing = "0.1"
+uuid = { version = "1", features = ["v4", "serde"] }
+
+argon2 = "0.5"
+chacha20poly1305 = "0.10"
+rand = "0.8"
+zeroize = { version = "1", features = ["derive"] }
+
+# Deliberately NOT pinned here yet — these move fast enough that a guessed
+# version would break the whole workspace build. Add them with `cargo add`
+# in the crate that needs them, when that crate's turn comes:
+#
+#   crates/uwussh-core    cargo add russh russh-keys russh-sftp
+#   crates/uwussh-core    cargo add rusqlite --features bundled
+#   crates/uwussh-sync    cargo add reqwest --features json,rustls-tls
+#   server                cargo add axum tower-http
+#
+# M0 does not need any of them: the throughput spike runs against a local PTY,
+# which saturates the IPC boundary harder than SSH ever will.
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

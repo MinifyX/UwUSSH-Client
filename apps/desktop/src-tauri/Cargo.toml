@@ -1,0 +1,28 @@
+[package]
+name = "uwussh-desktop"
+description = "UwUSSH desktop app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "uwussh_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+uwussh-core.workspace = true
+uwussh-import.workspace = true
+uwussh-proto.workspace = true
+uwussh-sync.workspace = true
+uwussh-vault.workspace = true
+
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "2", features = [] }
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

@@ -1,0 +1,21 @@
+{
+  "name": "uwussh",
+  "version": "0.0.1",
+  "private": true,
+  "license": "GPL-3.0-only",
+  "packageManager": "pnpm@11.0.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @uwussh/desktop dev",
+    "tauri": "pnpm --filter @uwussh/desktop tauri",
+    "build": "pnpm --filter @uwussh/desktop build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "prettier --check .",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3"
+  }
+}

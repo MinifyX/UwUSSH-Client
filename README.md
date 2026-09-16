@@ -58,10 +58,11 @@ can remember and more than one machine to reach them from.
   Settings → Tone → Neutral. Security warnings are never playful, in either
   tone.
 
-> **Status:** concept. There is no build yet — the
-> [concept](KONZEPT.md) (German) and the [docs](#documentation) describe what
-> I'm building before I build it. The [roadmap](docs/roadmap.md) shows the
-> order.
+> **Status:** milestone 0. The workspace is scaffolded and the app opens a local
+> shell, because M0 exists to answer one question before anything is built on
+> top of it: does the Rust→WebView boundary carry a real terminal? See
+> [the throughput spike](docs/m0-spike.md). No SSH yet — that is M1, and the
+> [roadmap](docs/roadmap.md) shows the order.
 
 ## The sync server
 
@@ -72,11 +73,11 @@ One Rust binary, one Docker image, one SQLite file:
 services:
   uwussh:
     image: ghcr.io/minifyx/uwussh-server:latest
-    ports: ["8080:8080"]
-    volumes: ["./data:/data"]
+    ports: ['8080:8080']
+    volumes: ['./data:/data']
     environment:
       UWUSSH_DB: /data/uwussh.db
-      UWUSSH_REGISTRATION: invite   # open | invite | closed
+      UWUSSH_REGISTRATION: invite # open | invite | closed
 ```
 
 TLS is your reverse proxy's job. Backup is copying one file. And if you'd
@@ -85,16 +86,16 @@ downgrade.
 
 ## Project layout
 
-| Path | What lives there |
-| --- | --- |
-| `apps/desktop` | The Tauri 2 app (React UI + Rust shell) |
-| `crates/uwussh-core` | Session engine: SSH, PTY, port forwarding, SFTP |
-| `crates/uwussh-vault` | Key derivation, record encryption, OS keychain, recovery |
-| `crates/uwussh-sync` | Sync client: clocks, outbox, merging |
-| `crates/uwussh-import` | PuTTY, KiTTY, `ssh_config`, Termius, PPK parsing |
-| `crates/uwussh-proto` | Shared types between client and server |
-| `brand/` | Nyu: app icon, symbol, mono symbol |
-| `docs/` | Vision, architecture, design, roadmap |
+| Path                   | What lives there                                         |
+| ---------------------- | -------------------------------------------------------- |
+| `apps/desktop`         | The Tauri 2 app (React UI + Rust shell)                  |
+| `crates/uwussh-core`   | Session engine: SSH, PTY, port forwarding, SFTP          |
+| `crates/uwussh-vault`  | Key derivation, record encryption, OS keychain, recovery |
+| `crates/uwussh-sync`   | Sync client: clocks, outbox, merging                     |
+| `crates/uwussh-import` | PuTTY, KiTTY, `ssh_config`, Termius, PPK parsing         |
+| `crates/uwussh-proto`  | Shared types between client and server                   |
+| `brand/`               | Nyu: app icon, symbol, mono symbol                       |
+| `docs/`                | Vision, architecture, design, roadmap                    |
 
 ## Development
 
@@ -124,6 +125,7 @@ cargo fmt --check && cargo clippy --all-targets && cargo test
 - [Konzept](KONZEPT.md) — the full concept, in German
 - [Vision](docs/vision.md) — what I want UwUSSH to be and what it will never do
 - [Architecture](docs/architecture.md) — how the pieces fit together
+- [M0 spike](docs/m0-spike.md) — the throughput measurement everything else waits on
 - [Design](docs/design.md) — colors, type, Nyu, tone of voice
 - [Roadmap](docs/roadmap.md) — my wish list, without dates
 
