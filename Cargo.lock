@@ -5419,6 +5419,8 @@ dependencies = [
  "tracing",
  "uuid",
  "uwussh-proto",
+ "uwussh-vault",
+ "zeroize",
 ]
 
 [[package]]

@@ -9,6 +9,7 @@ rust-version.workspace = true
 
 [dependencies]
 uwussh-proto.workspace = true
+uwussh-vault.workspace = true
 
 parking_lot.workspace = true
 rand.workspace = true
@@ -17,3 +18,4 @@ serde.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 uuid.workspace = true
+zeroize.workspace = true

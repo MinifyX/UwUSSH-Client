@@ -11,12 +11,18 @@
 //! path rather than copied in.
 
 pub mod hosts;
+pub mod import;
 pub mod known_hosts;
 mod schema;
+pub mod vault;
 
 pub use hosts::{AuthMethod, HostDraft, HostRecord};
+pub use import::{
+    HostInput, IdentityInput, ImportOutcome, ImportSet, KeyInput, KnownHostInput, SnippetInput,
+};
 pub use known_hosts::KnownHostRecord;
 pub use schema::SCHEMA_VERSION;
+pub use vault::{Revealed, VaultStatus};
 
 use parking_lot::Mutex;
 use rusqlite::{params, Connection, Transaction};
@@ -24,6 +30,7 @@ use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 use uwussh_proto::Hlc;
+use uwussh_vault::UnlockedVault;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -44,6 +51,14 @@ pub enum StoreError {
         "this database was written by a newer UwUSSH (schema {found}, this build knows {known})"
     )]
     SchemaTooNew { found: i64, known: i64 },
+    #[error("the vault is locked")]
+    VaultLocked,
+    #[error("the vault already exists")]
+    VaultExists,
+    #[error("no vault has been created yet")]
+    NoVault,
+    #[error(transparent)]
+    Vault(#[from] uwussh_vault::VaultError),
 }
 
 pub type Result<T> = std::result::Result<T, StoreError>;
@@ -53,6 +68,9 @@ pub struct Store {
     // lock is simpler than a pool and never the bottleneck of an SSH client.
     conn: Mutex<Connection>,
     device: u32,
+    // The vault key, once unlocked, lives here and nowhere on disk. Dropping
+    // the store — or calling `lock_vault` — wipes it.
+    vault: Mutex<Option<UnlockedVault>>,
 }
 
 impl Store {
@@ -81,6 +99,7 @@ impl Store {
         Ok(Self {
             conn: Mutex::new(conn),
             device,
+            vault: Mutex::new(None),
         })
     }
 

@@ -7,7 +7,7 @@ use crate::{Result, StoreError};
 use rusqlite::{params, Connection};
 use uuid::Uuid;
 
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 
 /// The sync header (`id`, `vault_id`, clock, `rev`, `deleted`) is on every
 /// syncable table from the start; see the crate docs for why.
@@ -74,6 +74,70 @@ CREATE TABLE known_hosts (
 );
 "#;
 
+/// Secrets, keys and snippets, plus the vault that seals them. V2 is where
+/// UwUSSH first keeps anything secret — everything before it referenced keys
+/// by path and asked for passwords every time.
+const V2: &str = r#"
+CREATE TABLE vault (
+    id                  INTEGER PRIMARY KEY CHECK (id = 1),
+    vault_id            TEXT    NOT NULL,
+    kdf_memory_kib      INTEGER NOT NULL,
+    kdf_time_cost       INTEGER NOT NULL,
+    kdf_parallelism     INTEGER NOT NULL,
+    salt                BLOB    NOT NULL,
+    wrapped_nonce       BLOB    NOT NULL,
+    wrapped_blob        BLOB    NOT NULL
+);
+
+-- One sealed value: a password, a private key or a passphrase. The plaintext
+-- is only ever XChaCha20-Poly1305 ciphertext here; the vault key that opens it
+-- never touches the database.
+CREATE TABLE secrets (
+    id                  TEXT    PRIMARY KEY,
+    vault_id            TEXT    NOT NULL,
+    nonce               BLOB    NOT NULL,
+    blob                BLOB    NOT NULL,
+    hlc_wall_ms         INTEGER NOT NULL,
+    hlc_counter         INTEGER NOT NULL,
+    hlc_device          INTEGER NOT NULL,
+    rev                 INTEGER NOT NULL DEFAULT 1,
+    deleted             INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE keys (
+    id                      TEXT    PRIMARY KEY,
+    vault_id                TEXT    NOT NULL,
+    label                   TEXT    NOT NULL,
+    key_type                TEXT    NOT NULL,
+    public_key              TEXT    NOT NULL DEFAULT '',
+    private_secret_id       TEXT    REFERENCES secrets (id),
+    passphrase_secret_id    TEXT    REFERENCES secrets (id),
+    hlc_wall_ms             INTEGER NOT NULL,
+    hlc_counter             INTEGER NOT NULL,
+    hlc_device              INTEGER NOT NULL,
+    rev                     INTEGER NOT NULL DEFAULT 1,
+    deleted                 INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE snippets (
+    id                  TEXT    PRIMARY KEY,
+    vault_id            TEXT    NOT NULL,
+    label               TEXT    NOT NULL,
+    body                TEXT    NOT NULL,
+    group_path          TEXT,
+    hlc_wall_ms         INTEGER NOT NULL,
+    hlc_counter         INTEGER NOT NULL,
+    hlc_device          INTEGER NOT NULL,
+    rev                 INTEGER NOT NULL DEFAULT 1,
+    deleted             INTEGER NOT NULL DEFAULT 0
+);
+
+-- An identity can now carry a stored password and point at a key in the vault,
+-- next to the file-path key it already had.
+ALTER TABLE identities ADD COLUMN password_secret_id TEXT REFERENCES secrets (id);
+ALTER TABLE identities ADD COLUMN key_id TEXT REFERENCES keys (id);
+"#;
+
 pub fn migrate(conn: &mut Connection) -> Result<()> {
     let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
 
@@ -98,6 +162,14 @@ pub fn migrate(conn: &mut Connection) -> Result<()> {
         tracing::info!("store created at schema 1");
     }
 
+    if version < 2 {
+        let tx = conn.transaction()?;
+        tx.execute_batch(V2)?;
+        tx.pragma_update(None, "user_version", 2)?;
+        tx.commit()?;
+        tracing::info!("store migrated to schema 2");
+    }
+
     Ok(())
 }
 
@@ -114,6 +186,44 @@ mod tests {
             .query_row("SELECT count(*) FROM meta", [], |r| r.get(0))
             .unwrap();
         assert_eq!(rows, 1);
+    }
+
+    #[test]
+    fn a_v1_database_upgrades_to_v2_without_losing_its_hosts() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        // Bring it up as a V1 database would have been.
+        conn.execute_batch(V1).unwrap();
+        conn.execute(
+            "INSERT INTO meta (id, device_id, vault_id) VALUES (1, 1, ?1)",
+            [Uuid::now_v7().to_string()],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO hosts (id, vault_id, name, address, port,
+                                hlc_wall_ms, hlc_counter, hlc_device)
+             VALUES (?1, ?2, 'nas', 'nas.lan', 22, 0, 0, 1)",
+            [Uuid::now_v7().to_string(), Uuid::now_v7().to_string()],
+        )
+        .unwrap();
+        conn.pragma_update(None, "user_version", 1).unwrap();
+
+        migrate(&mut conn).unwrap();
+
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        let hosts: i64 = conn
+            .query_row("SELECT count(*) FROM hosts", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(hosts, 1, "the existing host survived the migration");
+        // The V2 tables and columns exist now.
+        conn.query_row("SELECT count(*) FROM secrets", [], |r| r.get::<_, i64>(0))
+            .unwrap();
+        conn.query_row("SELECT count(key_id) FROM identities", [], |r| {
+            r.get::<_, i64>(0)
+        })
+        .unwrap();
     }
 
     #[test]
