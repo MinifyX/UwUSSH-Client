@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="UwUSSH app icon: Nyu the terminal cat with a key">
+  <title>UwUSSH</title>
+
+  <rect width="512" height="512" rx="112" fill="#FFE4EF"/>
+
+  <!-- sparkles -->
+  <g fill="#FFD66E">
+    <path d="M0-18 Q4-4 18 0 Q4 4 0 18 Q-4 4 -18 0 Q-4-4 0-18 Z" transform="translate(100 142) scale(1.25)"/>
+    <path d="M0-18 Q4-4 18 0 Q4 4 0 18 Q-4 4 -18 0 Q-4-4 0-18 Z" transform="translate(424 196) scale(0.9)"/>
+  </g>
+
+  <!-- Nyu -->
+  <g transform="translate(252 250) rotate(-6) scale(1.5) translate(-128 -128)">
+    <g fill="#FFFFFF" stroke="#FFFFFF" stroke-width="20" stroke-linejoin="round" stroke-linecap="round">
+      <path d="M62 88 L80 36 L114 88 Z"/>
+      <path d="M142 88 L176 36 L194 88 Z"/>
+      <rect x="28" y="74" width="200" height="146" rx="24"/>
+    </g>
+    <g stroke="#4B1D3F" stroke-width="9" stroke-linejoin="round">
+      <path d="M62 88 L80 36 L114 88 Z" fill="#FF6FA6"/>
+      <path d="M142 88 L176 36 L194 88 Z" fill="#FF6FA6"/>
+    </g>
+    <path d="M76 82 L84 52 L100 82 Z" fill="#FFB8D3"/>
+    <path d="M156 82 L172 52 L180 82 Z" fill="#FFB8D3"/>
+    <rect x="28" y="74" width="200" height="146" rx="24" fill="#FF6FA6" stroke="#4B1D3F" stroke-width="9"/>
+    <circle cx="52" cy="98" r="5.5" fill="#FFB8D3"/>
+    <circle cx="70" cy="98" r="5.5" fill="#FFB8D3"/>
+    <circle cx="88" cy="98" r="5.5" fill="#FFB8D3"/>
+    <rect x="44" y="116" width="168" height="88" rx="16" fill="#FFB8D3" stroke="#4B1D3F" stroke-width="7"/>
+    <ellipse cx="74" cy="168" rx="12" ry="7.5" fill="#FF4D8D" opacity="0.5"/>
+    <ellipse cx="182" cy="168" rx="12" ry="7.5" fill="#FF4D8D" opacity="0.5"/>
+    <g fill="none" stroke="#4B1D3F" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M88 142 Q102 160 116 142"/>
+      <path d="M140 142 Q154 160 168 142"/>
+      <path d="M112 170 L120 182 L128 170 L136 182 L144 170"/>
+    </g>
+  </g>
+
+  <!-- the key Nyu guards -->
+  <g transform="translate(394 374) rotate(22) scale(1.12)">
+    <g fill="none" stroke="#FFFFFF" stroke-width="26" stroke-linecap="round">
+      <circle cx="0" cy="-14" r="20"/>
+      <path d="M0 6 L0 58"/>
+      <path d="M0 36 L20 36"/>
+      <path d="M0 52 L15 52"/>
+    </g>
+    <circle cx="0" cy="-14" r="20" fill="#C9B6F0" stroke="#4B1D3F" stroke-width="9"/>
+    <circle cx="0" cy="-14" r="7" fill="#FFE4EF"/>
+    <g fill="none" stroke="#4B1D3F" stroke-width="9" stroke-linecap="round">
+      <path d="M0 6 L0 58"/>
+      <path d="M0 36 L20 36"/>
+      <path d="M0 52 L15 52"/>
+    </g>
+  </g>
+</svg>
