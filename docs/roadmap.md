@@ -38,8 +38,11 @@ The point where I can stop using anything else.
 - Tabs and splits, agent auth (Pageant, `\\.\pipe\openssh-ssh-agent`,
   1Password), ProxyJump chains
 - Snippets, broadcast input, themes, the command palette
-- Connecting with a key that lives in the vault (imported keys land there now,
-  but the connect path still reads keys from a file)
+- **Connecting with vault credentials is done.** An imported host logs in with
+  the password or key sealed in the vault — key material passed to the engine in
+  memory, no file on disk — and when the vault is locked the app asks for the
+  master password and reconnects. The host key is still checked before any
+  secret is sent.
 - First Nyu scenes and the playful/neutral string split
 
 ## M2 · Vault and sync

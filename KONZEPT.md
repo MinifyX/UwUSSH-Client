@@ -479,4 +479,6 @@ Ein Ende-zu-Ende-Lauf (`node apps/desktop/e2e/run.mjs`) klickt die echte App geg
 
 ~~Import aus Termius~~ — **erledigt.** Termius hat keinen Export mehr, also liest UwUSSH die lokale Electron-Datenbank direkt: Hosts, Gruppen, Anmeldungen, Keys samt Passphrase, die schon vertrauten Host-Keys und Snippets. Die Secrets landen im Vault, dessen lokale Krypto dafür aus M2 vorgezogen wurde (Master-Passwort → Argon2id → umschlossener Vault-Key, XChaCha20-Poly1305 pro Record). Beim ersten echten Lauf: 14 Hosts, 16 Anmeldungen, 2 Keys, 138 Host-Keys, nichts Lesbares übersprungen. Details in [`docs/architecture.md`](docs/architecture.md#termius-which-has-no-export). Der Ende-zu-Ende-Lauf öffnet den Import-Dialog und prüft, dass er zuerst nach dem Vault fragt, bevor irgendetwas geschrieben wird.
 
-Als Nächstes im Rest von **M1**: PuTTY-/KiTTY-/`ssh_config`-Import (die Zuordnung steht und ist getestet, es fehlt der Registry-Leser), Verbinden mit Keys aus dem Vault, Tabs und Splits, Agent-Login, ProxyJump.
+~~Verbinden mit Keys aus dem Vault~~ — **erledigt.** Ein importierter Host meldet sich mit dem Passwort oder Key aus dem Vault an; Key-Material geht als Bytes an die Engine, keine Datei auf der Platte. Der Host-Key wird weiterhin zuerst geprüft, bevor ein Secret gesendet wird. Ist der Vault gesperrt, fragt die App nach dem Master-Passwort und verbindet neu.
+
+Als Nächstes im Rest von **M1**: PuTTY-/KiTTY-/`ssh_config`-Import (die Zuordnung steht und ist getestet, es fehlt der Registry-Leser), Tabs und Splits, Agent-Login, ProxyJump.

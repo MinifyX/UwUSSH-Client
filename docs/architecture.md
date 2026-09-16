@@ -222,6 +222,16 @@ server actually presented in the last attempt, so a compromised webview cannot
 hand in a key of its own choosing. Replacing a key that was already trusted
 additionally needs the address typed out.
 
+Where the login comes from is the host's identity, resolved just before
+connecting: a password to ask for, a key file on disk, or a password or key
+sealed in the vault (what an import produces). A vault secret is revealed
+locally, in memory, right before the connection — the engine still verifies the
+host key before it authenticates, so a revealed secret is never sent to an
+unverified server, and key material reaches the engine as bytes rather than a
+file path. If the host needs a vault secret and the vault is locked, connecting
+stops with `vault-locked`, and the app asks for the master password and
+reconnects.
+
 ## Storage
 
 `crates/uwussh-store` keeps hosts, identities and trusted host keys in one
