@@ -160,6 +160,7 @@ export type ConnectFailure =
   | { kind: 'auth-rejected'; remaining: string[] }
   | { kind: 'session-refused'; reason: string }
   | { kind: 'protocol'; reason: string }
+  | { kind: 'vault-locked' }
   | { kind: 'internal'; message: string };
 
 export function asConnectFailure(error: unknown): ConnectFailure {

@@ -10,12 +10,14 @@
 //! every connect and never written anywhere, and keys are referenced by file
 //! path rather than copied in.
 
+pub mod credentials;
 pub mod hosts;
 pub mod import;
 pub mod known_hosts;
 mod schema;
 pub mod vault;
 
+pub use credentials::{CredentialSource, RevealedKey};
 pub use hosts::{AuthMethod, HostDraft, HostRecord};
 pub use import::{
     HostInput, IdentityInput, ImportOutcome, ImportSet, KeyInput, KnownHostInput, SnippetInput,

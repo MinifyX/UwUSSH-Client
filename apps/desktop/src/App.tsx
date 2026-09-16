@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { HostKeyChanged, SecretPrompt, TrustHostKey } from './components/ConnectDialogs';
+import {
+  HostKeyChanged,
+  SecretPrompt,
+  TrustHostKey,
+  UnlockVault,
+} from './components/ConnectDialogs';
 import { HostForm } from './components/HostForm';
 import { HostList } from './components/HostList';
 import { ImportDialog } from './components/ImportDialog';
@@ -17,6 +22,7 @@ import {
   m0Finish,
   spawnShellSession,
   trustHostKey,
+  unlockVault,
   type ConnectFailure,
   type HostRecord,
   type ObservedHostKey,
@@ -43,7 +49,8 @@ type Dialog =
       trustedFingerprint: string;
       observed: ObservedHostKey;
       resolve: (confirmation: string | null) => void;
-    };
+    }
+  | { kind: 'unlock'; host: HostRecord; retry: boolean; resolve: (value: string | null) => void };
 
 type Notice = { tone: 'info' | 'error'; text: string; action?: { label: string; run: () => void } };
 
@@ -215,6 +222,28 @@ export function App() {
                   failure.observed.fingerprint,
                   confirmation,
                 );
+                continue;
+              }
+              case 'vault-locked': {
+                // Unlock, retrying inside the prompt on a wrong master
+                // password, then connect again — no wasted round trip.
+                let unlocked = false;
+                let wrong = false;
+                while (!unlocked) {
+                  const password = await ask<string | null>((resolve) => ({
+                    kind: 'unlock',
+                    host,
+                    retry: wrong,
+                    resolve,
+                  }));
+                  if (password === null) return;
+                  try {
+                    await unlockVault(password);
+                    unlocked = true;
+                  } catch {
+                    wrong = true;
+                  }
+                }
                 continue;
               }
               case 'password-required':
@@ -464,6 +493,14 @@ export function App() {
           trustedFingerprint={dialog.trustedFingerprint}
           observed={dialog.observed}
           onReplace={(confirmation) => dialog.resolve(confirmation)}
+          onCancel={() => dialog.resolve(null)}
+        />
+      )}
+      {dialog?.kind === 'unlock' && (
+        <UnlockVault
+          host={dialog.host}
+          retry={dialog.retry}
+          onSubmit={(value) => dialog.resolve(value)}
           onCancel={() => dialog.resolve(null)}
         />
       )}

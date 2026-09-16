@@ -90,6 +90,68 @@ export function SecretPrompt({ host, secret, retry, onSubmit, onCancel }: Secret
   );
 }
 
+// ── Vault ─────────────────────────────────────────────────────────────────
+
+type UnlockVaultProps = {
+  host: HostRecord;
+  /** The previous master password was wrong. */
+  retry: boolean;
+  onSubmit: (value: string) => void;
+  onCancel: () => void;
+};
+
+/**
+ * The host logs in with a secret from the vault, and the vault is locked. Ask
+ * for the master password so the connection can go on. Neutral tone, like the
+ * other security dialogs.
+ */
+export function UnlockVault({ host, retry, onSubmit, onCancel }: UnlockVaultProps) {
+  const [value, setValue] = useState('');
+
+  const submit = (event?: FormEvent) => {
+    event?.preventDefault();
+    const entered = value;
+    setValue('');
+    onSubmit(entered);
+  };
+
+  return (
+    <Modal
+      title="Tresor entsperren"
+      onCancel={onCancel}
+      footer={
+        <>
+          <span className="spacer" />
+          <button data-secondary onClick={onCancel}>
+            Abbrechen
+          </button>
+          <button className="primary" onClick={() => submit()}>
+            Entsperren
+          </button>
+        </>
+      }
+    >
+      <form className="form" onSubmit={submit}>
+        <p className="dialog-lead">
+          Die Anmeldedaten für <code>{host.name}</code> liegen im Tresor.
+        </p>
+        <label className="field">
+          <span className="sr-only">Master-Passwort</span>
+          <input
+            type="password"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            autoComplete="current-password"
+            aria-invalid={retry}
+          />
+          {retry && <em className="field-error">Das Master-Passwort war falsch.</em>}
+        </label>
+        <button type="submit" hidden />
+      </form>
+    </Modal>
+  );
+}
+
 // ── First contact ───────────────────────────────────────────────────────────
 
 type KeyFactsProps = { observed: ObservedHostKey };

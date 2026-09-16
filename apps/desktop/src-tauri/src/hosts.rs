@@ -12,7 +12,7 @@ use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::State;
 use uuid::Uuid;
 use uwussh_core::{SessionId, SshAuth, SshError, SshTarget};
-use uwussh_store::{AuthMethod, HostDraft, HostRecord, StoreError};
+use uwussh_store::{CredentialSource, HostDraft, HostRecord, Revealed, RevealedKey, StoreError};
 use zeroize::Zeroizing;
 
 #[tauri::command]
@@ -58,12 +58,20 @@ pub(crate) fn delete_host(state: State<'_, AppState>, id: Uuid) -> CommandResult
 }
 
 /// Everything that can come back from a connection attempt. SSH errors keep
-/// their own `kind` tag; everything else is `internal`.
+/// their own `kind` tag; everything else is `internal` or `vault-locked`.
 #[derive(Debug, Serialize)]
 #[serde(untagged)]
 pub(crate) enum ConnectFailure {
     Ssh(SshError),
-    Internal { kind: &'static str, message: String },
+    /// The host logs in with a vault secret, but the vault is locked. The UI
+    /// asks for the master password and retries.
+    VaultLocked {
+        kind: &'static str,
+    },
+    Internal {
+        kind: &'static str,
+        message: String,
+    },
 }
 
 fn internal(message: impl std::fmt::Display) -> ConnectFailure {
@@ -71,6 +79,25 @@ fn internal(message: impl std::fmt::Display) -> ConnectFailure {
         kind: "internal",
         message: message.to_string(),
     }
+}
+
+/// A locked vault is a question for the user; any other failure while revealing
+/// a secret is internal.
+fn from_vault<T>(result: Result<T, StoreError>) -> Result<T, ConnectFailure> {
+    result.map_err(|error| match error {
+        StoreError::VaultLocked => ConnectFailure::VaultLocked {
+            kind: "vault-locked",
+        },
+        other => internal(other),
+    })
+}
+
+/// A stored secret is text (a password, a PEM key). Turn the revealed bytes
+/// into the zeroizing string the engine wants.
+fn as_secret(bytes: Revealed) -> Result<Zeroizing<String>, ConnectFailure> {
+    String::from_utf8(bytes.to_vec())
+        .map(Zeroizing::new)
+        .map_err(|_| internal("a stored secret is not valid text"))
 }
 
 fn key_for(address: &str, port: u16) -> (String, u16) {
@@ -100,12 +127,29 @@ pub(crate) async fn connect_host(
         .map_err(internal)?
         .map(|known| known.fingerprint);
 
-    let auth = match host.auth {
-        AuthMethod::Password => SshAuth::Password(secret),
-        AuthMethod::Key => SshAuth::Key {
-            path: host.key_path.clone().unwrap_or_default(),
+    // Where this host's login comes from decides what we hand the engine. A
+    // vault secret is revealed here, just before connecting; the host key is
+    // still checked first inside the engine, so nothing is sent to an
+    // unverified server.
+    let auth = match from_vault(state.store.host_credential_source(id))? {
+        CredentialSource::AskPassword => SshAuth::Password(secret),
+        CredentialSource::KeyFile { path } => SshAuth::Key {
+            path,
             passphrase: secret,
         },
+        CredentialSource::VaultPassword => SshAuth::Password(Some(as_secret(from_vault(
+            state.store.reveal_host_password(id),
+        )?)?)),
+        CredentialSource::VaultKey => {
+            let RevealedKey {
+                private_key,
+                passphrase,
+            } = from_vault(state.store.reveal_host_key(id))?;
+            SshAuth::KeyContents {
+                private_key: as_secret(private_key)?,
+                passphrase: passphrase.map(as_secret).transpose()?,
+            }
+        }
     };
 
     let target = SshTarget {

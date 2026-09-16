@@ -62,6 +62,13 @@ pub enum SshAuth {
         path: String,
         passphrase: Option<Zeroizing<String>>,
     },
+    /// Private key material already in memory — from the vault, not a file.
+    /// The passphrase, if the key needs one, comes from the vault too, so this
+    /// never turns into a prompt: it either decodes or it does not.
+    KeyContents {
+        private_key: Zeroizing<String>,
+        passphrase: Option<Zeroizing<String>>,
+    },
 }
 
 pub struct SshTarget {
@@ -507,6 +514,22 @@ fn prepare_credential(auth: &SshAuth) -> std::result::Result<Credential, SshErro
                 }),
             }
         }
+        // A vault key: the passphrase, if any, is stored alongside it, so a
+        // failure is a broken or wrongly-sealed key, not a prompt.
+        SshAuth::KeyContents {
+            private_key,
+            passphrase,
+        } => keys::decode_secret_key(private_key, passphrase.as_ref().map(|p| p.as_str()))
+            .map(|key| Credential::Key(Box::new(key)))
+            .map_err(|err| SshError::KeyUnreadable {
+                key_path: "<vault>".to_string(),
+                reason: match err {
+                    keys::Error::KeyIsEncrypted => {
+                        "the stored key needs a passphrase that was not saved with it".to_string()
+                    }
+                    other => other.to_string(),
+                },
+            }),
     }
 }
 
@@ -564,6 +587,30 @@ mod tests {
             prepare_credential(&SshAuth::Password(None)),
             Err(SshError::PasswordRequired)
         ));
+    }
+
+    #[test]
+    fn a_key_in_memory_is_accepted_without_a_file() {
+        use keys::ssh_key::LineEnding;
+        let key = keys::PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap();
+        // The material a vault key arrives as: OpenSSH PEM text, no file.
+        let pem = key.to_openssh(LineEnding::LF).unwrap().to_string();
+
+        let credential = prepare_credential(&SshAuth::KeyContents {
+            private_key: Zeroizing::new(pem),
+            passphrase: None,
+        });
+        assert!(matches!(credential, Ok(Credential::Key(_))));
+
+        // Broken material is unreadable, and blames the vault, not a file — and
+        // it is never turned into a passphrase prompt.
+        let broken = prepare_credential(&SshAuth::KeyContents {
+            private_key: Zeroizing::new("-----BEGIN OPENSSH PRIVATE KEY-----\nnope\n".into()),
+            passphrase: None,
+        });
+        assert!(
+            matches!(broken, Err(SshError::KeyUnreadable { key_path, .. }) if key_path == "<vault>")
+        );
     }
 
     #[test]
