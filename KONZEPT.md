@@ -481,4 +481,6 @@ Ein Ende-zu-Ende-Lauf (`node apps/desktop/e2e/run.mjs`) klickt die echte App geg
 
 ~~Verbinden mit Keys aus dem Vault~~ — **erledigt.** Ein importierter Host meldet sich mit dem Passwort oder Key aus dem Vault an; Key-Material geht als Bytes an die Engine, keine Datei auf der Platte. Der Host-Key wird weiterhin zuerst geprüft, bevor ein Secret gesendet wird. Ist der Vault gesperrt, fragt die App nach dem Master-Passwort und verbindet neu.
 
-Als Nächstes im Rest von **M1**: PuTTY-/KiTTY-/`ssh_config`-Import (die Zuordnung steht und ist getestet, es fehlt der Registry-Leser), Tabs und Splits, Agent-Login, ProxyJump.
+~~Import aus PuTTY und KiTTY~~ — **erledigt.** Die Sessions kommen direkt aus der Registry (`HKCU\Software\SimonTatham\PuTTY\Sessions`, KiTTY teilt das Format), mit `.ppk`-Pfaden und den in Session-Namen gefakten Ordnern als Gruppen. Solche Hosts referenzieren ihren Key als Datei und tippen ihr Passwort — der Import trägt also keine Secrets und braucht keinen Vault. Der Import ist jetzt quellenunabhängig: Quelle wählen, Vorschau, schreiben.
+
+Als Nächstes im Rest von **M1**: `ssh_config`-Import, Tabs und Splits, Agent-Login, ProxyJump. Offen: die von PuTTY schon vertrauten Host-Keys (eigenes Registry-Format, braucht einen echten Dump zum Verifizieren).

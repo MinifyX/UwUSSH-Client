@@ -68,8 +68,9 @@ can remember and more than one machine to reach them from.
 > Termius has no export, so UwUSSH reads its local database directly — hosts,
 > logins, keys with their passphrases, trusted host keys and snippets — and puts
 > the secrets in an encrypted vault ([how](docs/architecture.md#termius-which-has-no-export)).
-> PuTTY/KiTTY and `ssh_config` import, tabs and agent login come next; the
-> [roadmap](docs/roadmap.md) has the order.
+> PuTTY and KiTTY sessions come straight out of the registry. `ssh_config`
+> import, tabs and agent login come next; the [roadmap](docs/roadmap.md) has the
+> order.
 
 ## The sync server
 

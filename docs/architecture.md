@@ -187,6 +187,21 @@ Because Termius' internals are not a stable contract, the layout was read off a
 real install with example programs that print structure and counts and never a
 value.
 
+### PuTTY and KiTTY, out of the registry
+
+PuTTY and KiTTY keep one registry key per session under
+`HKCU\Software\SimonTatham\PuTTY\Sessions` (KiTTY is a fork and kept the format,
+only the path differs), so `putty::read_sessions` walks that tree and maps each
+key into a host — `HostName`, `PortNumber` as a DWORD, `UserName`, the `.ppk`
+in `PublicKeyFile`, and the `homelab/prox-1` folder names people fake in
+session names. A missing key is not an error, just nothing to import; the reader
+is tested against a throwaway registry tree written and read back on Windows.
+
+These hosts reference their key by file path and type their password, so this
+import carries **no secrets** and needs no vault — unlike Termius. The store
+requires an unlocked vault only when a set actually seals something, so a PuTTY
+import writes with the vault untouched.
+
 ### The vault an import lands in
 
 An import carries passwords and private keys, so it needs a sealed home before
