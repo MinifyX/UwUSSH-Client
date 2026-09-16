@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { HostKeyChanged, SecretPrompt, TrustHostKey } from './components/ConnectDialogs';
 import { HostForm } from './components/HostForm';
 import { HostList } from './components/HostList';
+import { ImportDialog } from './components/ImportDialog';
 import { M0Results, M0Status } from './components/M0Panel';
 import { Nyu } from './components/nyu/Nyu';
 import { TerminalView } from './components/Terminal';
@@ -80,6 +81,7 @@ export function App() {
   const [notice, setNotice] = useState<Notice | null>(null);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [form, setForm] = useState<{ host: HostRecord | null } | null>(null);
+  const [importing, setImporting] = useState(false);
 
   const [m0Running, setM0Running] = useState(false);
   const [progress, setProgress] = useState<Progress | null>(null);
@@ -315,7 +317,7 @@ export function App() {
     [openShell, runM0],
   );
 
-  const modalOpen = Boolean(dialog || form);
+  const modalOpen = Boolean(dialog || form || importing);
   useEffect(() => {
     if (backgroundRef.current) backgroundRef.current.inert = modalOpen;
   }, [modalOpen]);
@@ -353,6 +355,7 @@ export function App() {
             onLocalShell={() => void openShell()}
             onAdd={() => setForm({ host: null })}
             onEdit={(host) => setForm({ host })}
+            onImport={() => setImporting(true)}
           />
 
           <main className="main">
@@ -432,6 +435,10 @@ export function App() {
             void refreshHosts();
           }}
         />
+      )}
+
+      {importing && (
+        <ImportDialog onClose={() => setImporting(false)} onImported={() => void refreshHosts()} />
       )}
 
       {dialog?.kind === 'secret' && (

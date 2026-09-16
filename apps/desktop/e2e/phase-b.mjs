@@ -21,7 +21,7 @@ await page.waitFor(
 check('hosts survive a reload (they live in SQLite, not the page)', true);
 
 // ── Fix: errors clear on edit, inputs stay aligned ─────────────────────────
-await page.click('.sidebar-head .icon-button');
+await page.click('.sidebar-head [aria-label="Host hinzufügen"]');
 await page.waitFor(`document.querySelector('.modal-title')?.textContent === 'Neuer Host'`, {
   what: 'host form',
 });

@@ -13,6 +13,7 @@ type Props = {
   onLocalShell: () => void;
   onAdd: () => void;
   onEdit: (host: HostRecord) => void;
+  onImport: () => void;
 };
 
 function groupHosts(hosts: HostRecord[]): [string | null, HostRecord[]][] {
@@ -45,6 +46,7 @@ export function HostList({
   onLocalShell,
   onAdd,
   onEdit,
+  onImport,
 }: Props) {
   const [query, setQuery] = useState('');
   const visible = useMemo(() => hosts.filter((h) => matches(h, query)), [hosts, query]);
@@ -54,6 +56,15 @@ export function HostList({
     <aside className="sidebar">
       <div className="sidebar-head">
         <h2>Hosts</h2>
+        <span className="spacer" />
+        <button
+          className="icon-button"
+          onClick={onImport}
+          title="Aus Termius importieren"
+          aria-label="Aus Termius importieren"
+        >
+          ↓
+        </button>
         <button
           className="icon-button"
           onClick={onAdd}
@@ -132,6 +143,9 @@ export function HostList({
           <p>Noch keine Hosts.</p>
           <button className="primary" onClick={onAdd}>
             Host hinzufügen
+          </button>
+          <button className="quiet" onClick={onImport}>
+            Aus Termius importieren
           </button>
         </div>
       )}

@@ -213,6 +213,32 @@ check(
 );
 await shot('10-reconnected');
 
+// ── Import: the dialog opens on the vault, before anything is written ────────
+await page.click('.sidebar-head [aria-label="Aus Termius importieren"]');
+await page.waitFor(
+  `document.querySelector('.modal-title')?.textContent === 'Aus Termius importieren'`,
+  { what: 'import dialog' },
+);
+// A throwaway database has no vault, so an import must start by asking for a
+// master password — or, on a machine without Termius, say so. Either way it
+// never jumps straight to writing.
+await page.waitFor(
+  `!!document.querySelector('.vault-setup input[type=password]') ||
+   (document.querySelector('.import-note')?.textContent.includes('keine Termius') ?? false)`,
+  { what: 'vault step or no-termius note' },
+);
+check(
+  'importing asks for the vault before it writes anything',
+  await page.eval(
+    `!!document.querySelector('.vault-setup input[type=password]') ||
+     (document.querySelector('.import-note')?.textContent.includes('keine Termius') ?? false)`,
+  ),
+);
+await shot('11-import');
+await page.key('Escape');
+await page.waitFor(`!document.querySelector('.modal')`, { what: 'import dialog closed' });
+check('the import dialog closes without touching the host list', true);
+
 page.close();
 console.log(failed() === 0 ? 'PHASE A OK' : `PHASE A: ${failed()} FAILED`);
 process.exit(failed() === 0 ? 0 : 1);

@@ -85,6 +85,18 @@ pub struct ObservedHostKey {
     pub randomart: String,
 }
 
+/// The algorithm and SHA-256 fingerprint of a public key, for an imported
+/// `known_hosts` entry. Takes the OpenSSH one-line form (`algorithm base64` or
+/// `algorithm base64 comment`) and returns `None` if it does not parse — an
+/// importer skips those rather than trusting something it could not read.
+pub fn public_key_fingerprint(openssh_line: &str) -> Option<(String, String)> {
+    let key = PublicKey::from_openssh(openssh_line.trim()).ok()?;
+    Some((
+        key.algorithm().as_str().to_string(),
+        key.fingerprint(HashAlg::Sha256).to_string(),
+    ))
+}
+
 impl ObservedHostKey {
     fn of(key: &PublicKey) -> Self {
         let header = match key.algorithm() {
@@ -527,6 +539,23 @@ mod tests {
             expand_home("C:\\keys\\nas.ppk"),
             PathBuf::from("C:\\keys\\nas.ppk")
         );
+    }
+
+    #[test]
+    fn a_public_key_line_yields_its_algorithm_and_fingerprint() {
+        let key = keys::PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap();
+        let line = key.public_key().to_openssh().unwrap();
+
+        let (algorithm, fingerprint) = public_key_fingerprint(&line).unwrap();
+        assert_eq!(algorithm, "ssh-ed25519");
+        assert_eq!(
+            fingerprint,
+            key.public_key().fingerprint(HashAlg::Sha256).to_string()
+        );
+        // A comment after the blob is fine; garbage is not.
+        assert!(public_key_fingerprint(&format!("{line} root@host")).is_some());
+        assert!(public_key_fingerprint("ssh-ed25519 not-base64").is_none());
+        assert!(public_key_fingerprint("").is_none());
     }
 
     #[test]

@@ -21,7 +21,9 @@ pub mod synthetic;
 pub use flow::FlowControl;
 pub use metrics::{Metrics, MetricsSnapshot};
 pub use session::{SessionId, SessionManager};
-pub use ssh::{ObservedHostKey, SshAuth, SshConnection, SshError, SshTarget};
+pub use ssh::{
+    public_key_fingerprint, ObservedHostKey, SshAuth, SshConnection, SshError, SshTarget,
+};
 pub use stream::{FrameSink, SinkError};
 
 #[derive(Debug, thiserror::Error)]

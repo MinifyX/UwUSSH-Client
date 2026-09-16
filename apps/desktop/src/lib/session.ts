@@ -208,6 +208,59 @@ export function trustHostKey(
   return invoke('trust_host_key', { address, port, fingerprint, confirmation });
 }
 
+// ── Vault ─────────────────────────────────────────────────────────────────
+
+export type VaultStatus = 'absent' | 'locked' | 'unlocked';
+
+export function vaultStatus(): Promise<VaultStatus> {
+  return invoke<VaultStatus>('vault_status');
+}
+
+export function createVault(password: string): Promise<void> {
+  return invoke('create_vault', { password });
+}
+
+export function unlockVault(password: string): Promise<void> {
+  return invoke('unlock_vault', { password });
+}
+
+export function lockVault(): Promise<void> {
+  return invoke('lock_vault');
+}
+
+// ── Import ────────────────────────────────────────────────────────────────
+
+export type ImportSummary = {
+  hosts: number;
+  identities: number;
+  keys: number;
+  knownHosts: number;
+  snippets: number;
+  skipped: string[];
+};
+
+export type ImportReport = {
+  hostsAdded: number;
+  hostsSkipped: number;
+  identitiesAdded: number;
+  keysAdded: number;
+  knownHostsAdded: number;
+  snippetsAdded: number;
+  skipped: string[];
+};
+
+export function termiusAvailable(): Promise<boolean> {
+  return invoke<boolean>('termius_available');
+}
+
+export function scanTermius(): Promise<ImportSummary> {
+  return invoke<ImportSummary>('scan_termius');
+}
+
+export function importTermius(): Promise<ImportReport> {
+  return invoke<ImportReport>('import_termius');
+}
+
 // ── M0 ──────────────────────────────────────────────────────────────────────
 
 export type M0Kind = 'synthetic' | 'pty';

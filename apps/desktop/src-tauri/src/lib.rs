@@ -9,6 +9,7 @@
 //! - [`m0`] — the throughput measurement
 
 mod hosts;
+mod import;
 mod m0;
 mod sessions;
 
@@ -96,6 +97,13 @@ pub fn run() {
             hosts::connect_host,
             hosts::cancel_connect,
             hosts::trust_host_key,
+            import::vault_status,
+            import::create_vault,
+            import::unlock_vault,
+            import::lock_vault,
+            import::termius_available,
+            import::scan_termius,
+            import::import_termius,
             m0::spawn_m0_session,
             m0::m0_autorun,
             m0::m0_finish,

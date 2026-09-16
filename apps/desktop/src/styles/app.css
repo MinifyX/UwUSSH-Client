@@ -698,3 +698,81 @@ dd {
   transform-origin: center;
   transform-box: fill-box;
 }
+
+/* ── Import & vault ──────────────────────────────────────────────────────── */
+
+.import-note {
+  margin: 0 0 4px;
+  color: var(--uwu-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.import-warning {
+  margin: 4px 0 0;
+  padding: 9px 11px;
+  border-radius: var(--uwu-radius-control);
+  border: 1px solid color-mix(in srgb, var(--uwu-alarm) 45%, transparent);
+  background: color-mix(in srgb, var(--uwu-alarm) 8%, transparent);
+  color: var(--uwu-alarm);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.vault-setup {
+  display: grid;
+  gap: 12px;
+}
+
+.import-preview {
+  display: grid;
+  gap: 12px;
+}
+
+.import-counts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.import-counts li {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: var(--uwu-radius-control);
+  border: 1px solid var(--uwu-hairline);
+  background: var(--uwu-elevated);
+}
+
+.import-counts b {
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  color: var(--uwu-pink-solid);
+}
+
+.import-counts span {
+  font-size: 11px;
+  color: var(--uwu-muted);
+}
+
+.import-skipped {
+  font-size: 12px;
+}
+
+.import-skipped summary {
+  cursor: pointer;
+  color: var(--uwu-muted);
+}
+
+.import-skipped ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+  color: var(--uwu-muted);
+}
