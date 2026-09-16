@@ -174,4 +174,9 @@ try {
   process.exitCode = 1;
 } finally {
   for (const child of children) stop(child);
+  // `pnpm tauri dev` launches the app binary and its WebView2 through cargo, so
+  // they are not descendants of the pnpm process a tree kill sees. Sweep the
+  // app binary by name, which takes its WebView2 with it, or the next run finds
+  // port 9223 still held.
+  spawnSync('taskkill', ['/IM', 'uwussh-desktop.exe', '/T', '/F']);
 }
