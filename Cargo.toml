@@ -39,6 +39,13 @@ zeroize = { version = "1", features = ["derive"] }
 russh = { version = "0.63", default-features = false, features = ["ring", "rsa", "flate2"] }
 # Bundled SQLite, so the app never depends on whichever sqlite3.dll is around.
 rusqlite = { version = "0.40", features = ["bundled"] }
+# The Termius import: Snappy for LevelDB tables and compressed IndexedDB values,
+# NaCl's secretbox for the fields Termius seals, and the one Win32 call that
+# reads its key from the Credential Manager.
+base64 = "0.22"
+crypto_secretbox = { version = "0.1", default-features = false, features = ["alloc", "salsa20"] }
+snap = "1"
+windows-sys = "0.61"
 
 # Still not pinned, because their milestone has not come yet:
 #

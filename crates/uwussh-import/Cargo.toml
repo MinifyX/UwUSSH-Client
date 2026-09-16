@@ -8,9 +8,21 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+base64.workspace = true
+crypto_secretbox.workspace = true
 serde.workspace = true
+serde_json.workspace = true
+snap.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+# The termius_summary example checks that imported keys open with russh.
+russh.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security_Credentials"] }
 
 # Reading PuTTY and KiTTY sessions out of the registry needs one platform crate.
 # The *mapping* — which is where all the real work and all the edge cases are —

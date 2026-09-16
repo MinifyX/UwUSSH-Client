@@ -8,8 +8,10 @@
 //! writing — is shared, which is why adding MobaXterm later costs an adapter
 //! and not a second pipeline.
 
+pub mod chromium;
 pub mod putty;
 pub mod ssh_config;
+pub mod termius;
 
 use serde::{Deserialize, Serialize};
 
@@ -60,6 +62,96 @@ pub struct ImportedHost {
     /// throws away settings someone cared enough to configure.
     #[serde(default)]
     pub extras: Vec<(String, String)>,
+    /// Index into [`ImportBundle::identities`], for sources that keep logins
+    /// apart from hosts.
+    #[serde(default)]
+    pub identity: Option<usize>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+/// Secret text from an import: wiped from memory when dropped, and
+/// deliberately not serializable, so it cannot end up in the preview that goes
+/// to the webview.
+pub type Secret = zeroize::Zeroizing<String>;
+
+/// Everything one source had, for sources that have more than hosts.
+///
+/// Hosts, identities and keys refer to each other by index, so one identity
+/// used by forty hosts arrives once and is stored once.
+#[derive(Debug, Default)]
+pub struct ImportBundle {
+    pub hosts: Vec<ImportedHost>,
+    pub identities: Vec<ImportedIdentity>,
+    pub keys: Vec<ImportedKey>,
+    pub known_hosts: Vec<ImportedKnownHost>,
+    pub snippets: Vec<ImportedSnippet>,
+    /// What was found and left out, with the reason — shown in the preview.
+    pub skipped: Vec<(String, String)>,
+}
+
+/// A username and how it logs in.
+#[derive(Debug)]
+pub struct ImportedIdentity {
+    pub label: Option<String>,
+    pub username: Option<String>,
+    pub password: Option<Secret>,
+    /// Index into [`ImportBundle::keys`].
+    pub key: Option<usize>,
+    /// Kept in the source's shared keychain rather than typed into one host.
+    pub shared: bool,
+}
+
+#[derive(Debug)]
+pub struct ImportedKey {
+    pub label: String,
+    pub format: KeyFormat,
+    pub private_key: Secret,
+    pub passphrase: Option<Secret>,
+    pub public_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum KeyFormat {
+    OpenSsh,
+    Pem,
+    Ppk,
+}
+
+impl KeyFormat {
+    /// Recognise a private key by its first line.
+    pub fn detect(private_key: &str) -> Option<Self> {
+        let first = private_key.trim_start().lines().next()?.trim_end();
+        if first == "-----BEGIN OPENSSH PRIVATE KEY-----" {
+            Some(Self::OpenSsh)
+        } else if first.starts_with("-----BEGIN ") && first.ends_with("PRIVATE KEY-----") {
+            Some(Self::Pem)
+        } else if first.starts_with("PuTTY-User-Key-File-") {
+            Some(Self::Ppk)
+        } else {
+            None
+        }
+    }
+}
+
+/// A host key the source had already accepted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ImportedKnownHost {
+    pub host: String,
+    pub port: u16,
+    /// `ssh-ed25519`, `ecdsa-sha2-nistp256`, …
+    pub algorithm: String,
+    /// The key blob, base64, as in an OpenSSH `known_hosts` line.
+    pub key: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ImportedSnippet {
+    pub label: String,
+    pub script: String,
+    /// The folder or package the source kept it in.
+    pub group: Option<String>,
 }
 
 impl ImportedHost {

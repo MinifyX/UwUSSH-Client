@@ -48,6 +48,8 @@ pub fn from_session_values(
         charset: non_empty(values.get("LineCodePage")),
         group_path: None,
         extras: Vec::new(),
+        identity: None,
+        tags: Vec::new(),
     };
 
     // PuTTY has no folders, but people fake them with "homelab/prox-1" or
