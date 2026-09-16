@@ -5,7 +5,9 @@
 // Starts the dev SSH server with a fresh host key, starts the app in dev mode
 // against a throwaway database with WebView2's DevTools port open on
 // 127.0.0.1, runs phase A, rebuilds the server's host key the way a
-// reinstalled server would, runs phase B, and stops everything again.
+// reinstalled server would, runs phase B, then swaps in a seeded database and a
+// key-authorizing server for phase C (logging in with a key from the vault),
+// and stops everything again.
 //
 // Windows only: it drives WebView2 over the Chrome DevTools Protocol.
 

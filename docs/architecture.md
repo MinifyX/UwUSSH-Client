@@ -239,8 +239,11 @@ SQLite file — bundled SQLite, WAL — in the app data directory, or wherever
 `UWUSSH_DB` points. Records carry the sync header from the first row on, so sync
 in M2 needs no data migration.
 
-**No secrets are stored** until the vault exists: passwords are asked for on
-every connect and never written anywhere, keys are referenced by path.
+**Nothing secret is stored outside the vault.** A manually added host still
+asks for its password on every connect and references a key by file path; an
+imported host keeps its password or key in the vault (see
+[Import](#the-vault-an-import-lands-in)), sealed, and reveals it only while the
+vault is unlocked.
 
 ## How it is tested
 
@@ -256,7 +259,12 @@ every connect and never written anywhere, keys are referenced by path.
   `crates/uwussh-core/examples/dev_sshd.rs` over WebView2's DevTools protocol:
   adding a host, trusting its key, a wrong and a right password, a 32 MiB
   flood, the session ending, a reconnect, the server's key changing, deleting
-  the host — and counts connections and password attempts in the server's log.
+  the host, and opening the import dialog — counting connections and password
+  attempts in the server's log. A third phase runs a separate app on a
+  database seeded with a vault-key host (via the `seed_vault_key` example) and
+  a `dev_sshd` that authorizes the key: connecting unlocks the vault, trusts
+  the key and logs in with the vault key, and the server's log confirms an
+  accepted public key and no password.
 
 The end-to-end run earned its place on its first outing. It found four bugs no
 other test could see: the password asked for before a changed host key was
