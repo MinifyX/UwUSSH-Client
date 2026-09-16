@@ -37,7 +37,10 @@ pub fn from_session_values(
     let mut host = ImportedHost {
         name: name.clone(),
         address: values.get("HostName").cloned().unwrap_or_default(),
-        port: values.get("PortNumber").and_then(|p| p.parse().ok()).unwrap_or(22),
+        port: values
+            .get("PortNumber")
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(22),
         username: non_empty(values.get("UserName")),
         key_path: non_empty(values.get("PublicKeyFile")),
         jump_host: non_empty(values.get("ProxyHost")),
@@ -57,7 +60,12 @@ pub fn from_session_values(
 
     // Keep settings we recognise but do not map yet, so nothing a user
     // configured disappears without a trace.
-    for key in ["Compression", "TerminalType", "BackspaceIsDelete", "PortForwardings"] {
+    for key in [
+        "Compression",
+        "TerminalType",
+        "BackspaceIsDelete",
+        "PortForwardings",
+    ] {
         if let Some(value) = non_empty(values.get(key)) {
             host.extras.push((key.to_string(), value));
         }
@@ -110,14 +118,21 @@ mod tests {
     use super::*;
 
     fn values(pairs: &[(&str, &str)]) -> HashMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
     fn maps_a_plain_session() {
         let host = from_session_values(
             "prox-1",
-            &values(&[("HostName", "10.0.0.12"), ("PortNumber", "22"), ("UserName", "root")]),
+            &values(&[
+                ("HostName", "10.0.0.12"),
+                ("PortNumber", "22"),
+                ("UserName", "root"),
+            ]),
             Source::Putty,
         );
 
@@ -165,9 +180,11 @@ mod tests {
 
     #[test]
     fn unmapped_settings_survive_as_extras() {
-        let host =
-            from_session_values("x", &values(&[("Compression", "1")]), Source::Putty);
-        assert!(host.extras.iter().any(|(k, v)| k == "Compression" && v == "1"));
+        let host = from_session_values("x", &values(&[("Compression", "1")]), Source::Putty);
+        assert!(host
+            .extras
+            .iter()
+            .any(|(k, v)| k == "Compression" && v == "1"));
     }
 
     #[test]

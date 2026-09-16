@@ -44,10 +44,19 @@ pub fn encrypt_record(
 
     let aad = associated_data(id, kind, vault_id);
     let blob = cipher
-        .encrypt(nonce, Payload { msg: plaintext, aad: &aad })
+        .encrypt(
+            nonce,
+            Payload {
+                msg: plaintext,
+                aad: &aad,
+            },
+        )
         .map_err(|e| VaultError::Encrypt(e.to_string()))?;
 
-    Ok(Sealed { nonce: nonce_bytes.to_vec(), blob })
+    Ok(Sealed {
+        nonce: nonce_bytes.to_vec(),
+        blob,
+    })
 }
 
 pub fn decrypt_record(
@@ -65,7 +74,13 @@ pub fn decrypt_record(
     let aad = associated_data(id, kind, vault_id);
 
     cipher
-        .decrypt(nonce, Payload { msg: &sealed.blob, aad: &aad })
+        .decrypt(
+            nonce,
+            Payload {
+                msg: &sealed.blob,
+                aad: &aad,
+            },
+        )
         .map_err(|_| VaultError::Decrypt)
 }
 
@@ -89,12 +104,21 @@ mod tests {
     #[test]
     fn a_swapped_record_id_fails() {
         let vault = Uuid::from_u128(99);
-        let sealed =
-            encrypt_record(&key(), Uuid::from_u128(1), EntityKind::Host, vault, b"secret").unwrap();
+        let sealed = encrypt_record(
+            &key(),
+            Uuid::from_u128(1),
+            EntityKind::Host,
+            vault,
+            b"secret",
+        )
+        .unwrap();
 
         // The server hands this blob back as if it belonged to another record.
         let out = decrypt_record(&key(), Uuid::from_u128(2), EntityKind::Host, vault, &sealed);
-        assert!(out.is_err(), "AAD must bind the ciphertext to its record id");
+        assert!(
+            out.is_err(),
+            "AAD must bind the ciphertext to its record id"
+        );
     }
 
     #[test]
@@ -124,6 +148,9 @@ mod tests {
         let a = encrypt_record(&key(), id, EntityKind::Host, vault, b"same").unwrap();
         let b = encrypt_record(&key(), id, EntityKind::Host, vault, b"same").unwrap();
         assert_ne!(a.nonce, b.nonce);
-        assert_ne!(a.blob, b.blob, "identical plaintext must not produce identical ciphertext");
+        assert_ne!(
+            a.blob, b.blob,
+            "identical plaintext must not produce identical ciphertext"
+        );
     }
 }

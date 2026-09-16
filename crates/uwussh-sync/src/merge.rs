@@ -20,7 +20,10 @@ pub enum Resolution {
 }
 
 pub fn resolve(local: &Envelope, remote: &Envelope) -> Resolution {
-    debug_assert_eq!(local.id, remote.id, "resolve compares two versions of one record");
+    debug_assert_eq!(
+        local.id, remote.id,
+        "resolve compares two versions of one record"
+    );
 
     if local.updated_at == remote.updated_at && local.deleted == remote.deleted {
         return Resolution::Identical;
@@ -43,8 +46,8 @@ pub fn resolve(local: &Envelope, remote: &Envelope) -> Resolution {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use uwussh_proto::{EntityKind, Hlc};
     use uuid::Uuid;
+    use uwussh_proto::{EntityKind, Hlc};
 
     fn env(wall: u64, counter: u32, device: u32, deleted: bool) -> Envelope {
         Envelope {
@@ -62,29 +65,50 @@ mod tests {
 
     #[test]
     fn the_later_edit_wins() {
-        assert_eq!(resolve(&env(200, 0, 1, false), &env(100, 0, 2, false)), Resolution::Local);
-        assert_eq!(resolve(&env(100, 0, 1, false), &env(200, 0, 2, false)), Resolution::Remote);
+        assert_eq!(
+            resolve(&env(200, 0, 1, false), &env(100, 0, 2, false)),
+            Resolution::Local
+        );
+        assert_eq!(
+            resolve(&env(100, 0, 1, false), &env(200, 0, 2, false)),
+            Resolution::Remote
+        );
     }
 
     #[test]
     fn same_millisecond_is_broken_by_the_counter() {
-        assert_eq!(resolve(&env(100, 5, 1, false), &env(100, 2, 2, false)), Resolution::Local);
+        assert_eq!(
+            resolve(&env(100, 5, 1, false), &env(100, 2, 2, false)),
+            Resolution::Local
+        );
     }
 
     #[test]
     fn identical_versions_need_no_work() {
-        assert_eq!(resolve(&env(100, 1, 1, false), &env(100, 1, 1, false)), Resolution::Identical);
+        assert_eq!(
+            resolve(&env(100, 1, 1, false), &env(100, 1, 1, false)),
+            Resolution::Identical
+        );
     }
 
     #[test]
     fn a_delete_beats_a_newer_edit() {
         // Remote edited later, but we deleted. The host stays deleted.
-        assert_eq!(resolve(&env(100, 0, 1, true), &env(900, 0, 2, false)), Resolution::Local);
-        assert_eq!(resolve(&env(900, 0, 1, false), &env(100, 0, 2, true)), Resolution::Remote);
+        assert_eq!(
+            resolve(&env(100, 0, 1, true), &env(900, 0, 2, false)),
+            Resolution::Local
+        );
+        assert_eq!(
+            resolve(&env(900, 0, 1, false), &env(100, 0, 2, true)),
+            Resolution::Remote
+        );
     }
 
     #[test]
     fn two_deletes_fall_back_to_the_clock() {
-        assert_eq!(resolve(&env(200, 0, 1, true), &env(100, 0, 2, true)), Resolution::Local);
+        assert_eq!(
+            resolve(&env(200, 0, 1, true), &env(100, 0, 2, true)),
+            Resolution::Local
+        );
     }
 }

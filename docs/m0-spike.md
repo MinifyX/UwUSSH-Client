@@ -15,14 +15,16 @@ out now than after the vault is built on top of it.
 
 ## Prerequisites
 
-Not installed on Lorin's machine as of 2026-09-16 — this is the list that has
-to happen first:
+- **Rust stable** via [rustup](https://rustup.rs) — installed, 1.98.1 MSVC host
+- **Visual Studio C++ Build Tools** with the Windows SDK, because Tauri links
+  against MSVC — installed, 17.14.41 with MSVC 14.44 and SDK 10.0.26100
+- **WebView2 runtime** — ships with Windows 11
+- **pnpm 11** via `corepack enable` — done. Node is 22 where the workspace asks
+  for 24, which pnpm warns about and nothing has tripped over yet.
 
-- **Rust stable** via [rustup](https://rustup.rs)
-- **Visual Studio C++ Build Tools** with the Windows 10/11 SDK (Tauri links
-  against MSVC)
-- **WebView2 runtime** — already present on Windows 11
-- **Node 24** (the machine has 22) and **pnpm 11** via `corepack enable`
+Verified on 2026-09-16: `cargo check`, `cargo test` (44 tests), `cargo clippy
+-D warnings` and `cargo fmt --check` all pass, as do `pnpm typecheck` and the
+Vite build.
 
 ## Running it
 

@@ -24,7 +24,11 @@ pub struct Hlc {
 
 impl Hlc {
     pub fn new(wall_ms: u64, counter: u32, device: u32) -> Self {
-        Self { wall_ms, counter, device }
+        Self {
+            wall_ms,
+            counter,
+            device,
+        }
     }
 
     /// Produce the next local timestamp.
@@ -35,9 +39,17 @@ impl Hlc {
     /// or run back as far as ordering is concerned.
     pub fn tick(self, now_ms: u64) -> Self {
         if now_ms > self.wall_ms {
-            Self { wall_ms: now_ms, counter: 0, device: self.device }
+            Self {
+                wall_ms: now_ms,
+                counter: 0,
+                device: self.device,
+            }
         } else {
-            Self { wall_ms: self.wall_ms, counter: self.counter + 1, device: self.device }
+            Self {
+                wall_ms: self.wall_ms,
+                counter: self.counter + 1,
+                device: self.device,
+            }
         }
     }
 
@@ -55,7 +67,11 @@ impl Hlc {
             0
         };
 
-        Self { wall_ms: max_wall, counter, device: self.device }
+        Self {
+            wall_ms: max_wall,
+            counter,
+            device: self.device,
+        }
     }
 }
 
@@ -100,7 +116,10 @@ mod tests {
         let a = Hlc::new(5_000, 0, 7);
         // The laptop woke up and thinks it is earlier than it was.
         let b = a.tick(4_000);
-        assert!(b > a, "an edit made later must never sort before an earlier one");
+        assert!(
+            b > a,
+            "an edit made later must never sort before an earlier one"
+        );
     }
 
     #[test]

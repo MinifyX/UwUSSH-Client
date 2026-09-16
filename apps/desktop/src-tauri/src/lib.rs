@@ -52,7 +52,10 @@ async fn write_session(
     id: SessionId,
     data: String,
 ) -> Result<(), String> {
-    state.sessions.write(id, data.as_bytes()).map_err(|e| e.to_string())
+    state
+        .sessions
+        .write(id, data.as_bytes())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -62,7 +65,10 @@ async fn resize_session(
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
-    state.sessions.resize(id, cols, rows).map_err(|e| e.to_string())
+    state
+        .sessions
+        .resize(id, cols, rows)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -83,7 +89,10 @@ async fn session_metrics(
 #[tauri::command]
 async fn start_load_test(state: State<'_, AppState>, id: SessionId) -> Result<(), String> {
     let command = uwussh_core::pty::load_test_command();
-    state.sessions.write(id, command.as_bytes()).map_err(|e| e.to_string())
+    state
+        .sessions
+        .write(id, command.as_bytes())
+        .map_err(|e| e.to_string())
 }
 
 pub fn run() {
@@ -94,7 +103,9 @@ pub fn run() {
         .init();
 
     tauri::Builder::default()
-        .manage(AppState { sessions: Arc::new(SessionManager::new()) })
+        .manage(AppState {
+            sessions: Arc::new(SessionManager::new()),
+        })
         .invoke_handler(tauri::generate_handler![
             spawn_local_session,
             write_session,

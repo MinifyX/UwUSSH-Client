@@ -51,7 +51,10 @@ pub fn derive_master_secrets(password: &[u8], salt: &[u8]) -> Result<MasterSecre
     auth_secret.copy_from_slice(&out[32..]);
     out.zeroize();
 
-    Ok(MasterSecrets { master_key, auth_secret })
+    Ok(MasterSecrets {
+        master_key,
+        auth_secret,
+    })
 }
 
 #[cfg(test)]
@@ -71,7 +74,11 @@ mod tests {
     #[test]
     fn the_two_halves_are_different() {
         let out = fast(b"correct horse battery staple", b"uwussh-salt-1234");
-        assert_ne!(&out[..32], &out[32..], "master key and auth secret must not coincide");
+        assert_ne!(
+            &out[..32],
+            &out[32..],
+            "master key and auth secret must not coincide"
+        );
     }
 
     #[test]

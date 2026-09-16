@@ -150,7 +150,9 @@ Host edge-bastion
 "#;
 
     fn imported() -> ImportResult {
-        SshConfigImporter::from_text(SAMPLE).import().expect("import")
+        SshConfigImporter::from_text(SAMPLE)
+            .import()
+            .expect("import")
     }
 
     #[test]
@@ -176,28 +178,34 @@ Host edge-bastion
 
     #[test]
     fn an_alias_without_hostname_uses_itself_as_address() {
-        let result = SshConfigImporter::from_text("Host nas\n  User root\n").import().unwrap();
+        let result = SshConfigImporter::from_text("Host nas\n  User root\n")
+            .import()
+            .unwrap();
         assert_eq!(result.hosts[0].address, "nas");
     }
 
     #[test]
     fn equals_syntax_parses_too() {
-        let result =
-            SshConfigImporter::from_text("Host x\n  HostName=1.2.3.4\n  Port=2200\n").import().unwrap();
+        let result = SshConfigImporter::from_text("Host x\n  HostName=1.2.3.4\n  Port=2200\n")
+            .import()
+            .unwrap();
         assert_eq!(result.hosts[0].address, "1.2.3.4");
         assert_eq!(result.hosts[0].port, 2200);
     }
 
     #[test]
     fn keys_are_case_insensitive() {
-        let result =
-            SshConfigImporter::from_text("host x\n  HOSTNAME 5.6.7.8\n  uSeR root\n").import().unwrap();
+        let result = SshConfigImporter::from_text("host x\n  HOSTNAME 5.6.7.8\n  uSeR root\n")
+            .import()
+            .unwrap();
         assert_eq!(result.hosts[0].address, "5.6.7.8");
         assert_eq!(result.hosts[0].username.as_deref(), Some("root"));
     }
 
     #[test]
     fn an_empty_config_is_an_error_not_an_empty_success() {
-        assert!(SshConfigImporter::from_text("# nothing here\n").import().is_err());
+        assert!(SshConfigImporter::from_text("# nothing here\n")
+            .import()
+            .is_err());
     }
 }

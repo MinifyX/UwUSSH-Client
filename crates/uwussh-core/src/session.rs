@@ -56,7 +56,9 @@ impl SessionManager {
     pub fn spawn_local<S: FrameSink>(&self, cols: u16, rows: u16, sink: S) -> Result<SessionId> {
         let session = PtySession::spawn(cols, rows, sink)?;
         let id = SessionId::new();
-        self.sessions.write().insert(id, Arc::new(Session::Local(session)));
+        self.sessions
+            .write()
+            .insert(id, Arc::new(Session::Local(session)));
         tracing::info!(%id, cols, rows, "local session opened");
         Ok(id)
     }
@@ -80,7 +82,11 @@ impl SessionManager {
     }
 
     pub fn close(&self, id: SessionId) -> Result<()> {
-        let session = self.sessions.write().remove(&id).ok_or(CoreError::UnknownSession(id))?;
+        let session = self
+            .sessions
+            .write()
+            .remove(&id)
+            .ok_or(CoreError::UnknownSession(id))?;
         match &*session {
             Session::Local(pty) => {
                 // A dead child is not an error here — the user may simply have
@@ -97,6 +103,10 @@ impl SessionManager {
     }
 
     fn get(&self, id: SessionId) -> Result<Arc<Session>> {
-        self.sessions.read().get(&id).cloned().ok_or(CoreError::UnknownSession(id))
+        self.sessions
+            .read()
+            .get(&id)
+            .cloned()
+            .ok_or(CoreError::UnknownSession(id))
     }
 }

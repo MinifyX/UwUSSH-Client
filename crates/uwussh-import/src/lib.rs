@@ -114,8 +114,14 @@ mod tests {
 
     #[test]
     fn the_same_host_from_two_sources_lands_once() {
-        let a = ImportResult { hosts: vec![host("prox", "10.0.0.12", 22)], skipped: vec![] };
-        let b = ImportResult { hosts: vec![host("proxmox", "10.0.0.12", 22)], skipped: vec![] };
+        let a = ImportResult {
+            hosts: vec![host("prox", "10.0.0.12", 22)],
+            skipped: vec![],
+        };
+        let b = ImportResult {
+            hosts: vec![host("proxmox", "10.0.0.12", 22)],
+            skipped: vec![],
+        };
 
         let merged = deduplicate(vec![a, b]);
         assert_eq!(merged.hosts.len(), 1);
@@ -124,8 +130,14 @@ mod tests {
 
     #[test]
     fn a_different_port_is_a_different_host() {
-        let a = ImportResult { hosts: vec![host("web", "10.0.0.5", 22)], skipped: vec![] };
-        let b = ImportResult { hosts: vec![host("web-alt", "10.0.0.5", 2222)], skipped: vec![] };
+        let a = ImportResult {
+            hosts: vec![host("web", "10.0.0.5", 22)],
+            skipped: vec![],
+        };
+        let b = ImportResult {
+            hosts: vec![host("web-alt", "10.0.0.5", 2222)],
+            skipped: vec![],
+        };
         assert_eq!(deduplicate(vec![a, b]).hosts.len(), 2);
     }
 

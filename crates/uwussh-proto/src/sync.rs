@@ -66,18 +66,29 @@ pub struct PushResponse {
 mod serde_bytes_vec {
     use serde::{Deserialize, Deserializer, Serializer};
 
-    const ALPHABET: &[u8; 64] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
     pub fn serialize<S: Serializer>(bytes: &[u8], s: S) -> Result<S::Ok, S::Error> {
-        let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
+        let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
         for chunk in bytes.chunks(3) {
-            let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+            let b = [
+                chunk[0],
+                *chunk.get(1).unwrap_or(&0),
+                *chunk.get(2).unwrap_or(&0),
+            ];
             let n = u32::from(b[0]) << 16 | u32::from(b[1]) << 8 | u32::from(b[2]);
             out.push(ALPHABET[(n >> 18 & 63) as usize] as char);
             out.push(ALPHABET[(n >> 12 & 63) as usize] as char);
-            out.push(if chunk.len() > 1 { ALPHABET[(n >> 6 & 63) as usize] as char } else { '=' });
-            out.push(if chunk.len() > 2 { ALPHABET[(n & 63) as usize] as char } else { '=' });
+            out.push(if chunk.len() > 1 {
+                ALPHABET[(n >> 6 & 63) as usize] as char
+            } else {
+                '='
+            });
+            out.push(if chunk.len() > 2 {
+                ALPHABET[(n & 63) as usize] as char
+            } else {
+                '='
+            });
         }
         s.serialize_str(&out)
     }

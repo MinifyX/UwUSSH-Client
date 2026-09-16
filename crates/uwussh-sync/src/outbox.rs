@@ -40,7 +40,11 @@ impl Outbox {
         let pending = self.pending.lock();
         let mut entries: Vec<_> = pending.values().cloned().collect();
         entries.sort_by_key(|e| e.envelope.updated_at);
-        entries.into_iter().take(limit).map(|e| e.envelope).collect()
+        entries
+            .into_iter()
+            .take(limit)
+            .map(|e| e.envelope)
+            .collect()
     }
 
     /// Drop a record after the server accepted it.
@@ -99,7 +103,10 @@ mod tests {
 
         let batch = outbox.drain_batch(10);
         assert_eq!(batch.len(), 1);
-        assert_eq!(batch[0].updated_at.wall_ms, 500, "the newest version is the one that ships");
+        assert_eq!(
+            batch[0].updated_at.wall_ms, 500,
+            "the newest version is the one that ships"
+        );
     }
 
     #[test]
@@ -109,7 +116,11 @@ mod tests {
         outbox.enqueue(env(1, 100));
         outbox.enqueue(env(2, 200));
 
-        let walls: Vec<u64> = outbox.drain_batch(10).iter().map(|e| e.updated_at.wall_ms).collect();
+        let walls: Vec<u64> = outbox
+            .drain_batch(10)
+            .iter()
+            .map(|e| e.updated_at.wall_ms)
+            .collect();
         assert_eq!(walls, vec![100, 200, 300]);
     }
 

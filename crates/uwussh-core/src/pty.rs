@@ -19,7 +19,10 @@ use tokio::sync::mpsc;
 const READ_BUFFER: usize = 64 * 1024;
 
 pub struct PtySession {
-    master: Box<dyn MasterPty + Send>,
+    /// `Box<dyn MasterPty + Send>` is `Send` but not `Sync`, and the session
+    /// map is shared across threads — so the handle lives behind a lock. It is
+    /// only touched on resize, so the lock is never contended.
+    master: Mutex<Box<dyn MasterPty + Send>>,
     writer: Mutex<Box<dyn Write + Send>>,
     child: Mutex<Box<dyn Child + Send + Sync>>,
     metrics: Arc<Metrics>,
@@ -37,7 +40,12 @@ impl PtySession {
         rows: u16,
         sink: S,
     ) -> Result<Self> {
-        let size = PtySize { rows, cols, pixel_width: 0, pixel_height: 0 };
+        let size = PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        };
         let pair = native_pty_system().openpty(size).map_err(CoreError::Pty)?;
 
         let cmd = CommandBuilder::new(program);
@@ -87,7 +95,7 @@ impl PtySession {
         tokio::spawn(stream::run_batcher(rx, sink, batcher_metrics));
 
         Ok(Self {
-            master: pair.master,
+            master: Mutex::new(pair.master),
             writer: Mutex::new(writer),
             child: Mutex::new(child),
             metrics,
@@ -103,7 +111,13 @@ impl PtySession {
 
     pub fn resize(&self, cols: u16, rows: u16) -> Result<()> {
         self.master
-            .resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+            .lock()
+            .resize(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
             .map_err(CoreError::Pty)
     }
 

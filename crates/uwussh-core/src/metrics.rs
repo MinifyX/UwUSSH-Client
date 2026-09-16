@@ -62,7 +62,11 @@ impl Metrics {
             elapsed_secs: elapsed,
             bytes_per_sec: bytes as f64 / elapsed,
             frames_per_sec: frames as f64 / elapsed,
-            mean_frame_bytes: if frames == 0 { 0.0 } else { bytes as f64 / frames as f64 },
+            mean_frame_bytes: if frames == 0 {
+                0.0
+            } else {
+                bytes as f64 / frames as f64
+            },
         }
     }
 }
