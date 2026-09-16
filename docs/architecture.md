@@ -152,6 +152,52 @@ natively, encrypted or not, so a session imported from PuTTY logs in with its
 own key file as it is. The importers live in `crates/uwussh-import`, testable
 against real registry dumps and sample configs without launching the app.
 
+### Termius, which has no export
+
+Termius removed its export, so there is no file to ask the user for. What there
+is instead is Termius' own Electron IndexedDB on disk, with every sensitive
+field sealed under a local key the OS keychain holds
+(`Termius/localKey` in the Windows Credential Manager). The same user on the
+same machine can read both — no Termius account, no password, no plain-text
+export file left in the downloads folder.
+
+Reading it is three layers, each a file-format reader rather than an
+app-specific scraper, and each tested against files built by a matching writer:
+
+1. **`chromium::leveldb`** reads every table and log file in the database
+   directory and keeps the newest write per key. That sidesteps the custom
+   comparator IndexedDB registers (which makes a stock LevelDB refuse the
+   database) and copes with Termius running at the same time — a torn log tail
+   fails its CRC and is dropped, a half-written table has no footer and is
+   skipped.
+2. **`chromium::idb`** decodes Chromium's key prefixes (database, store and
+   index ids), the database and store names, and Blink's value envelope,
+   Snappy-compressed values included.
+3. **`chromium::v8`** deserializes V8's structured-clone format — the objects,
+   arrays, strings, numbers and byte buffers a record is made of — with limits
+   against hostile nesting and lengths.
+
+On top of that, `termius` opens the sealed fields (XSalsa20-Poly1305, libsodium's
+secretbox) with the local key, and maps Termius' entities into the neutral
+bundle: hosts with the port and login they inherit from their group chain,
+logins and keys shared by index, the host keys Termius already trusts, snippets.
+Records marked deleted stay deleted; records sealed with a key this device does
+not have — a team vault's — are named in the preview rather than half-imported.
+Because Termius' internals are not a stable contract, the layout was read off a
+real install with example programs that print structure and counts and never a
+value.
+
+### The vault an import lands in
+
+An import carries passwords and private keys, so it needs a sealed home before
+it can run. `crates/uwussh-vault` is that home's crypto (the [vault](#vault)
+section has the shape), built earlier than the rest of M2 for exactly this
+reason. The store keeps the vault header and, once unlocked, seals each imported
+secret as it is written — SQLite only ever sees ciphertext — so importing
+requires an unlocked vault, and a failure partway rolls the whole import back,
+sealed secrets included. Hosts already present by `address:port` are skipped and
+a host key already trusted is never overwritten, so a second import is safe.
+
 ## Connecting
 
 The order is the security model, and it is the order PuTTY and OpenSSH use:

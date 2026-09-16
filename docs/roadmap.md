@@ -27,17 +27,27 @@ caught four bugs no other test could see — see
 
 The point where I can stop using anything else.
 
+- **Termius import is done.** Termius has no export, so UwUSSH reads its local
+  Electron database directly — hosts, groups, logins, keys with their
+  passphrases, the host keys Termius already trusts, snippets — and writes them
+  into the vault. It found 14 hosts, 16 logins, 2 keys and 138 known-host keys
+  on the first real run, and skips nothing it can read. See
+  [architecture](architecture.md#import).
+- Still to import: PuTTY and KiTTY from the registry, `ssh_config`. The mapping
+  for those is written and tested; it needs the registry reader wired in.
 - Tabs and splits, agent auth (Pageant, `\\.\pipe\openssh-ssh-agent`,
   1Password), ProxyJump chains
 - Snippets, broadcast input, themes, the command palette
-- **Import: PuTTY, KiTTY, `ssh_config`, Termius** — together with the host keys
-  those clients already trust, so 80 imported hosts don't mean 80 trust dialogs
-  that teach you to click "trust" without reading
+- Connecting with a key that lives in the vault (imported keys land there now,
+  but the connect path still reads keys from a file)
 - First Nyu scenes and the playful/neutral string split
 
 ## M2 · Vault and sync
 
-- Vault crypto, recovery kit, OS keychain and biometric unlock
+- **The vault's local crypto is done, early** — the Termius import had to put
+  its secrets somewhere. Master password → Argon2id → wrapped vault key,
+  XChaCha20-Poly1305 per record, created and unlocked from the app. Still to do
+  here: recovery kit, OS keychain and biometric unlock, auto-lock.
 - `UwUSSH-Server` v1: Axum, SQLite, Docker image, admin CLI
 - Device pairing (password and QR), device revocation, conflict resolution
 

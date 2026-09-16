@@ -58,13 +58,18 @@ can remember and more than one machine to reach them from.
   Settings → Tone → Neutral. Security warnings are never playful, in either
   tone.
 
-> **Status:** milestone 0 is done. UwUSSH connects to SSH hosts — password or
-> key file, PuTTY `.ppk` included — keeps a host list, and checks host keys on
-> first contact and every time after. The terminal path is measured: 41–46
-> MiB/s without a stuttering frame, as long as the renderer acknowledges what
-> it parsed, because without that xterm.js silently drops output
-> ([the spike](docs/m0-spike.md)). Tabs, agent login and the imports come next;
-> the [roadmap](docs/roadmap.md) has the order.
+> **Status:** milestone 0 is done, and the Termius import works. UwUSSH connects
+> to SSH hosts — password or key file, PuTTY `.ppk` included — keeps a host
+> list, and checks host keys on first contact and every time after. The terminal
+> path is measured: 41–46 MiB/s without a stuttering frame, as long as the
+> renderer acknowledges what it parsed, because without that xterm.js silently
+> drops output ([the spike](docs/m0-spike.md)).
+>
+> Termius has no export, so UwUSSH reads its local database directly — hosts,
+> logins, keys with their passphrases, trusted host keys and snippets — and puts
+> the secrets in an encrypted vault ([how](docs/architecture.md#termius-which-has-no-export)).
+> PuTTY/KiTTY and `ssh_config` import, tabs and agent login come next; the
+> [roadmap](docs/roadmap.md) has the order.
 
 ## The sync server
 
