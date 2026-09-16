@@ -776,3 +776,14 @@ dd {
   overflow-y: auto;
   color: var(--uwu-muted);
 }
+
+.import-sources {
+  display: grid;
+  gap: 8px;
+}
+
+.import-source {
+  justify-content: flex-start;
+  padding: 12px 14px;
+  font-weight: 600;
+}

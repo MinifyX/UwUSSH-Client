@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import {
+  availableImports,
   createVault,
-  importTermius,
-  scanTermius,
-  termiusAvailable,
+  runImport,
+  scanImport,
   unlockVault,
   vaultStatus,
   type ImportReport,
+  type ImportSource,
   type ImportSummary,
 } from '../lib/session';
 import { Modal } from './Modal';
@@ -17,19 +18,25 @@ type Props = {
   onImported: () => void;
 };
 
+const LABEL: Record<ImportSource, string> = {
+  termius: 'Termius',
+  putty: 'PuTTY',
+  kitty: 'KiTTY',
+};
+
 type Step =
   | { kind: 'loading' }
-  | { kind: 'no-termius' }
-  | { kind: 'create' }
-  | { kind: 'unlock' }
-  | { kind: 'preview'; summary: ImportSummary }
+  | { kind: 'none' }
+  | { kind: 'pick'; sources: ImportSource[] }
+  | { kind: 'preview'; source: ImportSource; summary: ImportSummary }
+  | { kind: 'vault'; source: ImportSource; mode: 'create' | 'unlock' }
   | { kind: 'done'; report: ImportReport };
 
 /**
- * Bringing a Termius setup across. The vault comes first — the import carries
- * passwords and keys, and they need a sealed home — so this walks the vault
- * from absent or locked to unlocked, then previews what Termius holds and
- * writes it. The preview and the result show counts, never a host or a secret.
+ * Bringing another client's setup across. Pick a source, see what it holds in
+ * counts, and write it. A source with secrets (Termius) needs the vault first;
+ * one without (PuTTY, KiTTY) is written straight away. Previews and results
+ * show counts only, never a host or a secret.
  */
 export function ImportDialog({ onClose, onImported }: Props) {
   const [step, setStep] = useState<Step>({ kind: 'loading' });
@@ -37,26 +44,14 @@ export function ImportDialog({ onClose, onImported }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void (async () => {
-      try {
-        const [available, status] = await Promise.all([termiusAvailable(), vaultStatus()]);
-        if (!available) {
-          setStep({ kind: 'no-termius' });
-          return;
-        }
-        if (status === 'absent') setStep({ kind: 'create' });
-        else if (status === 'locked') setStep({ kind: 'unlock' });
-        else await showPreview();
-      } catch (e) {
-        setError(String(e));
-      }
-    })();
+    void guard(async () => {
+      const sources = await availableImports();
+      if (sources.length === 0) setStep({ kind: 'none' });
+      else if (sources.length === 1) await preview(sources[0]!);
+      else setStep({ kind: 'pick', sources });
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  async function showPreview() {
-    setStep({ kind: 'preview', summary: await scanTermius() });
-  }
 
   /** Run an action with the button disabled and the error line cleared. */
   async function guard(action: () => Promise<void>) {
@@ -71,7 +66,23 @@ export function ImportDialog({ onClose, onImported }: Props) {
     }
   }
 
-  const title = step.kind === 'done' ? 'Import abgeschlossen' : 'Aus Termius importieren';
+  async function preview(source: ImportSource) {
+    setStep({ kind: 'preview', source, summary: await scanImport(source) });
+  }
+
+  /** From the preview: import now, stepping through the vault first if needed. */
+  async function confirm(source: ImportSource, summary: ImportSummary) {
+    if (summary.needsVault) {
+      const status = await vaultStatus();
+      if (status === 'absent') return setStep({ kind: 'vault', source, mode: 'create' });
+      if (status === 'locked') return setStep({ kind: 'vault', source, mode: 'unlock' });
+    }
+    const report = await runImport(source);
+    onImported();
+    setStep({ kind: 'done', report });
+  }
+
+  const title = step.kind === 'done' ? 'Import abgeschlossen' : 'Importieren';
 
   return (
     <Modal title={title} onCancel={onClose} footer={footer()}>
@@ -87,25 +98,39 @@ export function ImportDialog({ onClose, onImported }: Props) {
   function body() {
     switch (step.kind) {
       case 'loading':
-        return <p className="import-note">Termius wird gesucht…</p>;
+        return <p className="import-note">Wird gesucht…</p>;
 
-      case 'no-termius':
+      case 'none':
         return (
           <p className="import-note">
-            Auf diesem Rechner wurden keine Termius-Daten gefunden. UwUSSH liest die lokale
-            Termius-Installation des angemeldeten Benutzers — es gibt keine Export-Datei, die du
-            vorher erzeugen müsstest.
+            Auf diesem Rechner wurde nichts zum Importieren gefunden. UwUSSH liest Termius, PuTTY
+            und KiTTY dort, wo sie ihre Daten ablegen — es gibt keine Export-Datei, die du vorher
+            erzeugen müsstest.
           </p>
         );
 
-      case 'create':
-        return <VaultSetup mode="create" busy={busy} onSubmit={handleVault} />;
-
-      case 'unlock':
-        return <VaultSetup mode="unlock" busy={busy} onSubmit={handleVault} />;
+      case 'pick':
+        return (
+          <div className="import-sources">
+            <p className="import-note">Woraus möchtest du importieren?</p>
+            {step.sources.map((source) => (
+              <button
+                key={source}
+                className="import-source"
+                disabled={busy}
+                onClick={() => void guard(() => preview(source))}
+              >
+                {LABEL[source]}
+              </button>
+            ))}
+          </div>
+        );
 
       case 'preview':
-        return <Preview summary={step.summary} />;
+        return <Preview source={step.source} summary={step.summary} />;
+
+      case 'vault':
+        return <VaultSetup mode={step.mode} busy={busy} onSubmit={handleVault} />;
 
       case 'done':
         return <Report report={step.report} />;
@@ -124,13 +149,7 @@ export function ImportDialog({ onClose, onImported }: Props) {
             <button
               className="primary"
               disabled={busy || nothing}
-              onClick={() =>
-                void guard(async () => {
-                  const report = await importTermius();
-                  onImported();
-                  setStep({ kind: 'done', report });
-                })
-              }
+              onClick={() => void guard(() => confirm(step.source, step.summary))}
             >
               {busy ? 'Importiere…' : 'Importieren'}
             </button>
@@ -143,7 +162,7 @@ export function ImportDialog({ onClose, onImported }: Props) {
             Fertig
           </button>
         );
-      case 'no-termius':
+      case 'none':
         return (
           <button className="primary" onClick={onClose}>
             Schließen
@@ -159,10 +178,14 @@ export function ImportDialog({ onClose, onImported }: Props) {
   }
 
   function handleVault(password: string, mode: 'create' | 'unlock') {
+    if (step.kind !== 'vault') return;
+    const source = step.source;
     void guard(async () => {
       if (mode === 'create') await createVault(password);
       else await unlockVault(password);
-      await showPreview();
+      const report = await runImport(source);
+      onImported();
+      setStep({ kind: 'done', report });
     });
   }
 }
@@ -191,8 +214,8 @@ function VaultSetup({
     <form className="vault-setup" onSubmit={submit}>
       {mode === 'create' ? (
         <p className="import-note">
-          Deine Termius-Passwörter und -Keys werden verschlüsselt gespeichert. Dafür brauchst du ein
-          Master-Passwort. Es entsperrt den Tresor und verlässt dieses Gerät nie.
+          Die importierten Passwörter und Keys werden verschlüsselt gespeichert. Dafür brauchst du
+          ein Master-Passwort. Es entsperrt den Tresor und verlässt dieses Gerät nie.
         </p>
       ) : (
         <p className="import-note">Entsperre den Tresor, um den Import fortzusetzen.</p>
@@ -236,7 +259,7 @@ function VaultSetup({
   );
 }
 
-function Preview({ summary }: { summary: ImportSummary }) {
+function Preview({ source, summary }: { source: ImportSource; summary: ImportSummary }) {
   const rows: [string, number][] = [
     ['Hosts', summary.hosts],
     ['Anmeldungen', summary.identities],
@@ -247,17 +270,22 @@ function Preview({ summary }: { summary: ImportSummary }) {
   return (
     <div className="import-preview">
       <p className="import-note">
-        Das findet UwUSSH in Termius. Schon vorhandene Hosts und Host-Keys werden beim Import
-        übersprungen, nichts wird überschrieben.
+        Das findet UwUSSH in {LABEL[source]}. Schon vorhandene Hosts und Host-Keys werden beim
+        Import übersprungen, nichts wird überschrieben.
       </p>
       <ul className="import-counts">
-        {rows.map(([label, count]) => (
-          <li key={label}>
-            <b>{count}</b>
-            <span>{label}</span>
-          </li>
-        ))}
+        {rows
+          .filter(([, count]) => count > 0)
+          .map(([label, count]) => (
+            <li key={label}>
+              <b>{count}</b>
+              <span>{label}</span>
+            </li>
+          ))}
       </ul>
+      {summary.needsVault && (
+        <p className="import-note">Die Secrets landen verschlüsselt im Tresor.</p>
+      )}
       <Skipped items={summary.skipped} />
     </div>
   );

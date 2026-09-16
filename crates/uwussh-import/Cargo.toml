@@ -23,9 +23,7 @@ russh.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Security_Credentials"] }
-
-# Reading PuTTY and KiTTY sessions out of the registry needs one platform crate.
-# The *mapping* — which is where all the real work and all the edge cases are —
-# is already implemented and tested here against plain key/value maps, so this
-# is glue rather than logic:
-#   cargo add winreg --target cfg(windows)
+# Reading PuTTY and KiTTY sessions out of the registry. The mapping — where all
+# the edge cases are — is cross-platform and tested against plain key/value
+# maps; this is the glue that fills those maps from the registry.
+winreg = "0.55"

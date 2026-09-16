@@ -31,12 +31,17 @@ pub struct KeyInput {
 }
 
 /// A username and how it logs in, referenced from hosts by index.
+#[derive(Default)]
 pub struct IdentityInput {
     pub label: Option<String>,
     pub username: Option<String>,
     pub password: Option<Secret>,
-    /// Index into [`ImportSet::keys`].
+    /// Index into [`ImportSet::keys`] — a key that lives in the vault.
     pub key: Option<usize>,
+    /// A private key file on disk (what PuTTY imports bring), used when there
+    /// is no vault key. Nothing secret is read or stored: the file is
+    /// referenced by path, as the source had it.
+    pub key_path: Option<String>,
 }
 
 pub struct HostInput {
@@ -86,14 +91,27 @@ pub struct ImportOutcome {
     pub snippets_added: usize,
 }
 
+impl ImportSet {
+    /// Whether writing this set has to seal anything. A PuTTY import — key
+    /// files and typed passwords — has no secrets and so needs no vault.
+    fn has_secrets(&self) -> bool {
+        !self.keys.is_empty() || self.identities.iter().any(|i| i.password.is_some())
+    }
+}
+
 impl Store {
-    /// Write an import into the store under the unlocked vault. The vault must
-    /// be unlocked: an import brings secrets, and without a vault there is
-    /// nowhere safe to put them.
+    /// Write an import into the store. When the set carries secrets — a stored
+    /// password or a key kept in the vault — the vault must be unlocked, since
+    /// that is the only place a secret may go. A set with none (key files and
+    /// typed passwords) imports with no vault at all.
     pub fn import(&self, set: ImportSet) -> Result<ImportOutcome> {
         let mut conn = self.conn.lock();
         let vault_guard = self.vault.lock();
-        let vault = vault_guard.as_ref().ok_or(StoreError::VaultLocked)?;
+        let vault = match vault_guard.as_ref() {
+            Some(vault) => Some(vault),
+            None if set.has_secrets() => return Err(StoreError::VaultLocked),
+            None => None,
+        };
 
         let tx = conn.transaction()?;
         let vault_uuid = vault_id(&tx)?;
@@ -113,7 +131,8 @@ impl Store {
 struct Writer<'a> {
     tx: &'a Transaction<'a>,
     device: u32,
-    vault: &'a UnlockedVault,
+    /// `None` when the set has no secrets to seal.
+    vault: Option<&'a UnlockedVault>,
     vault_uuid: String,
 }
 
@@ -172,8 +191,9 @@ impl Writer<'_> {
 
     /// Seal a secret and store it, returning its id.
     fn write_secret(&self, plaintext: &[u8]) -> Result<String> {
+        let vault = self.vault.ok_or(StoreError::VaultLocked)?;
         let id = Uuid::now_v7();
-        let sealed = self.vault.seal(id, EntityKind::Secret, plaintext)?;
+        let sealed = vault.seal(id, EntityKind::Secret, plaintext)?;
         let clock = self.clock()?;
         self.tx.execute(
             "INSERT INTO secrets
@@ -231,13 +251,17 @@ impl Writer<'_> {
             .map(|p| self.write_secret(p.as_bytes()))
             .transpose()?;
 
-        let auth_type = if key_id.is_some() {
+        // A file key is only used when there is no vault key. A stored password
+        // and a key never coincide within one imported identity.
+        let key_path = key_id
+            .is_none()
+            .then(|| identity.key_path.clone())
+            .flatten();
+        let auth_type = if key_id.is_some() || key_path.is_some() {
             "key"
-        } else if password_secret_id.is_some() {
-            "password"
         } else {
-            // A login with neither, e.g. one that only names a username for the
-            // agent to match. Password is the method every server offers.
+            // Either a stored password, or a login that only names a username
+            // and asks on connect. Password is the method every server offers.
             "password"
         };
         let username = identity.username.clone().unwrap_or_default();
@@ -253,13 +277,14 @@ impl Writer<'_> {
             "INSERT INTO identities
                 (id, vault_id, label, username, auth_type, key_path,
                  password_secret_id, key_id, hlc_wall_ms, hlc_counter, hlc_device)
-             VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?7, ?8, ?9, ?10)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 id,
                 self.vault_uuid,
                 label,
                 username,
                 auth_type,
+                key_path,
                 password_secret_id,
                 key_id,
                 clock.wall_ms as i64,
@@ -383,6 +408,16 @@ mod tests {
         Secret::new(text.to_owned())
     }
 
+    fn host_id(store: &Store, name: &str) -> Uuid {
+        store
+            .list_hosts()
+            .unwrap()
+            .into_iter()
+            .find(|h| h.name == name)
+            .unwrap()
+            .id
+    }
+
     fn sample() -> ImportSet {
         ImportSet {
             keys: vec![KeyInput {
@@ -398,12 +433,14 @@ mod tests {
                     username: Some("root".into()),
                     password: None,
                     key: Some(0),
+                    key_path: None,
                 },
                 IdentityInput {
                     label: None,
                     username: Some("uwu".into()),
                     password: Some(secret("hunter2")),
                     key: None,
+                    key_path: None,
                 },
             ],
             hosts: vec![
@@ -501,6 +538,7 @@ mod tests {
             username: Some("admin".into()),
             password: None,
             key: Some(0),
+            key_path: None,
         });
         store.import(set).unwrap();
 
@@ -562,6 +600,62 @@ mod tests {
             Err(StoreError::VaultLocked)
         ));
         assert!(store.list_hosts().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_secretless_import_needs_no_vault() {
+        // What a PuTTY import looks like: a key-file host and an ask-password
+        // host, no vault key, no stored password.
+        let store = Store::open_in_memory().unwrap();
+        assert_eq!(store.vault_status().unwrap(), VaultStatus::Absent);
+
+        let set = ImportSet {
+            identities: vec![
+                IdentityInput {
+                    username: Some("root".into()),
+                    key_path: Some("~/.ssh/id_ed25519".into()),
+                    ..Default::default()
+                },
+                IdentityInput {
+                    username: Some("deploy".into()),
+                    ..Default::default()
+                },
+            ],
+            hosts: vec![
+                HostInput {
+                    name: "keyed".into(),
+                    address: "10.0.0.1".into(),
+                    port: 22,
+                    group_path: None,
+                    identity: Some(0),
+                },
+                HostInput {
+                    name: "asked".into(),
+                    address: "10.0.0.2".into(),
+                    port: 22,
+                    group_path: None,
+                    identity: Some(1),
+                },
+            ],
+            ..Default::default()
+        };
+
+        let outcome = store.import(set).unwrap();
+        assert_eq!(outcome.hosts_added, 2);
+        assert_eq!(outcome.identities_added, 2);
+
+        let keyed = host_id(&store, "keyed");
+        assert_eq!(
+            store.host_credential_source(keyed).unwrap(),
+            crate::CredentialSource::KeyFile {
+                path: "~/.ssh/id_ed25519".into()
+            }
+        );
+        let asked = host_id(&store, "asked");
+        assert_eq!(
+            store.host_credential_source(asked).unwrap(),
+            crate::CredentialSource::AskPassword
+        );
     }
 
     #[test]

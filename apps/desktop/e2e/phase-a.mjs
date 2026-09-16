@@ -213,28 +213,29 @@ check(
 );
 await shot('10-reconnected');
 
-// ── Import: the dialog opens on the vault, before anything is written ────────
-await page.click('.sidebar-head [aria-label="Aus Termius importieren"]');
+// ── Import: preview first, and the vault is asked before anything is written ─
+await page.click('.sidebar-head [aria-label="Hosts importieren"]');
+await page.waitFor(`document.querySelector('.modal-title')?.textContent === 'Importieren'`, {
+  what: 'import dialog',
+});
+// The dialog reaches a preview (a source is present on this machine) or says
+// there is nothing to import. Either way it has not written anything.
 await page.waitFor(
-  `document.querySelector('.modal-title')?.textContent === 'Aus Termius importieren'`,
-  { what: 'import dialog' },
-);
-// A throwaway database has no vault, so an import must start by asking for a
-// master password — or, on a machine without Termius, say so. Either way it
-// never jumps straight to writing.
-await page.waitFor(
-  `!!document.querySelector('.vault-setup input[type=password]') ||
-   (document.querySelector('.import-note')?.textContent.includes('keine Termius') ?? false)`,
-  { what: 'vault step or no-termius note' },
-);
-check(
-  'importing asks for the vault before it writes anything',
-  await page.eval(
-    `!!document.querySelector('.vault-setup input[type=password]') ||
-     (document.querySelector('.import-note')?.textContent.includes('keine Termius') ?? false)`,
-  ),
+  `!!document.querySelector('.import-preview, .import-sources') ||
+   (document.querySelector('.import-note')?.textContent.includes('nichts zum Importieren') ?? false)`,
+  { what: 'preview, source picker, or nothing-to-import' },
 );
 await shot('11-import');
+const canImport = await page.eval(`!!document.querySelector('.import-preview')`);
+if (canImport) {
+  // Confirm: with an empty vault, this must ask for a master password before
+  // it writes, not jump straight to importing.
+  await page.click('.modal-footer button', 'Importieren');
+  await page.waitFor(`document.querySelector('.vault-setup input[type=password]')`, {
+    what: 'vault step before writing',
+  });
+  check('importing asks for the vault before it writes anything', true);
+}
 await page.key('Escape');
 await page.waitFor(`!document.querySelector('.modal')`, { what: 'import dialog closed' });
 check('the import dialog closes without touching the host list', true);

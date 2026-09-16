@@ -231,12 +231,17 @@ export function lockVault(): Promise<void> {
 
 // ── Import ────────────────────────────────────────────────────────────────
 
+/** The sources UwUSSH can import from, by id. */
+export type ImportSource = 'termius' | 'putty' | 'kitty';
+
 export type ImportSummary = {
   hosts: number;
   identities: number;
   keys: number;
   knownHosts: number;
   snippets: number;
+  /** Writing this import needs an unlocked vault (it has secrets to seal). */
+  needsVault: boolean;
   skipped: string[];
 };
 
@@ -250,16 +255,16 @@ export type ImportReport = {
   skipped: string[];
 };
 
-export function termiusAvailable(): Promise<boolean> {
-  return invoke<boolean>('termius_available');
+export function availableImports(): Promise<ImportSource[]> {
+  return invoke<ImportSource[]>('available_imports');
 }
 
-export function scanTermius(): Promise<ImportSummary> {
-  return invoke<ImportSummary>('scan_termius');
+export function scanImport(source: ImportSource): Promise<ImportSummary> {
+  return invoke<ImportSummary>('scan_import', { source });
 }
 
-export function importTermius(): Promise<ImportReport> {
-  return invoke<ImportReport>('import_termius');
+export function runImport(source: ImportSource): Promise<ImportReport> {
+  return invoke<ImportReport>('run_import', { source });
 }
 
 // ── M0 ──────────────────────────────────────────────────────────────────────

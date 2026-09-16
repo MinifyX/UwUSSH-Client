@@ -38,7 +38,9 @@ fn main() {
     let public_line = key.public_key().to_openssh().expect("encode public");
 
     let store = Store::open(&PathBuf::from(db)).expect("open store");
-    store.create_vault(password.as_bytes()).expect("create vault");
+    store
+        .create_vault(password.as_bytes())
+        .expect("create vault");
 
     let outcome = store
         .import(ImportSet {
@@ -54,6 +56,7 @@ fn main() {
                 username: Some(username.clone()),
                 password: None,
                 key: Some(0),
+                key_path: None,
             }],
             hosts: vec![HostInput {
                 name: name.clone(),

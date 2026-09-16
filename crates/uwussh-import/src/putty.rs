@@ -115,6 +115,105 @@ fn non_empty(value: Option<&String>) -> Option<String> {
     value.filter(|v| !v.trim().is_empty()).cloned()
 }
 
+/// Read the sessions PuTTY or KiTTY keeps under `HKCU\<sessions_path>`, mapping
+/// each into an [`ImportedHost`]. A missing key is not an error — the client is
+/// simply not installed, so this returns an empty result.
+///
+/// On platforms without a registry it always returns empty, so callers stay
+/// platform-agnostic.
+pub fn read_sessions(
+    sessions_path: &str,
+    source: crate::Source,
+) -> crate::Result<crate::ImportResult> {
+    #[cfg(windows)]
+    {
+        registry::read_sessions(sessions_path, source)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (sessions_path, source);
+        Ok(crate::ImportResult::default())
+    }
+}
+
+/// Whether there is at least one session to import at `HKCU\<sessions_path>`.
+pub fn has_sessions(sessions_path: &str) -> bool {
+    #[cfg(windows)]
+    {
+        registry::has_sessions(sessions_path)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = sessions_path;
+        false
+    }
+}
+
+#[cfg(windows)]
+mod registry {
+    use super::{decode_session_name, from_session_values};
+    use crate::{ImportError, ImportResult, Result, Source};
+    use std::collections::HashMap;
+    use winreg::enums::{RegType, HKEY_CURRENT_USER};
+    use winreg::types::FromRegValue;
+    use winreg::RegKey;
+
+    pub fn read_sessions(sessions_path: &str, source: Source) -> Result<ImportResult> {
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let root = match hkcu.open_subkey(sessions_path) {
+            Ok(root) => root,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(ImportResult::default())
+            }
+            Err(e) => return Err(ImportError::Read(format!("{sessions_path}: {e}"))),
+        };
+
+        let mut result = ImportResult::default();
+        for name in root.enum_keys() {
+            let Ok(name) = name else { continue };
+            let Ok(session) = root.open_subkey(&name) else {
+                result
+                    .skipped
+                    .push((decode_session_name(&name), "could not be read".into()));
+                continue;
+            };
+            let host = from_session_values(&name, &values_of(&session), source);
+            if host.address.trim().is_empty() {
+                result.skipped.push((host.name, "has no host name".into()));
+            } else {
+                result.hosts.push(host);
+            }
+        }
+        Ok(result)
+    }
+
+    pub fn has_sessions(sessions_path: &str) -> bool {
+        RegKey::predef(HKEY_CURRENT_USER)
+            .open_subkey(sessions_path)
+            .map(|root| root.enum_keys().flatten().next().is_some())
+            .unwrap_or(false)
+    }
+
+    /// Every string- and number-valued setting under a session key, as strings.
+    /// PuTTY keeps `PortNumber` as a DWORD and the rest as strings.
+    fn values_of(key: &RegKey) -> HashMap<String, String> {
+        let mut map = HashMap::new();
+        for entry in key.enum_values() {
+            let Ok((name, value)) = entry else { continue };
+            let text = match value.vtype {
+                RegType::REG_SZ | RegType::REG_EXPAND_SZ => String::from_reg_value(&value).ok(),
+                RegType::REG_DWORD => u32::from_reg_value(&value).ok().map(|n| n.to_string()),
+                RegType::REG_QWORD => u64::from_reg_value(&value).ok().map(|n| n.to_string()),
+                _ => None,
+            };
+            if let Some(text) = text {
+                map.insert(name, text);
+            }
+        }
+        map
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -187,6 +286,74 @@ mod tests {
             .extras
             .iter()
             .any(|(k, v)| k == "Compression" && v == "1"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn reads_sessions_out_of_a_real_registry_tree() {
+        use winreg::enums::HKEY_CURRENT_USER;
+        use winreg::RegKey;
+
+        // A throwaway tree under HKCU, unique per process so parallel test
+        // binaries never collide, cleaned up at the end.
+        let base = format!(
+            "Software\\UwUSSH-ImportTest-{}\\Sessions",
+            std::process::id()
+        );
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let _ = hkcu.delete_subkey_all(&base);
+
+        let write = |name: &str, host: &str, port: u32, user: &str, key: Option<&str>| {
+            let (session, _) = hkcu.create_subkey(format!("{base}\\{name}")).unwrap();
+            session.set_value("HostName", &host).unwrap();
+            session.set_value("PortNumber", &port).unwrap(); // DWORD, like PuTTY
+            session.set_value("UserName", &user).unwrap();
+            if let Some(key) = key {
+                session.set_value("PublicKeyFile", &key).unwrap();
+            }
+        };
+        write(
+            "prox-1",
+            "10.0.0.12",
+            2222,
+            "root",
+            Some(r"C:\keys\homelab.ppk"),
+        );
+        write("homelab%2Fweb", "10.0.0.5", 22, "deploy", None);
+        // A session with no host name is reported, not imported.
+        let (empty, _) = hkcu.create_subkey(format!("{base}\\broken")).unwrap();
+        empty.set_value("UserName", &"nobody").unwrap();
+
+        let result = read_sessions(&base, Source::Putty).unwrap();
+        hkcu.delete_subkey_all(&base).unwrap();
+
+        let prox = result.hosts.iter().find(|h| h.name == "prox-1").unwrap();
+        assert_eq!(prox.address, "10.0.0.12");
+        assert_eq!(prox.port, 2222, "PortNumber is a DWORD");
+        assert_eq!(prox.username.as_deref(), Some("root"));
+        assert_eq!(prox.key_path.as_deref(), Some(r"C:\keys\homelab.ppk"));
+
+        let web = result.hosts.iter().find(|h| h.name == "web").unwrap();
+        assert_eq!(
+            web.group_path.as_deref(),
+            Some("homelab"),
+            "folder from the name"
+        );
+
+        assert_eq!(result.hosts.len(), 2);
+        assert!(result
+            .skipped
+            .iter()
+            .any(|(_, why)| why.contains("no host name")));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_missing_registry_key_is_empty_not_an_error() {
+        let result =
+            read_sessions("Software\\UwUSSH-DoesNotExist\\Sessions", Source::Kitty).unwrap();
+        assert!(result.hosts.is_empty());
+        assert!(!has_sessions("Software\\UwUSSH-DoesNotExist\\Sessions"));
     }
 
     #[test]

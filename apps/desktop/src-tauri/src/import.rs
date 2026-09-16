@@ -1,18 +1,17 @@
 //! The vault and importing another client's setup.
 //!
-//! Two steps the UI drives in order. First the vault: importing brings
-//! passwords and keys, and they need somewhere sealed to live, so a locked or
-//! absent vault has to be dealt with before anything is written. Then the
-//! import: [`scan_termius`] reads the local Termius install and reports what it
-//! found — counts only, no secrets — for a preview, and [`import_termius`]
-//! writes it under the unlocked vault.
+//! The vault comes first when a source brings secrets — Termius keeps its
+//! passwords and keys sealed, and they need somewhere to live — but a PuTTY or
+//! KiTTY import is only host names, ports and key-file paths, so it needs no
+//! vault at all. [`scan_import`] reports what a source holds (counts only, no
+//! secrets) and whether it needs the vault; [`run_import`] writes it.
 
 use crate::{err, AppState, CommandResult};
 use serde::Serialize;
 use tauri::State;
 use uwussh_core::public_key_fingerprint;
 use uwussh_import::termius::{self, TermiusError};
-use uwussh_import::ImportBundle;
+use uwussh_import::{putty, ImportBundle, Source};
 use uwussh_store::{
     HostInput, IdentityInput, ImportSet, KeyInput, KnownHostInput, SnippetInput, VaultStatus,
 };
@@ -45,10 +44,31 @@ pub(crate) fn lock_vault(state: State<'_, AppState>) {
     state.store.lock_vault();
 }
 
-// ── Termius ──────────────────────────────────────────────────────────────
+// ── Import ─────────────────────────────────────────────────────────────────
 
-/// What a Termius import would bring, in counts. Contains no host names,
-/// addresses or secrets, so it is safe to hand to the webview for a preview.
+/// The sources UwUSSH can import from, by the id the frontend uses.
+const TERMIUS: &str = "termius";
+const PUTTY: &str = "putty";
+const KITTY: &str = "kitty";
+
+/// Which sources have something to import on this machine.
+#[tauri::command]
+pub(crate) fn available_imports() -> Vec<&'static str> {
+    let mut sources = Vec::new();
+    if termius::is_installed() {
+        sources.push(TERMIUS);
+    }
+    if putty::has_sessions(putty::PUTTY_REGISTRY_PATH) {
+        sources.push(PUTTY);
+    }
+    if putty::has_sessions(putty::KITTY_REGISTRY_PATH) {
+        sources.push(KITTY);
+    }
+    sources
+}
+
+/// What an import would bring, in counts. Contains no host names, addresses or
+/// secrets, so it is safe to hand to the webview for a preview.
 #[derive(Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ImportSummary {
@@ -57,6 +77,9 @@ pub(crate) struct ImportSummary {
     pub keys: usize,
     pub known_hosts: usize,
     pub snippets: usize,
+    /// Whether writing this import has to seal secrets, so the vault must be
+    /// unlocked first. A PuTTY or KiTTY import does not.
+    pub needs_vault: bool,
     /// One line per thing that could not be imported, with the reason.
     pub skipped: Vec<String>,
 }
@@ -75,14 +98,8 @@ pub(crate) struct ImportReport {
 }
 
 #[tauri::command]
-pub(crate) fn termius_available() -> bool {
-    termius::is_installed()
-}
-
-#[tauri::command]
-pub(crate) fn scan_termius() -> Result<ImportSummary, String> {
-    let bundle = read_termius()?;
-    let (set, mut skipped) = to_import_set(bundle);
+pub(crate) fn scan_import(source: String) -> Result<ImportSummary, String> {
+    let (set, mut skipped) = to_import_set(read_bundle(&source)?);
     skipped.sort();
     Ok(ImportSummary {
         hosts: set.hosts.len(),
@@ -90,18 +107,22 @@ pub(crate) fn scan_termius() -> Result<ImportSummary, String> {
         keys: set.keys.len(),
         known_hosts: set.known_hosts.len(),
         snippets: set.snippets.len(),
+        needs_vault: needs_vault(&set),
         skipped,
     })
 }
 
 #[tauri::command]
-pub(crate) fn import_termius(state: State<'_, AppState>) -> Result<ImportReport, String> {
-    if state.store.vault_status().map_err(err)? != VaultStatus::Unlocked {
+pub(crate) fn run_import(
+    state: State<'_, AppState>,
+    source: String,
+) -> Result<ImportReport, String> {
+    let (set, mut skipped) = to_import_set(read_bundle(&source)?);
+    skipped.sort();
+
+    if needs_vault(&set) && state.store.vault_status().map_err(err)? != VaultStatus::Unlocked {
         return Err("unlock the vault before importing".into());
     }
-    let bundle = read_termius()?;
-    let (set, mut skipped) = to_import_set(bundle);
-    skipped.sort();
 
     let outcome = state.store.import(set).map_err(err)?;
     Ok(ImportReport {
@@ -115,16 +136,38 @@ pub(crate) fn import_termius(state: State<'_, AppState>) -> Result<ImportReport,
     })
 }
 
-fn read_termius() -> Result<ImportBundle, String> {
-    termius::import_local().map_err(|e| match e {
-        TermiusError::NotInstalled => "no Termius data was found for this user".into(),
-        other => other.to_string(),
+/// Whether the set carries anything that has to be sealed.
+fn needs_vault(set: &ImportSet) -> bool {
+    !set.keys.is_empty() || set.identities.iter().any(|i| i.password.is_some())
+}
+
+fn read_bundle(source: &str) -> Result<ImportBundle, String> {
+    match source {
+        TERMIUS => termius::import_local().map_err(|e| match e {
+            TermiusError::NotInstalled => "no Termius data was found for this user".into(),
+            other => other.to_string(),
+        }),
+        PUTTY => sessions_bundle(putty::PUTTY_REGISTRY_PATH, Source::Putty),
+        KITTY => sessions_bundle(putty::KITTY_REGISTRY_PATH, Source::Kitty),
+        other => Err(format!("unknown import source: {other}")),
+    }
+}
+
+/// PuTTY and KiTTY produce hosts with an inline username and key-file path,
+/// and nothing else — no shared identities, no vault keys.
+fn sessions_bundle(path: &str, source: Source) -> Result<ImportBundle, String> {
+    let result = putty::read_sessions(path, source).map_err(|e| e.to_string())?;
+    Ok(ImportBundle {
+        hosts: result.hosts,
+        skipped: result.skipped,
+        ..Default::default()
     })
 }
 
-/// Map the importer's bundle onto the store's input, and collect the reasons
-/// anything was left out. The two crates deliberately do not share these types,
-/// so this is the one place they meet.
+/// Map the importer's bundle onto the store's input, collecting the reasons
+/// anything was left out. Handles both shapes: Termius hosts that point at a
+/// shared identity by index, and PuTTY hosts that carry their username and key
+/// file inline (a per-host identity is synthesised for those).
 fn to_import_set(bundle: ImportBundle) -> (ImportSet, Vec<String>) {
     let mut skipped: Vec<String> = bundle
         .skipped
@@ -144,7 +187,8 @@ fn to_import_set(bundle: ImportBundle) -> (ImportSet, Vec<String>) {
         })
         .collect();
 
-    let identities = bundle
+    // Shared identities come first and keep their index; per-host ones append.
+    let mut identities: Vec<IdentityInput> = bundle
         .identities
         .into_iter()
         .map(|identity| IdentityInput {
@@ -152,18 +196,33 @@ fn to_import_set(bundle: ImportBundle) -> (ImportSet, Vec<String>) {
             username: identity.username,
             password: identity.password,
             key: identity.key,
+            key_path: None,
         })
         .collect();
 
     let hosts = bundle
         .hosts
         .into_iter()
-        .map(|host| HostInput {
-            name: host.name,
-            address: host.address,
-            port: host.port,
-            group_path: host.group_path,
-            identity: host.identity,
+        .map(|host| {
+            let identity = match host.identity {
+                Some(index) => Some(index),
+                None if host.username.is_some() || host.key_path.is_some() => {
+                    identities.push(IdentityInput {
+                        username: host.username,
+                        key_path: host.key_path,
+                        ..Default::default()
+                    });
+                    Some(identities.len() - 1)
+                }
+                None => None,
+            };
+            HostInput {
+                name: host.name,
+                address: host.address,
+                port: host.port,
+                group_path: host.group_path,
+                identity,
+            }
         })
         .collect();
 

@@ -149,12 +149,14 @@ mod tests {
                         username: Some("pw".into()),
                         password: Some(secret("hunter2")),
                         key: None,
+                        key_path: None,
                     },
                     IdentityInput {
                         label: None,
                         username: Some("keyed".into()),
                         password: None,
                         key: Some(0),
+                        key_path: None,
                     },
                 ],
                 hosts: vec![

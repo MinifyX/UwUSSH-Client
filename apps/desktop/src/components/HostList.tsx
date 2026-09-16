@@ -60,8 +60,8 @@ export function HostList({
         <button
           className="icon-button"
           onClick={onImport}
-          title="Aus Termius importieren"
-          aria-label="Aus Termius importieren"
+          title="Hosts importieren"
+          aria-label="Hosts importieren"
         >
           ↓
         </button>
@@ -145,7 +145,7 @@ export function HostList({
             Host hinzufügen
           </button>
           <button className="quiet" onClick={onImport}>
-            Aus Termius importieren
+            Aus Termius, PuTTY oder KiTTY importieren
           </button>
         </div>
       )}
