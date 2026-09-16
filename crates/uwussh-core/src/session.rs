@@ -1,13 +1,13 @@
 //! Keeping track of open sessions.
 //!
-//! For M0 every session is a local PTY. From M1 this becomes an enum with an
-//! SSH variant — the manager, the ids and the write/resize/close surface stay
-//! the same, because both kinds are "something that eats keystrokes and emits
-//! bytes".
+//! Every session, whatever produces its bytes, has the same surface: write
+//! keystrokes, resize, acknowledge what the renderer processed, read metrics,
+//! close. SSH joins as a third variant next, without changing any of that.
 
 use crate::metrics::MetricsSnapshot;
 use crate::pty::PtySession;
 use crate::stream::FrameSink;
+use crate::synthetic::SyntheticSession;
 use crate::{CoreError, Result};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -38,10 +38,15 @@ impl fmt::Display for SessionId {
 }
 
 enum Session {
-    Local(PtySession),
-    // Ssh(SshSession) — M1
+    Pty(PtySession),
+    Synthetic(SyntheticSession),
+    // Ssh(SshSession) — next
 }
 
+// Sessions currently outlive a webview reload: a reloaded page stops
+// acknowledging, and a flow-controlled session then pauses forever. Harmless
+// for M0, where nothing reloads mid-measurement; M1 ties sessions to the window
+// that opened them.
 #[derive(Default)]
 pub struct SessionManager {
     sessions: RwLock<HashMap<SessionId, Arc<Session>>>,
@@ -52,33 +57,64 @@ impl SessionManager {
         Self::default()
     }
 
-    /// Open a local shell and start streaming it into `sink`.
-    pub fn spawn_local<S: FrameSink>(&self, cols: u16, rows: u16, sink: S) -> Result<SessionId> {
-        let session = PtySession::spawn(cols, rows, sink)?;
-        let id = SessionId::new();
-        self.sessions
-            .write()
-            .insert(id, Arc::new(Session::Local(session)));
-        tracing::info!(%id, cols, rows, "local session opened");
-        Ok(id)
+    /// The user's default shell, flow-controlled.
+    pub fn spawn_shell<S: FrameSink>(&self, cols: u16, rows: u16, sink: S) -> Result<SessionId> {
+        let session = PtySession::spawn_shell(cols, rows, sink)?;
+        Ok(self.insert(Session::Pty(session), "shell"))
+    }
+
+    pub fn spawn_command<S: FrameSink>(
+        &self,
+        program: &str,
+        args: &[String],
+        cols: u16,
+        rows: u16,
+        flow_control: bool,
+        sink: S,
+    ) -> Result<SessionId> {
+        let session = PtySession::spawn_command(program, args, cols, rows, flow_control, sink)?;
+        Ok(self.insert(Session::Pty(session), "command"))
+    }
+
+    pub fn spawn_synthetic<S: FrameSink>(
+        &self,
+        total_bytes: usize,
+        flow_control: bool,
+        sink: S,
+    ) -> SessionId {
+        let session = SyntheticSession::spawn(total_bytes, flow_control, sink);
+        self.insert(Session::Synthetic(session), "synthetic")
     }
 
     pub fn write(&self, id: SessionId, data: &[u8]) -> Result<()> {
         match &*self.get(id)? {
-            Session::Local(pty) => pty.write(data),
+            Session::Pty(pty) => pty.write(data),
+            // Nothing is listening; typing into a benchmark is not an error.
+            Session::Synthetic(_) => Ok(()),
         }
     }
 
     pub fn resize(&self, id: SessionId, cols: u16, rows: u16) -> Result<()> {
         match &*self.get(id)? {
-            Session::Local(pty) => pty.resize(cols, rows),
+            Session::Pty(pty) => pty.resize(cols, rows),
+            Session::Synthetic(_) => Ok(()),
         }
     }
 
-    pub fn metrics(&self, id: SessionId) -> Result<MetricsSnapshot> {
+    /// The renderer has processed `bytes` more bytes of this session's output.
+    pub fn ack(&self, id: SessionId, bytes: u64) -> Result<()> {
         match &*self.get(id)? {
-            Session::Local(pty) => Ok(pty.metrics().snapshot()),
+            Session::Pty(pty) => pty.ack(bytes),
+            Session::Synthetic(synthetic) => synthetic.ack(bytes),
         }
+        Ok(())
+    }
+
+    pub fn metrics(&self, id: SessionId) -> Result<MetricsSnapshot> {
+        Ok(match &*self.get(id)? {
+            Session::Pty(pty) => pty.metrics(),
+            Session::Synthetic(synthetic) => synthetic.metrics(),
+        })
     }
 
     pub fn close(&self, id: SessionId) -> Result<()> {
@@ -88,11 +124,8 @@ impl SessionManager {
             .remove(&id)
             .ok_or(CoreError::UnknownSession(id))?;
         match &*session {
-            Session::Local(pty) => {
-                // A dead child is not an error here — the user may simply have
-                // typed `exit` before hitting the close button.
-                let _ = pty.kill();
-            }
+            Session::Pty(pty) => pty.close(),
+            Session::Synthetic(synthetic) => synthetic.close(),
         }
         tracing::info!(%id, "session closed");
         Ok(())
@@ -100,6 +133,13 @@ impl SessionManager {
 
     pub fn ids(&self) -> Vec<SessionId> {
         self.sessions.read().keys().copied().collect()
+    }
+
+    fn insert(&self, session: Session, kind: &'static str) -> SessionId {
+        let id = SessionId::new();
+        self.sessions.write().insert(id, Arc::new(session));
+        tracing::info!(%id, kind, "session opened");
+        id
     }
 
     fn get(&self, id: SessionId) -> Result<Arc<Session>> {

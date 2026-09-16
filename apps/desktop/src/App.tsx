@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
+import { M0Results, M0Status } from './components/M0Panel';
 import { Nyu } from './components/nyu/Nyu';
 import { TerminalView } from './components/Terminal';
-import { ThroughputHud } from './components/ThroughputHud';
-import { sessionMetrics, startLoadTest, type MetricsSnapshot, type SessionId } from './lib/session';
+import type { Renderer, TerminalDriver } from './lib/driver';
+import { runSuite, type Progress, type ScenarioResult } from './lib/m0';
+import { m0Autorun, m0Finish, spawnShellSession } from './lib/session';
 
 /**
  * Example hosts, so the first launch shows what the app is for instead of an
- * empty shell. They are not connectable — SSH lands in M1 — and the sidebar
+ * empty shell. They are not connectable yet — SSH comes next — and the sidebar
  * says so rather than pretending otherwise.
  */
 const DEMO_HOSTS = [
@@ -16,27 +18,67 @@ const DEMO_HOSTS = [
   { name: 'edge-bastion', meta: 'bastion…', online: false },
 ];
 
+/** Long enough for layout and the WebGL context to settle before measuring. */
+const AUTORUN_DELAY_MS = 1_500;
+
 export function App() {
-  const [session, setSession] = useState<SessionId | null>(null);
-  const [metrics, setMetrics] = useState<MetricsSnapshot | null>(null);
-  const [renderer, setRenderer] = useState<'webgl' | 'canvas' | null>(null);
+  const driverRef = useRef<TerminalDriver | null>(null);
+  const [renderer, setRenderer] = useState<Renderer | null>(null);
+  const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState<Progress | null>(null);
+  const [results, setResults] = useState<ScenarioResult[]>([]);
+  const [reportPath, setReportPath] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Poll rather than push: metrics must never compete with terminal frames for
-  // the channel we are trying to measure.
-  useEffect(() => {
-    if (!session) return;
-    const timer = window.setInterval(() => {
-      sessionMetrics(session)
-        .then(setMetrics)
-        .catch(() => undefined);
-    }, 250);
-    return () => window.clearInterval(timer);
-  }, [session]);
+  const openShell = useCallback(async (driver: TerminalDriver) => {
+    driver.term.reset();
+    try {
+      await driver.attach((onData) =>
+        spawnShellSession(driver.term.cols, driver.term.rows, onData),
+      );
+    } catch (e) {
+      // A superseded driver (StrictMode's second mount) failing is expected.
+      if (driverRef.current === driver) setError(String(e));
+    }
+  }, []);
 
-  const runLoadTest = useCallback(() => {
-    if (session) void startLoadTest(session);
-  }, [session]);
+  const runM0 = useCallback(async () => {
+    const driver = driverRef.current;
+    if (!driver) return;
+
+    setRunning(true);
+    setResults([]);
+    setReportPath(null);
+    setError(null);
+    try {
+      const report = await runSuite(driver, setProgress, setResults);
+      setProgress(null);
+      setReportPath(await m0Finish(report));
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setProgress(null);
+      setRunning(false);
+      if (driverRef.current === driver) void openShell(driver);
+    }
+  }, [openShell]);
+
+  const onReady = useCallback(
+    (driver: TerminalDriver) => {
+      driverRef.current = driver;
+      setRenderer(driver.renderer);
+
+      void (async () => {
+        if (await m0Autorun()) {
+          await new Promise((resolve) => window.setTimeout(resolve, AUTORUN_DELAY_MS));
+          if (driverRef.current === driver) await runM0();
+        } else {
+          await openShell(driver);
+        }
+      })();
+    },
+    [openShell, runM0],
+  );
 
   return (
     <div className="shell">
@@ -46,8 +88,6 @@ export function App() {
           <span>UwU</span>SSH
         </span>
         <span className="hint">M0 · Durchsatz-Spike</span>
-        <span className="spacer" />
-        <span className="hint">lokale Shell · noch kein SSH</span>
       </header>
 
       <div className="body">
@@ -63,32 +103,28 @@ export function App() {
             ))}
           </ul>
           <p className="demo-note">
-            Beispiel-Hosts. Verbinden geht ab M1 — bis dahin misst dieser Build nur, ob die
-            IPC-Grenze ein echtes Terminal trägt.
+            Beispiel-Hosts. Verbinden kommt als Nächstes — dass die IPC-Grenze ein echtes Terminal
+            trägt, hat M0 gemessen.
           </p>
         </aside>
 
         <main className="main">
           <div className="toolbar">
-            <button className="primary" onClick={runLoadTest} disabled={!session}>
-              Lasttest starten
+            <button className="primary" onClick={() => void runM0()} disabled={running}>
+              {running ? 'Messung läuft…' : 'M0-Messung starten'}
             </button>
-            <ThroughputHud metrics={metrics} renderer={renderer} />
+            <M0Status
+              renderer={renderer}
+              progress={progress}
+              reportPath={reportPath}
+              error={error}
+            />
           </div>
 
+          <M0Results results={results} />
+
           <div className="terminal-wrap">
-            {error ? (
-              <div className="empty-state">
-                <Nyu size={120} />
-                <p>
-                  Die Session ist nicht gestartet.
-                  <br />
-                  <code>{error}</code>
-                </p>
-              </div>
-            ) : (
-              <TerminalView onSession={setSession} onRenderer={setRenderer} onError={setError} />
-            )}
+            <TerminalView onReady={onReady} />
           </div>
         </main>
       </div>

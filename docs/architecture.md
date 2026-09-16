@@ -34,35 +34,48 @@ Private keys and passwords never cross that line. Authentication happens
 entirely in Rust. The WebView gets terminal bytes and metadata, which means an
 XSS hole in the frontend costs you disrupted sessions, not your key material.
 
-## The one real risk
+## Terminal throughput — measured, settled
 
-Terminal throughput across the IPC boundary. A `cat bigfile.log` pushes several
-MB/s, and Tauri's classic `emit` events serialise to JSON, which does not carry
-that.
+This was the one risk that could have invalidated the design: terminal output
+crossing the IPC boundary. It has been measured, and the answer is in
+[the M0 spike](m0-spike.md). Short version: **the IPC channel stays, the
+WebSocket fallback is gone, and end-to-end flow control is mandatory.**
 
-The implementation sends raw bytes over a `tauri::ipc::Channel`, with PTY output
-batched into 8 ms frames in the core instead of one crossing per read, and
-backpressure through a bounded channel. If that measurably isn't enough, the
-fallback is a local WebSocket on `127.0.0.1` with a one-time token and binary
-frames.
+The data path, as built:
 
-**M0 starts with measuring this**, not with the UI. It is the only question that
-could invalidate the whole design — see [the spike](m0-spike.md) for how to run
-it and how to read the numbers.
+```
+source (SSH socket, PTY reader, synthetic)
+  → bounded queue          backpressure to the source when full
+  → batcher                8 ms frames, 256 KiB cap, pauses on the renderer
+  → tauri::ipc::Channel    raw bytes, no JSON
+  → xterm.js write()       acknowledges parsed bytes back to the batcher
+```
 
-### Backpressure, not dropped frames
+With flow control, 64 MiB of coloured log output reaches the screen at
+41–46 MiB/s with no UI frame above 7 ms. That rate is xterm.js' own parse
+speed — the channel delivers faster — so no transport change could raise it.
+Local shells on Windows are capped far lower by ConPTY (~1.7 MiB/s), which SSH
+sessions never go through.
 
-An earlier draft of the concept said frames would be dropped on overflow, with
-xterm.js keeping the scrollback truth. That was wrong: dropping bytes before
-xterm.js cuts escape sequences in half, so the buffer holds corrupted output
-rather than truth.
+### Why flow control is not optional
 
-The bounded channel applies backpressure instead — the reader waits, the PTY
-buffer fills, and the program on the far end slows down, which is exactly what
-already happens when you `cat` a large file into a slow terminal. Nothing is
-dropped, and a stall counter records how often the reader had to wait. That
-counter is also the better measurement: it shows where the ceiling is instead of
-hiding it behind discarded data.
+`Channel::send` returns once Tauri has queued a frame, not once the webview has
+parsed it. Without acknowledgements, backpressure stops at the IPC boundary, the
+webview queues everything — and xterm.js throws away writes once more than
+50 MB are pending. Measured: about 9 MiB lost from a 64 MiB flood, twice, with a
+perfectly smooth UI that gave no hint of it.
+
+So the renderer acknowledges from xterm.js' write callback, the batcher pauses
+at 512 KiB outstanding and resumes at 128 KiB, and acknowledgements go out every
+64 KiB. That last size must stay below the resume threshold, or a paused stream
+deadlocks on an unacknowledged remainder; `uwussh-core` asserts it at compile
+time. It is the scheme VS Code's terminal uses, for the same reason.
+
+### Bytes are never dropped
+
+An early draft of the concept said frames would be dropped on overflow. That was
+wrong: dropping bytes before xterm.js cuts escape sequences in half. The engine
+never drops; it only ever makes the source wait.
 
 ## Data model
 

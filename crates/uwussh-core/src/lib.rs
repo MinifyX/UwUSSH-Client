@@ -1,19 +1,23 @@
 //! The UwUSSH session engine.
 //!
-//! Everything that talks to a terminal lives here: local PTY sessions today,
-//! SSH sessions from M1 on. Both produce the same thing — a stream of bytes —
-//! so they share [`stream`], the part that decides how those bytes reach the
-//! UI without melting the IPC boundary.
+//! Everything that talks to a terminal lives here: local PTY sessions and a
+//! synthetic load source today, SSH sessions next. All of them produce
+//! the same thing — a stream of bytes — so they share [`stream`] and [`flow`],
+//! the parts that decide how those bytes reach the UI without melting the IPC
+//! boundary.
 //!
 //! This crate deliberately knows nothing about Tauri. The UI layer implements
 //! [`stream::FrameSink`] over whatever transport it has, which keeps the engine
 //! testable without a window.
 
+pub mod flow;
 pub mod metrics;
 pub mod pty;
 pub mod session;
 pub mod stream;
+pub mod synthetic;
 
+pub use flow::FlowControl;
 pub use metrics::{Metrics, MetricsSnapshot};
 pub use session::{SessionId, SessionManager};
 pub use stream::{FrameSink, SinkError};

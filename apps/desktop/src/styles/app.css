@@ -148,7 +148,7 @@ body {
 
 .main {
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto auto 1fr;
   min-width: 0;
   min-height: 0;
 }
@@ -204,13 +204,70 @@ button:disabled {
   padding: 10px;
 }
 
-/* ── HUD ───────────────────────────────────────────────── */
+/* ── M0 ────────────────────────────────────────────────── */
 
-.hud {
+.m0-status {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  margin-left: auto;
+  min-width: 0;
+}
+
+.m0-status .stat {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.m0-table-wrap {
+  overflow-x: auto;
+  padding: 10px 14px 0;
+  background: var(--uwu-canvas);
+}
+
+.m0-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--uwu-surface);
+  border: 1px solid var(--uwu-hairline);
+  border-radius: var(--uwu-radius-control);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.m0-table th,
+.m0-table td {
+  padding: 7px 12px;
+  text-align: right;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--uwu-hairline);
+}
+
+.m0-table th:first-child,
+.m0-table td:first-child {
+  text-align: left;
+}
+
+.m0-table th {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--uwu-muted);
+}
+
+.m0-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.m0-table td[data-alarm='true'] {
+  color: var(--uwu-alarm);
+  font-weight: 600;
+}
+
+.m0-table .flag {
+  color: var(--uwu-alarm);
+  font-weight: 600;
 }
 
 .stat {

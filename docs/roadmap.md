@@ -8,10 +8,14 @@ first, not the nicest feature.
 Tauri shell, `xterm.js`, `russh` connect, password and key auth, the SQLite
 schema, a host list.
 
-**It starts with a throughput spike.** Tauri shell + xterm.js + `russh` against
-a test host, `yes` as the load, measuring frame timing. That decides whether the
-IPC channel carries a real terminal or whether the local WebSocket fallback is
-needed — and it shapes the whole session architecture, so it cannot wait.
+**The throughput spike is done** (2026-09-16, [results](m0-spike.md)). The IPC
+channel carries a real terminal: 41–46 MiB/s with no UI frame above 7 ms, which
+is xterm.js' own parse speed. The WebSocket fallback is dropped. End-to-end flow
+control turned out to be mandatory — without it xterm.js discarded about 9 MiB
+of a 64 MiB flood — and is built in.
+
+Still open in M0: `russh` connect, password and key auth, the SQLite schema, a
+real host list.
 
 ## M1 · Daily driver
 

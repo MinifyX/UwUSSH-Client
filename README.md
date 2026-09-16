@@ -58,11 +58,12 @@ can remember and more than one machine to reach them from.
   Settings → Tone → Neutral. Security warnings are never playful, in either
   tone.
 
-> **Status:** milestone 0. The workspace is scaffolded and the app opens a local
-> shell, because M0 exists to answer one question before anything is built on
-> top of it: does the Rust→WebView boundary carry a real terminal? See
-> [the throughput spike](docs/m0-spike.md). No SSH yet — that is M1, and the
-> [roadmap](docs/roadmap.md) shows the order.
+> **Status:** milestone 0. The app opens a local shell, and the one question
+> that could have sunk the design is answered: the Rust→WebView boundary carries
+> a real terminal at 41–46 MiB/s without a single stuttering frame — provided
+> the renderer acknowledges what it has parsed, because without that xterm.js
+> silently drops output. See [the throughput spike](docs/m0-spike.md). No SSH
+> yet; the [roadmap](docs/roadmap.md) shows the order.
 
 ## The sync server
 

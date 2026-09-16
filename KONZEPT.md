@@ -50,17 +50,24 @@ UwUSSH besetzt die Lücke: **Termius-Optik, PuTTY-Funktionsumfang, Sync auf dein
 | Krypto       | `argon2`, `chacha20poly1305`, `zeroize` (RustCrypto) | Etablierte Crates. Nichts selbst bauen.                                                          |
 | Sync-Server  | **Rust + Axum**, SQLite (optional Postgres)          | Eine Sprache, ein Docker-Image, wenig RAM im Leerlauf.                                           |
 
-### Der eine Punkt, an dem Tauri wehtun kann
+### Terminal-Durchsatz — gemessen, entschieden
 
-Terminal-Durchsatz. Ein `cat bigfile.log` schiebt mehrere MB/s durch die IPC-Grenze. Tauris klassische `emit`-Events serialisieren nach JSON — das reicht dafür nicht.
+Das war der eine Punkt, an dem Tauri hätte wehtun können: Terminal-Ausgabe über die IPC-Grenze. **M0 hat ihn gemessen, und die Antwort ist eindeutig** (Details: [`docs/m0-spike.md`](docs/m0-spike.md)):
 
-**Lösung:** Raw-Bytes über einen `tauri::ipc::Channel`, PTY-Output im Rust-Core auf 8-ms-Frames gebündelt statt eine Überquerung pro Read, Backpressure über einen begrenzten Channel.
+| Szenario (64 MiB farbige Log-Ausgabe) | Ergebnis                     | Längster UI-Frame |
+| ------------------------------------- | ---------------------------- | ----------------- |
+| Direkt, **ohne** Flow-Control         | **8,7 / 8,9 MiB verloren**   | 42 / 43 ms        |
+| Direkt, mit Flow-Control (= SSH-Pfad) | vollständig, **41–46 MiB/s** | 6 ms              |
+| ConPTY (`type bigfile`), Flow-Control | vollständig, **1,7 MiB/s**   | 6–7 ms            |
 
-**Fallback, falls das messbar nicht reicht:** lokaler WebSocket auf `127.0.0.1` mit Einmal-Token, binäre Frames. Gemessen wird das in M0 als Allererstes — siehe [`docs/m0-spike.md`](docs/m0-spike.md).
+**Entscheidung: Der `tauri::ipc::Channel` mit Raw-Bytes bleibt, der WebSocket-Fallback fliegt raus.** Der Channel liefert schneller, als xterm.js parsen kann — die 41–46 MiB/s _sind_ die Parse-Geschwindigkeit von xterm.js, und die kann kein anderer Transport anheben. Lokale Shells unter Windows deckelt ConPTY bei ~1,7 MiB/s; SSH-Sessions laufen nie durch ConPTY.
 
-> **Korrektur gegenüber v0.1.** Hier stand ursprünglich, bei Overflow würden Frames bewusst verworfen, weil die Scrollback-Wahrheit ohnehin in xterm.js' Buffer lande. Beim Implementieren wurde klar, dass das falsch ist: Bytes vor xterm.js zu verwerfen zerschneidet Escape-Sequenzen, und im Buffer landet dann kaputte Ausgabe statt Wahrheit.
+**End-to-End-Flow-Control ist Pflicht — nicht wegen Tempo, sondern weil sonst Daten verloren gehen.** `Channel::send` kehrt zurück, sobald Tauri den Frame eingereiht hat, nicht wenn die WebView ihn verarbeitet hat. Ohne Rückmeldung staut sich alles in der WebView, und xterm.js verwirft ab 50 MB Rückstand hart („write data discarded, use flow control to avoid losing data"). Die UI lief dabei flüssig — der Verlust wäre niemandem aufgefallen. Gebaut ist deshalb das Schema von VS Codes Terminal: Die WebView quittiert verarbeitete Bytes aus dem Write-Callback von xterm.js, die Engine pausiert bei 512 KiB Rückstand und macht bei 128 KiB weiter.
+
+> **Zwei Korrekturen gegenüber v0.1**, beide durch M0 erzwungen:
 >
-> Gebaut ist stattdessen das, was ein echtes Terminal tut — **Backpressure**. Der begrenzte Channel lässt den Reader warten, der PTY-Puffer läuft voll, und das Programm am anderen Ende wird langsamer; genau das passiert heute schon, wenn man eine große Datei in ein langsames Terminal `cat`tet. Nichts geht verloren, und ein Stall-Zähler misst, wie oft der Reader warten musste. Dieser Zähler ist auch die bessere Messgröße: Er zeigt die Decke, statt sie hinter weggeworfenen Daten zu verstecken.
+> 1. Hier stand, bei Overflow würden **Frames bewusst verworfen**. Falsch — Bytes vor xterm.js zu verwerfen zerschneidet Escape-Sequenzen. Die Engine verwirft nie, sie lässt nur die Quelle warten.
+> 2. Das erste Gerüst hatte **Backpressure nur bis zur IPC-Grenze** und die Doku behauptete, das reiche. Die Messung hat gezeigt, dass genau dort die Daten verloren gingen.
 
 ---
 
@@ -463,4 +470,6 @@ Zwei Entscheidungen, die sich später auszahlen:
 
 ## Nächster Schritt
 
-M0 beginnt nicht mit der UI, sondern mit einem **Durchsatz-Spike**: Tauri-Shell + xterm.js + `russh` gegen einen Testhost, `yes` als Last, Frame-Timing messen. Das Ergebnis entscheidet, ob der IPC-Channel reicht oder ob der lokale WebSocket gebraucht wird — und das beeinflusst die gesamte Session-Architektur.
+~~M0-Durchsatz-Spike~~ — **erledigt am 2026-09-16.** Der IPC-Channel trägt, mit End-to-End-Flow-Control verlustfrei und ohne Ruckler; der WebSocket-Fallback ist gestrichen.
+
+Der Rest von **M0** baut jetzt auf dem gemessenen Datenpfad auf: `russh` als dritte Session-Variante neben PTY und synthetischer Quelle, Passwort- und Key-Auth, das SQLite-Schema und eine echte Host-Liste statt der Beispiel-Hosts. Danach M1 mit `known_hosts` und dem Import aus PuTTY, KiTTY und `ssh_config`.

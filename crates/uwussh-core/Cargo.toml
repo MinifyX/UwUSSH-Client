@@ -21,5 +21,5 @@ uuid.workspace = true
 
 # Not here yet, on purpose — see the note in the workspace Cargo.toml.
 # The M0 throughput spike runs against a local PTY, which pushes far more
-# bytes per second than an SSH session ever will. SSH lands in M1:
+# bytes per second than an SSH session ever will. SSH is next, still in M0:
 #   cargo add russh russh-keys russh-sftp
