@@ -33,14 +33,15 @@ The point where I can stop using anything else.
   into the vault. It found 14 hosts, 16 logins, 2 keys and 138 known-host keys
   on the first real run, and skips nothing it can read. See
   [architecture](architecture.md#import).
-- **PuTTY and KiTTY import is done.** Their sessions come straight out of the
-  registry, `.ppk` key paths and faux-folder groups and all. They keep keys as
-  files and type their passwords, so that import holds no secrets and needs no
-  vault at all. Import is now source-agnostic: pick a source, preview it, write
-  it.
-- Still to import: `ssh_config`; and the host keys PuTTY already trusts, whose
-  registry format is PuTTY's own and wants a real dump to verify before it is
-  promised.
+- **PuTTY, KiTTY and `ssh_config` import are done.** PuTTY and KiTTY sessions
+  come straight out of the registry (`.ppk` paths and faux-folder groups and
+  all); `~/.ssh/config` is read with its `Include` directives followed. All keep
+  keys as files and type their passwords, so those imports hold no secrets and
+  need no vault. Import is source-agnostic: pick a source, preview it, write it.
+- Still to import: the host keys PuTTY already trusts, whose registry format is
+  PuTTY's own and wants a real dump to verify before it is promised. And
+  ProxyJump: `ssh_config` records the jump host, but linking the chain is the
+  ProxyJump feature below, not the import.
 - Tabs and splits, agent auth (Pageant, `\\.\pipe\openssh-ssh-agent`,
   1Password), ProxyJump chains
 - Snippets, broadcast input, themes, the command palette

@@ -202,6 +202,19 @@ import carries **no secrets** and needs no vault — unlike Termius. The store
 requires an unlocked vault only when a set actually seals something, so a PuTTY
 import writes with the vault untouched.
 
+### OpenSSH `~/.ssh/config`
+
+`ssh_config::read_default` reads the user's config — or wherever
+`UWUSSH_SSH_CONFIG` points — and follows `Include` directives, splicing each
+included file in where it appears (the order OpenSSH applies them), with `~`
+expansion and a `*`/`?` glob in the final path component for the common
+`config.d/*` case, bounded by a depth limit and a visited set against cycles. A
+`Host` pattern with wildcards is a rule, not a machine, so it is reported and
+skipped rather than turned into a host nobody can reach. Like PuTTY, these
+hosts reference a key file and type their password, so the import needs no
+vault. (`ProxyJump` is recorded on the imported host but not yet linked into a
+chain — that is the ProxyJump feature, not the import.)
+
 ### The vault an import lands in
 
 An import carries passwords and private keys, so it needs a sealed home before
