@@ -1,28 +1,40 @@
 //! The Tauri host.
 //!
-//! This layer is thin on purpose: it turns IPC calls into `uwussh-core` calls
-//! and pipes frames back. All the engine logic lives in the crates, so it can
-//! be tested without a window — and so the one piece that is genuinely
-//! Tauri-shaped, [`ChannelSink`], stays small enough to replace in a minute if
-//! the M0 measurement says the IPC channel cannot keep up.
+//! This layer is thin on purpose: it turns IPC calls into calls on the crates
+//! and pipes frames back. The engine lives in `uwussh-core`, the data in
+//! `uwussh-store`, and both are tested without a window.
+//!
+//! - [`sessions`] — terminal I/O for any session
+//! - [`hosts`] — the host list, connecting, and host key decisions
+//! - [`m0`] — the throughput measurement
 
-use serde::Deserialize;
-use std::path::{Path, PathBuf};
+mod hosts;
+mod m0;
+mod sessions;
+
+use parking_lot::Mutex;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::ipc::{Channel, InvokeResponseBody};
-use tauri::{AppHandle, State};
-use uwussh_core::{FrameSink, MetricsSnapshot, SessionId, SessionManager, SinkError};
+use tauri::Manager;
+use uwussh_core::{FrameSink, ObservedHostKey, SessionManager, SinkError};
+use uwussh_store::Store;
 
-struct AppState {
-    sessions: Arc<SessionManager>,
+pub(crate) struct AppState {
+    pub sessions: Arc<SessionManager>,
+    pub store: Arc<Store>,
+    /// Host keys a server presented in the last connection attempt, per
+    /// address and port. Trusting a key is only possible for a key in here,
+    /// so a compromised webview cannot hand in a key of its own choosing.
+    pub presented_keys: Mutex<HashMap<(String, u16), ObservedHostKey>>,
 }
 
 /// Terminal frames on their way to the webview.
 ///
 /// This is the whole Tauri-specific surface of the data path. Everything else —
 /// reading, coalescing, flow control — is transport-agnostic in `uwussh-core`.
-struct ChannelSink {
-    channel: Channel<InvokeResponseBody>,
+pub(crate) struct ChannelSink {
+    pub channel: Channel<InvokeResponseBody>,
 }
 
 impl FrameSink for ChannelSink {
@@ -31,156 +43,17 @@ impl FrameSink for ChannelSink {
             .send(InvokeResponseBody::Raw(frame.to_vec()))
             .map_err(|err| SinkError::Other(err.to_string()))
     }
+
+    /// An empty frame is the end-of-stream marker; real frames are never empty.
+    fn finish(&self) {
+        let _ = self.channel.send(InvokeResponseBody::Raw(Vec::new()));
+    }
 }
 
-type CommandResult<T> = Result<T, String>;
+pub(crate) type CommandResult<T> = Result<T, String>;
 
-fn err(e: impl std::fmt::Display) -> String {
+pub(crate) fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
-}
-
-#[tauri::command]
-async fn spawn_shell_session(
-    state: State<'_, AppState>,
-    cols: u16,
-    rows: u16,
-    on_data: Channel<InvokeResponseBody>,
-) -> CommandResult<SessionId> {
-    state
-        .sessions
-        .spawn_shell(cols, rows, ChannelSink { channel: on_data })
-        .map_err(err)
-}
-
-#[tauri::command]
-async fn write_session(
-    state: State<'_, AppState>,
-    id: SessionId,
-    data: String,
-) -> CommandResult<()> {
-    state.sessions.write(id, data.as_bytes()).map_err(err)
-}
-
-#[tauri::command]
-async fn resize_session(
-    state: State<'_, AppState>,
-    id: SessionId,
-    cols: u16,
-    rows: u16,
-) -> CommandResult<()> {
-    state.sessions.resize(id, cols, rows).map_err(err)
-}
-
-/// The renderer has processed `bytes` more bytes. This is what lets the engine
-/// pause before the webview drowns.
-#[tauri::command]
-async fn ack_session(state: State<'_, AppState>, id: SessionId, bytes: u64) -> CommandResult<()> {
-    state.sessions.ack(id, bytes).map_err(err)
-}
-
-#[tauri::command]
-async fn close_session(state: State<'_, AppState>, id: SessionId) -> CommandResult<()> {
-    state.sessions.close(id).map_err(err)
-}
-
-#[tauri::command]
-async fn session_metrics(
-    state: State<'_, AppState>,
-    id: SessionId,
-) -> CommandResult<MetricsSnapshot> {
-    state.sessions.metrics(id).map_err(err)
-}
-
-// ── M0 ──────────────────────────────────────────────────────────────────────
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct M0Scenario {
-    kind: M0Kind,
-    flow_control: bool,
-    payload_mib: u32,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum M0Kind {
-    /// Generated in Rust, no process, no ConPTY — the path SSH bytes take.
-    Synthetic,
-    /// `type bigfile.log` through ConPTY — the local shell path.
-    Pty,
-}
-
-#[tauri::command]
-async fn spawn_m0_session(
-    state: State<'_, AppState>,
-    scenario: M0Scenario,
-    cols: u16,
-    rows: u16,
-    on_data: Channel<InvokeResponseBody>,
-) -> CommandResult<SessionId> {
-    let sink = ChannelSink { channel: on_data };
-    let bytes = scenario.payload_mib as usize * 1024 * 1024;
-    tracing::info!(?scenario, "M0 scenario starting");
-
-    match scenario.kind {
-        M0Kind::Synthetic => Ok(state
-            .sessions
-            .spawn_synthetic(bytes, scenario.flow_control, sink)),
-        M0Kind::Pty => {
-            let path = flood_file(bytes).map_err(err)?;
-            let (program, args) = flood_command(&path);
-            state
-                .sessions
-                .spawn_command(&program, &args, cols, rows, scenario.flow_control, sink)
-                .map_err(err)
-        }
-    }
-}
-
-/// The log file for the PTY scenario, written once and reused.
-fn flood_file(bytes: usize) -> std::io::Result<PathBuf> {
-    let path =
-        std::env::temp_dir().join(format!("uwussh-m0-flood-{}mib.log", bytes / (1024 * 1024)));
-    let complete = std::fs::metadata(&path)
-        .map(|m| m.len() as usize >= bytes)
-        .unwrap_or(false);
-    if !complete {
-        uwussh_core::synthetic::write_flood_file(&path, bytes)?;
-    }
-    Ok(path)
-}
-
-fn flood_command(path: &Path) -> (String, Vec<String>) {
-    let path = path.to_string_lossy().into_owned();
-    if cfg!(windows) {
-        ("cmd.exe".into(), vec!["/c".into(), "type".into(), path])
-    } else {
-        ("cat".into(), vec![path])
-    }
-}
-
-/// Set `UWUSSH_M0_AUTORUN` to run the measurement on launch and quit.
-#[tauri::command]
-fn m0_autorun() -> bool {
-    std::env::var_os("UWUSSH_M0_AUTORUN").is_some()
-}
-
-/// Write the report — to `UWUSSH_M0_REPORT` if set, else the temp directory —
-/// and quit if this was an autorun. A file rather than stdout, because a
-/// release build on Windows has no console to print to.
-#[tauri::command]
-async fn m0_finish(app: AppHandle, report: serde_json::Value) -> CommandResult<String> {
-    let path = std::env::var_os("UWUSSH_M0_REPORT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| std::env::temp_dir().join("uwussh-m0-report.json"));
-    let text = serde_json::to_string_pretty(&report).map_err(err)?;
-    std::fs::write(&path, text).map_err(err)?;
-    tracing::info!(path = %path.display(), "M0 report written");
-
-    if m0_autorun() {
-        app.exit(0);
-    }
-    Ok(path.display().to_string())
 }
 
 pub fn run() {
@@ -191,19 +64,41 @@ pub fn run() {
         .init();
 
     tauri::Builder::default()
-        .manage(AppState {
-            sessions: Arc::new(SessionManager::new()),
+        .setup(|app| {
+            // Same place as UwUMail keeps its database:
+            // %APPDATA%\app.uwussh.desktop\uwussh.db on Windows.
+            // UWUSSH_DB points elsewhere, so trying things out never touches
+            // the real host list.
+            let path = match std::env::var_os("UWUSSH_DB") {
+                Some(path) => std::path::PathBuf::from(path),
+                None => app.path().app_data_dir()?.join("uwussh.db"),
+            };
+            let store = Store::open(&path)?;
+            tracing::info!(path = %path.display(), "store open");
+
+            app.manage(AppState {
+                sessions: Arc::new(SessionManager::new()),
+                store: Arc::new(store),
+                presented_keys: Mutex::new(HashMap::new()),
+            });
+            Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            spawn_shell_session,
-            write_session,
-            resize_session,
-            ack_session,
-            close_session,
-            session_metrics,
-            spawn_m0_session,
-            m0_autorun,
-            m0_finish,
+            sessions::spawn_shell_session,
+            sessions::write_session,
+            sessions::resize_session,
+            sessions::ack_session,
+            sessions::close_session,
+            sessions::session_metrics,
+            hosts::list_hosts,
+            hosts::save_host,
+            hosts::delete_host,
+            hosts::connect_host,
+            hosts::cancel_connect,
+            hosts::trust_host_key,
+            m0::spawn_m0_session,
+            m0::m0_autorun,
+            m0::m0_finish,
         ])
         .run(tauri::generate_context!())
         .expect("failed to start UwUSSH");

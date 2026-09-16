@@ -5334,17 +5334,21 @@ dependencies = [
 name = "uwussh-desktop"
 version = "0.0.1"
 dependencies = [
+ "parking_lot",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
  "tracing",
  "tracing-subscriber",
+ "uuid",
  "uwussh-core",
  "uwussh-import",
  "uwussh-proto",
+ "uwussh-store",
  "uwussh-sync",
  "uwussh-vault",
+ "zeroize",
 ]
 
 [[package]]

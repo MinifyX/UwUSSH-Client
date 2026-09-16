@@ -1,17 +1,23 @@
 //! SSH sessions, on the data path M0 measured.
 //!
-//! The order of operations is the security model, so it is spelled out here:
+//! Connecting happens in the same order as in PuTTY and OpenSSH, and that order
+//! is the security model:
 //!
-//! 1. **A server whose key is not trusted is never authenticated against.**
-//!    Without a trusted fingerprint the connection exists only to learn the
-//!    key, and ends with [`SshError::UnknownHostKey`] before any credential
-//!    has been looked at.
-//! 2. **Credentials are prepared before touching the network.** A missing
-//!    password or an encrypted key without its passphrase is reported
-//!    immediately, so asking for a secret never costs a connection.
-//! 3. **The host key is checked during key exchange**, before authentication
-//!    — a changed key ends the attempt with [`SshError::HostKeyChanged`] and
-//!    the password never leaves this machine.
+//! 1. **Connect and check the host key.** [`SshConnection::open`] runs the key
+//!    exchange and compares the server's key with the trusted fingerprint. An
+//!    unknown key ends with [`SshError::UnknownHostKey`], a different one with
+//!    [`SshError::HostKeyChanged`] — before anything about the user is sent,
+//!    and before the user is asked for anything.
+//! 2. **Only then ask for secrets.** [`SshConnection::authenticate`] reports a
+//!    missing password or passphrase without contacting the server, and the
+//!    verified connection stays open, so the answer — or a second try after a
+//!    typo — goes over the same connection rather than a new one.
+//! 3. **Open the shell** on the authenticated connection.
+//!
+//! An earlier version asked for the password before connecting, to save a
+//! round trip. Security held — nothing was sent to a changed key — but the user
+//! typed the password first and learned about the possible man in the middle
+//! second. The end-to-end UI test caught it; this order is the fix.
 //!
 //! Backpressure reaches the server: when the renderer falls behind, the batcher
 //! pauses, the reader stops pulling from russh, russh stops reading the socket
@@ -31,7 +37,7 @@ use russh::{ChannelMsg, Disconnect};
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use zeroize::Zeroizing;
 
@@ -39,11 +45,17 @@ use zeroize::Zeroizing;
 /// not leave the user staring at a spinner.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// How long a verified connection waits for the user to type a secret. OpenSSH
+/// servers give up on unauthenticated connections after two minutes by default
+/// (`LoginGraceTime`), so waiting longer than that would only hand back a dead
+/// connection.
+const PENDING_TTL: Duration = Duration::from_secs(110);
+
 /// What the remote side is told it is talking to.
 const TERM: &str = "xterm-256color";
 
 pub enum SshAuth {
-    /// `None` means "not asked yet"; the session reports that before connecting.
+    /// `None` means "not asked yet".
     Password(Option<Zeroizing<String>>),
     /// A private key file — OpenSSH, PEM or PuTTY `.ppk`. `~` is expanded.
     Key {
@@ -135,54 +147,158 @@ pub enum SshError {
     Protocol { reason: String },
 }
 
-enum Input {
-    Data(Vec<u8>),
-    Resize(u16, u16),
-    Close,
+impl SshError {
+    /// Errors that are a question for the user, after which trying again on
+    /// the same connection makes sense.
+    pub fn awaits_answer(&self) -> bool {
+        matches!(
+            self,
+            Self::PasswordRequired
+                | Self::PassphraseRequired { .. }
+                | Self::PassphraseRejected { .. }
+                | Self::AuthRejected { .. }
+        )
+    }
 }
 
-pub struct SshSession {
-    input: mpsc::UnboundedSender<Input>,
-    metrics: Arc<Metrics>,
-    flow: Arc<FlowControl>,
+// ── Connection: verified, possibly not yet authenticated ────────────────────
+
+pub struct SshConnection {
+    handle: Handle<HostKeyCheck>,
+    address: String,
+    port: u16,
+    username: String,
+    opened: Instant,
 }
 
-impl SshSession {
-    pub async fn connect<S: FrameSink>(
-        target: SshTarget,
+impl SshConnection {
+    /// Connect and check the host key. Nothing about the user is sent.
+    pub async fn open(target: &SshTarget) -> std::result::Result<Self, SshError> {
+        let verdict = Arc::new(Mutex::new(None));
+        let handler = HostKeyCheck {
+            trusted: target.trusted_fingerprint.clone(),
+            verdict: Arc::clone(&verdict),
+        };
+        let config = Arc::new(client::Config {
+            keepalive_interval: Some(Duration::from_secs(30)),
+            keepalive_max: 3,
+            nodelay: true,
+            ..Default::default()
+        });
+
+        let connecting = client::connect(config, (target.address.as_str(), target.port), handler);
+        let handle = match tokio::time::timeout(CONNECT_TIMEOUT, connecting).await {
+            Ok(Ok(handle)) => handle,
+            Ok(Err(err)) => {
+                return Err(match verdict.lock().take() {
+                    Some(Verdict::Unknown(observed)) => SshError::UnknownHostKey { observed },
+                    Some(Verdict::Changed { trusted, observed }) => SshError::HostKeyChanged {
+                        trusted_fingerprint: trusted,
+                        observed,
+                    },
+                    None => match err {
+                        russh::Error::IO(io) => SshError::Unreachable {
+                            address: target.address.clone(),
+                            reason: io.to_string(),
+                        },
+                        other => SshError::Protocol {
+                            reason: other.to_string(),
+                        },
+                    },
+                })
+            }
+            Err(_) => {
+                return Err(SshError::Unreachable {
+                    address: target.address.clone(),
+                    reason: format!("no answer within {} s", CONNECT_TIMEOUT.as_secs()),
+                })
+            }
+        };
+
+        Ok(Self {
+            handle,
+            address: target.address.clone(),
+            port: target.port,
+            username: target.username.clone(),
+            opened: Instant::now(),
+        })
+    }
+
+    /// Whether this connection can carry the next attempt for `target`: still
+    /// open, not too old, and for the same server and user. An edited host
+    /// gets a fresh connection — and with it a fresh host key check.
+    pub fn is_reusable_for(&self, target: &SshTarget) -> bool {
+        !self.handle.is_closed()
+            && self.opened.elapsed() < PENDING_TTL
+            && self.address.eq_ignore_ascii_case(&target.address)
+            && self.port == target.port
+            && self.username == target.username
+    }
+
+    /// Log in. A missing password or passphrase is reported without
+    /// contacting the server; the connection stays usable for the retry.
+    pub async fn authenticate(&mut self, auth: &SshAuth) -> std::result::Result<(), SshError> {
+        let protocol = |e: russh::Error| SshError::Protocol {
+            reason: e.to_string(),
+        };
+
+        let result = match prepare_credential(auth)? {
+            Credential::Password(password) => self
+                .handle
+                .authenticate_password(&self.username, password.as_str())
+                .await
+                .map_err(protocol)?,
+            Credential::Key(key) => {
+                let hash = if matches!(key.algorithm(), Algorithm::Rsa { .. }) {
+                    self.handle
+                        .best_supported_rsa_hash()
+                        .await
+                        .ok()
+                        .flatten()
+                        .flatten()
+                } else {
+                    None
+                };
+                self.handle
+                    .authenticate_publickey(
+                        &self.username,
+                        PrivateKeyWithHashAlg::new(Arc::new(*key), hash),
+                    )
+                    .await
+                    .map_err(protocol)?
+            }
+        };
+
+        match result {
+            client::AuthResult::Success => Ok(()),
+            client::AuthResult::Failure {
+                remaining_methods, ..
+            } => Err(SshError::AuthRejected {
+                remaining: remaining_methods
+                    .iter()
+                    .map(|method| format!("{method:?}").to_lowercase())
+                    .collect(),
+            }),
+        }
+    }
+
+    /// Open a shell on an authenticated connection and start streaming it.
+    pub async fn open_shell<S: FrameSink>(
+        self,
         cols: u16,
         rows: u16,
         flow_control: bool,
         sink: S,
-    ) -> std::result::Result<Self, SshError> {
-        let Some(trusted) = target.trusted_fingerprint.clone() else {
-            return Err(learn_host_key(&target).await);
+    ) -> std::result::Result<SshSession, SshError> {
+        let refused = |e: russh::Error| SshError::SessionRefused {
+            reason: e.to_string(),
         };
-
-        let credential = prepare_credential(&target.auth)?;
-        let mut handle = open(&target, Some(trusted)).await?;
-
-        authenticate(&mut handle, &target.username, credential).await?;
-
-        let channel =
-            handle
-                .channel_open_session()
-                .await
-                .map_err(|e| SshError::SessionRefused {
-                    reason: e.to_string(),
-                })?;
+        let channel = self.handle.channel_open_session().await.map_err(refused)?;
         channel
             .request_pty(false, TERM, u32::from(cols), u32::from(rows), 0, 0, &[])
             .await
-            .map_err(|e| SshError::SessionRefused {
-                reason: e.to_string(),
-            })?;
-        channel
-            .request_shell(false)
-            .await
-            .map_err(|e| SshError::SessionRefused {
-                reason: e.to_string(),
-            })?;
+            .map_err(refused)?;
+        channel.request_shell(false).await.map_err(refused)?;
         let (mut reader, writer) = channel.split();
 
         let metrics = Arc::new(Metrics::new());
@@ -220,6 +336,7 @@ impl SshSession {
 
         // Inputs go through one queue in one task, so keystrokes reach the
         // server in the order they were typed.
+        let handle = self.handle;
         tokio::spawn(async move {
             while let Some(next) = inputs.recv().await {
                 let sent = match next {
@@ -240,14 +357,39 @@ impl SshSession {
             let _ = handle.disconnect(Disconnect::ByApplication, "", "en").await;
         });
 
-        tracing::info!(address = %target.address, port = target.port, "ssh session open");
-        Ok(Self {
+        tracing::info!(address = %self.address, port = self.port, "ssh session open");
+        Ok(SshSession {
             input,
             metrics,
             flow,
         })
     }
 
+    /// Give up on this connection, telling the server rather than letting it
+    /// time out.
+    pub async fn close(self) {
+        let _ = self
+            .handle
+            .disconnect(Disconnect::ByApplication, "", "en")
+            .await;
+    }
+}
+
+// ── Session: an open shell ──────────────────────────────────────────────────
+
+enum Input {
+    Data(Vec<u8>),
+    Resize(u16, u16),
+    Close,
+}
+
+pub struct SshSession {
+    input: mpsc::UnboundedSender<Input>,
+    metrics: Arc<Metrics>,
+    flow: Arc<FlowControl>,
+}
+
+impl SshSession {
     pub fn write(&self, data: &[u8]) -> Result<()> {
         self.input
             .send(Input::Data(data.to_vec()))
@@ -274,7 +416,7 @@ impl SshSession {
     }
 }
 
-// ── Connecting ──────────────────────────────────────────────────────────────
+// ── Host key check ──────────────────────────────────────────────────────────
 
 enum Verdict {
     Unknown(ObservedHostKey),
@@ -322,61 +464,7 @@ impl client::Handler for HostKeyCheck {
     }
 }
 
-/// Connect far enough to see the server's key, then stop.
-async fn learn_host_key(target: &SshTarget) -> SshError {
-    match open(target, None).await {
-        Err(err) => err,
-        // Cannot happen — with nothing trusted, the check always refuses — but
-        // if it ever did, refusing to continue is the only safe reading.
-        Ok(_) => SshError::Protocol {
-            reason: "server key accepted without a trusted fingerprint".into(),
-        },
-    }
-}
-
-async fn open(
-    target: &SshTarget,
-    trusted: Option<String>,
-) -> std::result::Result<Handle<HostKeyCheck>, SshError> {
-    let verdict = Arc::new(Mutex::new(None));
-    let handler = HostKeyCheck {
-        trusted,
-        verdict: Arc::clone(&verdict),
-    };
-    let config = Arc::new(client::Config {
-        keepalive_interval: Some(Duration::from_secs(30)),
-        keepalive_max: 3,
-        nodelay: true,
-        ..Default::default()
-    });
-
-    let address = target.address.clone();
-    let connecting = client::connect(config, (target.address.as_str(), target.port), handler);
-
-    match tokio::time::timeout(CONNECT_TIMEOUT, connecting).await {
-        Ok(Ok(handle)) => Ok(handle),
-        Ok(Err(err)) => Err(match verdict.lock().take() {
-            Some(Verdict::Unknown(observed)) => SshError::UnknownHostKey { observed },
-            Some(Verdict::Changed { trusted, observed }) => SshError::HostKeyChanged {
-                trusted_fingerprint: trusted,
-                observed,
-            },
-            None => match err {
-                russh::Error::IO(io) => SshError::Unreachable {
-                    address,
-                    reason: io.to_string(),
-                },
-                other => SshError::Protocol {
-                    reason: other.to_string(),
-                },
-            },
-        }),
-        Err(_) => Err(SshError::Unreachable {
-            address,
-            reason: format!("no answer within {} s", CONNECT_TIMEOUT.as_secs()),
-        }),
-    }
-}
+// ── Credentials ─────────────────────────────────────────────────────────────
 
 enum Credential {
     Password(Zeroizing<String>),
@@ -407,51 +495,6 @@ fn prepare_credential(auth: &SshAuth) -> std::result::Result<Credential, SshErro
                 }),
             }
         }
-    }
-}
-
-async fn authenticate(
-    handle: &mut Handle<HostKeyCheck>,
-    username: &str,
-    credential: Credential,
-) -> std::result::Result<(), SshError> {
-    let protocol = |e: russh::Error| SshError::Protocol {
-        reason: e.to_string(),
-    };
-
-    let result = match credential {
-        Credential::Password(password) => handle
-            .authenticate_password(username, password.as_str())
-            .await
-            .map_err(protocol)?,
-        Credential::Key(key) => {
-            let hash = if matches!(key.algorithm(), Algorithm::Rsa { .. }) {
-                handle
-                    .best_supported_rsa_hash()
-                    .await
-                    .ok()
-                    .flatten()
-                    .flatten()
-            } else {
-                None
-            };
-            handle
-                .authenticate_publickey(username, PrivateKeyWithHashAlg::new(Arc::new(*key), hash))
-                .await
-                .map_err(protocol)?
-        }
-    };
-
-    match result {
-        client::AuthResult::Success => Ok(()),
-        client::AuthResult::Failure {
-            remaining_methods, ..
-        } => Err(SshError::AuthRejected {
-            remaining: remaining_methods
-                .iter()
-                .map(|method| format!("{method:?}").to_lowercase())
-                .collect(),
-        }),
     }
 }
 
@@ -487,7 +530,7 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_password_is_reported_without_connecting() {
+    fn a_missing_password_is_reported_without_asking_the_server() {
         assert!(matches!(
             prepare_credential(&SshAuth::Password(None)),
             Err(SshError::PasswordRequired)
@@ -513,5 +556,15 @@ mod tests {
         .unwrap();
         assert_eq!(json["kind"], "passphrase-required");
         assert_eq!(json["keyPath"], "~/.ssh/id");
+    }
+
+    #[test]
+    fn only_questions_for_the_user_keep_a_connection_waiting() {
+        assert!(SshError::PasswordRequired.awaits_answer());
+        assert!(SshError::AuthRejected { remaining: vec![] }.awaits_answer());
+        assert!(!SshError::Protocol {
+            reason: String::new()
+        }
+        .awaits_answer());
     }
 }

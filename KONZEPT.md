@@ -261,7 +261,7 @@ Niemand tippt 80 Hosts neu ab. Der Import entscheidet, ob die App am ersten Aben
 
 **Gemeinsame Mechanik statt vier Einzellösungen:** jeder Importer ist ein Adapter, der in ein neutrales `ImportedHost`-Zwischenformat schreibt. Danach läuft für alle derselbe Weg — Vorschau mit Checkboxen, Duplikaterkennung über `address:port`, Zuordnung zu Gruppen, und erst dann der Schreibvorgang. Neue Quellen kosten dann nur noch einen Adapter.
 
-**Was PuTTY und KiTTY mitbringen, das man nicht verlieren darf:** zugeordnete Key-Dateien (`PublicKeyFile`, `.ppk`), Proxy-Einstellungen, Terminal-Farbschemata, `RemoteCommand`, Port-Forwards und die Backspace-/Zeichensatz-Eigenheiten. `.ppk` muss dabei nach OpenSSH konvertiert werden — das kann `russh-keys` nicht von Haus aus, also eigener PPK-Parser (Format v2 und v3, verschlüsselt und unverschlüsselt).
+**Was PuTTY und KiTTY mitbringen, das man nicht verlieren darf:** zugeordnete Key-Dateien (`PublicKeyFile`, `.ppk`), Proxy-Einstellungen, Terminal-Farbschemata, `RemoteCommand`, Port-Forwards und die Backspace-/Zeichensatz-Eigenheiten. `.ppk`-Dateien brauchen **weder Konvertierung noch eigenen Parser**: russh liest PuTTY-Keys (v2 und v3, auch verschlüsselt) direkt — beim Bau der SSH-Anbindung im Quelltext gefunden.
 
 ### MVP — muss drin sein, damit es täglich nutzbar ist
 
@@ -439,7 +439,8 @@ UwUSSH-Client/
 │  ├─ uwussh-core/         # SessionManager, russh, pty, forwards, sftp
 │  ├─ uwussh-vault/        # Argon2id, XChaCha20, Keychain, Recovery
 │  ├─ uwussh-sync/         # HLC, Outbox, Merge, HTTP/WS-Client
-│  ├─ uwussh-import/       # PuTTY, KiTTY, ssh_config, Termius, PPK-Parser
+│  ├─ uwussh-import/       # PuTTY, KiTTY, ssh_config, Termius
+│  ├─ uwussh-store/        # SQLite: Hosts, Identities, Known Hosts
 │  └─ uwussh-proto/        # Shared Types (serde), Schema-Version
 ├─ brand/                  # Nyu: App-Icon, Symbol, Mono-Symbol
 ├─ docs/                   # vision, architecture, design, roadmap
@@ -462,7 +463,7 @@ Zwei Entscheidungen, die sich später auszahlen:
 1. **Server-Default-DB** — Empfehlung SQLite (ein Volume, ein Backup); Postgres optional.
 2. **`known_hosts` synchronisieren?** — Empfehlung ja, Default an; es ist der häufigste Reibungspunkt beim Gerätewechsel.
 3. **Team-Vaults** — v1 bewusst raus, oder gleich im Datenmodell vorsehen? (`vault_id` ist ohnehin drin, es offen zu lassen kostet nichts.)
-4. **PPK-Parser selbst schreiben oder Fremd-Crate?** — für den PuTTY/KiTTY-Import unvermeidbar. Erst prüfen, ob es ein gepflegtes Crate für PPK v2/v3 gibt; sonst selbst, mit Testvektoren aus PuTTYgen.
+4. ~~**PPK-Parser selbst schreiben?**~~ — **geklärt: nicht nötig.** russh liest `.ppk` v2/v3 nativ, verschlüsselt oder nicht.
 5. **Termius-Import: was geht wirklich?** — vor dem Versprechen an einem echten Termius-Export verifizieren. Falls nur CSV herauskommt, ist der Import dünner als gedacht und das gehört ehrlich ins README.
 6. **Vault-Sync ohne Server** — lohnt sich ein reiner Datei-Sync über Syncthing/Nextcloud als dritte Option neben "nur lokal" und "eigener Server"? Wäre für viele Homelabs der kürzeste Weg.
 
@@ -472,4 +473,8 @@ Zwei Entscheidungen, die sich später auszahlen:
 
 ~~M0-Durchsatz-Spike~~ — **erledigt am 2026-09-16.** Der IPC-Channel trägt, mit End-to-End-Flow-Control verlustfrei und ohne Ruckler; der WebSocket-Fallback ist gestrichen.
 
-Der Rest von **M0** baut jetzt auf dem gemessenen Datenpfad auf: `russh` als dritte Session-Variante neben PTY und synthetischer Quelle, Passwort- und Key-Auth, das SQLite-Schema und eine echte Host-Liste statt der Beispiel-Hosts. Danach M1 mit `known_hosts` und dem Import aus PuTTY, KiTTY und `ssh_config`.
+~~Rest von M0~~ — **ebenfalls erledigt.** SSH-Sessions laufen auf dem gemessenen Datenpfad, mit Passwort- und Key-Login (OpenSSH, PEM, PuTTY-`.ppk`, auch verschlüsselt). Hosts und vertraute Host-Keys liegen in SQLite, die Host-Liste ist echt. Die Host-Key-Prüfung ist dabei von M1 nach M0 gewandert: Ein Client, der sich verbindet, ohne den Server-Key zu prüfen, wäre schlimmer als einer, der sich gar nicht verbindet.
+
+Ein Ende-zu-Ende-Lauf (`node apps/desktop/e2e/run.mjs`) klickt die echte App gegen einen echten SSH-Server durch und hat vier Fehler gefunden, die kein anderer Test sehen konnte. Der wichtigste: Die Passwortabfrage kam **vor** der Warnung über einen geänderten Host-Key. Gesendet wurde nie etwas, aber die Reihenfolge war falsch — jetzt verbindet UwUSSH zuerst, prüft den Key und fragt erst dann nach dem Passwort, auf derselben Verbindung.
+
+Als Nächstes **M1**: Tabs und Splits, Agent-Login, ProxyJump, und der Import aus PuTTY, KiTTY, `ssh_config` und Termius — der Grund, warum jemand überhaupt wechselt.

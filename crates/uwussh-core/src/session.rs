@@ -7,11 +7,11 @@
 
 use crate::metrics::MetricsSnapshot;
 use crate::pty::PtySession;
-use crate::ssh::{SshError, SshSession, SshTarget};
+use crate::ssh::{SshConnection, SshError, SshSession, SshTarget};
 use crate::stream::FrameSink;
 use crate::synthetic::SyntheticSession;
 use crate::{CoreError, Result};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
@@ -52,6 +52,10 @@ enum Session {
 #[derive(Default)]
 pub struct SessionManager {
     sessions: RwLock<HashMap<SessionId, Arc<Session>>>,
+    /// Verified connections waiting for the user to answer a question —
+    /// password, passphrase, another try — keyed by whatever the caller uses to
+    /// identify an attempt (the desktop uses the host id).
+    pending: Mutex<HashMap<String, SshConnection>>,
 }
 
 impl SessionManager {
@@ -82,15 +86,45 @@ impl SessionManager {
     ///
     /// Errors are the interesting part: most of them are not failures but the
     /// next question to ask the user — trust this key? what is the password?
+    /// When the question comes after the host key checked out, the verified
+    /// connection is kept under `attempt`, and the next call with the same
+    /// `attempt` continues on it instead of connecting again.
     pub async fn spawn_ssh<S: FrameSink>(
         &self,
+        attempt: &str,
         target: SshTarget,
         cols: u16,
         rows: u16,
         sink: S,
     ) -> std::result::Result<SessionId, SshError> {
-        let session = SshSession::connect(target, cols, rows, true, sink).await?;
+        let waiting = self.pending.lock().remove(attempt);
+        let mut connection = match waiting {
+            Some(connection) if connection.is_reusable_for(&target) => connection,
+            stale => {
+                if let Some(stale) = stale {
+                    tokio::spawn(stale.close());
+                }
+                SshConnection::open(&target).await?
+            }
+        };
+
+        if let Err(err) = connection.authenticate(&target.auth).await {
+            if err.awaits_answer() && connection.is_reusable_for(&target) {
+                self.pending.lock().insert(attempt.to_string(), connection);
+            }
+            return Err(err);
+        }
+
+        let session = connection.open_shell(cols, rows, true, sink).await?;
         Ok(self.insert(Session::Ssh(session), "ssh"))
+    }
+
+    /// The user walked away from a question: close the connection that was
+    /// waiting for the answer.
+    pub fn abandon_ssh(&self, attempt: &str) {
+        if let Some(connection) = self.pending.lock().remove(attempt) {
+            tokio::spawn(connection.close());
+        }
     }
 
     pub fn spawn_synthetic<S: FrameSink>(

@@ -147,7 +147,63 @@ intermediate form. Everything after that — preview with checkboxes, duplicate
 detection on `address:port`, group assignment, then the write — is shared. A new
 source costs one adapter, not a new pipeline.
 
-`.ppk` files from PuTTY and KiTTY need converting to OpenSSH format, which
-`russh-keys` does not do, so that is our own parser (v2 and v3, encrypted and
-not). It lives in `crates/uwussh-import` so it can be tested against real
-registry dumps and sample configs without launching the app.
+`.ppk` files from PuTTY and KiTTY need no conversion: russh reads PuTTY key files
+natively, encrypted or not, so a session imported from PuTTY logs in with its
+own key file as it is. The importers live in `crates/uwussh-import`, testable
+against real registry dumps and sample configs without launching the app.
+
+## Connecting
+
+The order is the security model, and it is the order PuTTY and OpenSSH use:
+
+1. **Connect and check the host key.** An unknown key ends the attempt with the
+   fingerprint and randomart for the trust dialog; a changed one ends it with
+   both fingerprints. Nothing about the user has been sent, and the user has not
+   been asked for anything.
+2. **Then ask for secrets.** A missing password or passphrase is a question for
+   the user, and the verified connection waits for the answer — up to 110
+   seconds, just under OpenSSH's default `LoginGraceTime` — so the answer, and a
+   second try after a typo, go over the same connection.
+3. **Open the shell** on the authenticated connection.
+
+An earlier version asked for the password before connecting, to save a round
+trip. Nothing was ever sent to a changed key, but the user typed the password
+first and read about a possible man in the middle second. The end-to-end run
+caught that; the order above is the fix.
+
+Trusting a key goes through the Rust side, which only accepts a fingerprint a
+server actually presented in the last attempt, so a compromised webview cannot
+hand in a key of its own choosing. Replacing a key that was already trusted
+additionally needs the address typed out.
+
+## Storage
+
+`crates/uwussh-store` keeps hosts, identities and trusted host keys in one
+SQLite file — bundled SQLite, WAL — in the app data directory, or wherever
+`UWUSSH_DB` points. Records carry the sync header from the first row on, so sync
+in M2 needs no data migration.
+
+**No secrets are stored** until the vault exists: passwords are asked for on
+every connect and never written anywhere, keys are referenced by path.
+
+## How it is tested
+
+- **Unit tests** in every crate: clock, crypto, merge, outbox, parsers, flow
+  control, the store.
+- **SSH integration tests** in `crates/uwussh-core/tests/ssh.rs` run a real SSH
+  server in-process — russh's server half — and check on every commit what
+  matters most: no login attempt against an untrusted or changed key, the
+  password asked for only after the key checked out and sent over that same
+  connection, keystroke order, resize, remote exit, and an 8 MiB flood that
+  arrives complete under a deliberately slow renderer.
+- **End to end**, `node apps/desktop/e2e/run.mjs`, drives the real app against
+  `crates/uwussh-core/examples/dev_sshd.rs` over WebView2's DevTools protocol:
+  adding a host, trusting its key, a wrong and a right password, a 32 MiB
+  flood, the session ending, a reconnect, the server's key changing, deleting
+  the host — and counts connections and password attempts in the server's log.
+
+The end-to-end run earned its place on its first outing. It found four bugs no
+other test could see: the password asked for before a changed host key was
+shown; Enter in a dialog reaching a button behind it and starting a second
+connection; a resize feedback loop that grew the terminal to 5000 columns; and a
+validation message that stayed after the field was fixed.

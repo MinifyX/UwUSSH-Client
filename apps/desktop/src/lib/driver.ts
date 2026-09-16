@@ -15,7 +15,7 @@ import {
   closeSession,
   resizeSession,
   writeSession,
-  type DataHandler,
+  type Spawner,
   type SessionId,
 } from './session';
 
@@ -117,11 +117,20 @@ export class TerminalDriver {
     this.lastDataAt = performance.now();
   }
 
-  /** Close whatever is attached, then attach the session `spawn` creates. */
-  async attach(spawn: (onData: DataHandler) => Promise<SessionId>): Promise<SessionId> {
+  /**
+   * Close whatever is attached, then attach the session `spawn` creates.
+   * `onEnd` fires once if that session's stream ends on its own — the remote
+   * shell exited, the connection dropped — but not when it is detached.
+   */
+  async attach(spawn: Spawner, onEnd?: () => void): Promise<SessionId> {
     await this.detach();
     const generation = this.generation;
-    const id = await spawn((bytes) => this.onData(generation, bytes));
+    const id = await spawn(
+      (bytes) => this.onData(generation, bytes),
+      () => {
+        if (generation === this.generation) onEnd?.();
+      },
+    );
 
     if (generation !== this.generation) {
       void closeSession(id).catch(() => undefined);

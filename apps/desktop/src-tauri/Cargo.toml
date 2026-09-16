@@ -18,11 +18,15 @@ tauri-build = { version = "2", features = [] }
 uwussh-core.workspace = true
 uwussh-import.workspace = true
 uwussh-proto.workspace = true
+uwussh-store.workspace = true
 uwussh-sync.workspace = true
 uwussh-vault.workspace = true
 
+parking_lot.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2", features = [] }
 tracing.workspace = true
+uuid.workspace = true
+zeroize.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

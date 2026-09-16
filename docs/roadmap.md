@@ -14,8 +14,14 @@ is xterm.js' own parse speed. The WebSocket fallback is dropped. End-to-end flow
 control turned out to be mandatory — without it xterm.js discarded about 9 MiB
 of a 64 MiB flood — and is built in.
 
-Still open in M0: `russh` connect, password and key auth, the SQLite schema, a
-real host list.
+**The rest of M0 is done too.** SSH sessions run on that data path, with
+password and key login — OpenSSH, PEM and PuTTY `.ppk` keys, encrypted ones
+included. Hosts, identities and trusted host keys live in SQLite. Host keys are
+checked on first contact and blocked when they change, which this roadmap had
+in M1; connecting without that check would have been worse than not connecting
+at all. An end-to-end run drives the real app against a real SSH server and
+caught four bugs no other test could see — see
+[architecture](architecture.md#how-it-is-tested).
 
 ## M1 · Daily driver
 
@@ -71,8 +77,8 @@ Where the distance to the commercial clients actually opens up.
 
 Things I haven't decided, roughly in the order they'll bite:
 
-1. **PPK parser** — is there a maintained crate for PPK v2/v3, or do I write it
-   with PuTTYgen test vectors?
+1. ~~**PPK parser**~~ — settled: russh reads `.ppk` v2 and v3 natively,
+   encrypted or not, so there is nothing to write.
 2. **What can the Termius import actually reach?** Verify against a real export
    before promising it in the README. If it's CSV only, that belongs in the
    README honestly.

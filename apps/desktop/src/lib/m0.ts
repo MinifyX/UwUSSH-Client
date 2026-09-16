@@ -118,8 +118,8 @@ export async function runScenario(
 
   const frames = trackFrames();
   const started = performance.now();
-  const id = await driver.attach((onData) =>
-    spawnM0Session(def, driver.term.cols, driver.term.rows, onData),
+  const id = await driver.attach((onData, onEnd) =>
+    spawnM0Session(def, driver.term.cols, driver.term.rows, onData, onEnd),
   );
 
   let peakLag = 0;

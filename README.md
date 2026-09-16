@@ -58,12 +58,13 @@ can remember and more than one machine to reach them from.
   Settings → Tone → Neutral. Security warnings are never playful, in either
   tone.
 
-> **Status:** milestone 0. The app opens a local shell, and the one question
-> that could have sunk the design is answered: the Rust→WebView boundary carries
-> a real terminal at 41–46 MiB/s without a single stuttering frame — provided
-> the renderer acknowledges what it has parsed, because without that xterm.js
-> silently drops output. See [the throughput spike](docs/m0-spike.md). No SSH
-> yet; the [roadmap](docs/roadmap.md) shows the order.
+> **Status:** milestone 0 is done. UwUSSH connects to SSH hosts — password or
+> key file, PuTTY `.ppk` included — keeps a host list, and checks host keys on
+> first contact and every time after. The terminal path is measured: 41–46
+> MiB/s without a stuttering frame, as long as the renderer acknowledges what
+> it parsed, because without that xterm.js silently drops output
+> ([the spike](docs/m0-spike.md)). Tabs, agent login and the imports come next;
+> the [roadmap](docs/roadmap.md) has the order.
 
 ## The sync server
 
@@ -87,16 +88,18 @@ downgrade.
 
 ## Project layout
 
-| Path                   | What lives there                                         |
-| ---------------------- | -------------------------------------------------------- |
-| `apps/desktop`         | The Tauri 2 app (React UI + Rust shell)                  |
-| `crates/uwussh-core`   | Session engine: SSH, PTY, port forwarding, SFTP          |
-| `crates/uwussh-vault`  | Key derivation, record encryption, OS keychain, recovery |
-| `crates/uwussh-sync`   | Sync client: clocks, outbox, merging                     |
-| `crates/uwussh-import` | PuTTY, KiTTY, `ssh_config`, Termius, PPK parsing         |
-| `crates/uwussh-proto`  | Shared types between client and server                   |
-| `brand/`               | Nyu: app icon, symbol, mono symbol                       |
-| `docs/`                | Vision, architecture, design, roadmap                    |
+| Path                   | What lives there                                |
+| ---------------------- | ----------------------------------------------- |
+| `apps/desktop`         | The Tauri 2 app (React UI + Rust shell)         |
+| `apps/desktop/e2e`     | End-to-end run against a real SSH server        |
+| `crates/uwussh-core`   | Session engine: SSH, local shells, flow control |
+| `crates/uwussh-store`  | SQLite: hosts, identities, trusted host keys    |
+| `crates/uwussh-vault`  | Key derivation, record encryption               |
+| `crates/uwussh-sync`   | Sync client: clocks, outbox, merging            |
+| `crates/uwussh-import` | PuTTY, KiTTY, `ssh_config`, Termius             |
+| `crates/uwussh-proto`  | Shared types between client and server          |
+| `brand/`               | Nyu: app icon, symbol, mono symbol              |
+| `docs/`                | Vision, architecture, design, roadmap           |
 
 ## Development
 
@@ -110,15 +113,22 @@ Requirements:
 
 ```bash
 pnpm install
-pnpm tauri dev        # desktop app with the real session engine
-pnpm dev              # UI only, in the browser, with demo hosts
+pnpm tauri dev
+```
+
+No server at hand? A toy SSH server for trying things out — `127.0.0.1:2222`,
+user `uwu`, password `nyu`:
+
+```bash
+cargo run -p uwussh-core --example dev_sshd
 ```
 
 Checks:
 
 ```bash
-pnpm typecheck && pnpm lint && pnpm test
-cargo fmt --check && cargo clippy --all-targets && cargo test
+pnpm typecheck && pnpm lint
+cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+node apps/desktop/e2e/run.mjs     # end to end, Windows
 ```
 
 ## Documentation

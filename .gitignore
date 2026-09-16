@@ -53,3 +53,7 @@ pnpm-debug.log*
 
 # Private security-test notes (repro steps, PoCs) — never commit
 security-test-notes.local.md
+
+# End-to-end run artefacts: logs, throwaway database, screenshots
+apps/desktop/e2e/.run/
+apps/desktop/e2e/shots/

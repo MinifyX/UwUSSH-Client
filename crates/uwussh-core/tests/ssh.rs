@@ -28,6 +28,7 @@ const ROWS: u16 = 30;
 
 #[derive(Default)]
 struct ServerLog {
+    connections: usize,
     auth_attempts: usize,
     pty: Option<(u32, u32)>,
     resizes: Vec<(u32, u32)>,
@@ -43,6 +44,7 @@ struct TestSshd {
 impl server::Server for TestSshd {
     type Handler = Self;
     fn new_client(&mut self, _: Option<std::net::SocketAddr>) -> Self {
+        self.log.lock().connections += 1;
         self.clone()
     }
 }
@@ -294,6 +296,7 @@ async fn open_with_password(sshd: &Sshd) -> (SessionManager, SessionId, Screen) 
     let screen = Screen::default();
     let id = manager
         .spawn_ssh(
+            "host",
             target(sshd, password(PASSWORD), Some(&sshd.fingerprint)),
             COLS,
             ROWS,
@@ -311,6 +314,7 @@ async fn an_untrusted_server_shows_its_key_and_gets_no_login_attempt() {
     let sshd = start_sshd().await;
     let err = SessionManager::new()
         .spawn_ssh(
+            "host",
             target(&sshd, password(PASSWORD), None),
             COLS,
             ROWS,
@@ -343,6 +347,7 @@ async fn a_changed_key_is_refused_before_the_password_leaves() {
     let stale = "SHA256:0000000000000000000000000000000000000000000";
     let err = SessionManager::new()
         .spawn_ssh(
+            "host",
             target(&sshd, password(PASSWORD), Some(stale)),
             COLS,
             ROWS,
@@ -368,11 +373,38 @@ async fn a_changed_key_is_refused_before_the_password_leaves() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_missing_password_is_asked_for_before_anything_is_sent() {
+async fn the_host_key_is_checked_before_the_password_is_asked_for() {
+    // The regression the end-to-end UI test caught: with a changed key and no
+    // password typed yet, the user must hear about the key first — not type a
+    // password and learn about a possible man in the middle afterwards.
     let sshd = start_sshd().await;
+    let stale = "SHA256:0000000000000000000000000000000000000000000";
     let err = SessionManager::new()
         .spawn_ssh(
-            target(&sshd, SshAuth::Password(None), Some(&sshd.fingerprint)),
+            "host",
+            target(&sshd, SshAuth::Password(None), Some(stale)),
+            COLS,
+            ROWS,
+            Screen::default(),
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, SshError::HostKeyChanged { .. }),
+        "asked for a password before revealing a changed key: {err:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_password_goes_over_the_connection_that_asked_for_it() {
+    let sshd = start_sshd().await;
+    let manager = SessionManager::new();
+    let trusted = Some(sshd.fingerprint.as_str());
+
+    let err = manager
+        .spawn_ssh(
+            "host",
+            target(&sshd, SshAuth::Password(None), trusted),
             COLS,
             ROWS,
             Screen::default(),
@@ -380,7 +412,131 @@ async fn a_missing_password_is_asked_for_before_anything_is_sent() {
         .await
         .unwrap_err();
     assert!(matches!(err, SshError::PasswordRequired), "{err:?}");
-    assert_eq!(sshd.log.lock().auth_attempts, 0);
+    assert_eq!(
+        sshd.log.lock().auth_attempts,
+        0,
+        "nothing is sent before the user answers"
+    );
+
+    let id = manager
+        .spawn_ssh(
+            "host",
+            target(&sshd, password(PASSWORD), trusted),
+            COLS,
+            ROWS,
+            Screen::default(),
+        )
+        .await
+        .expect("login with the answer");
+    assert_eq!(
+        sshd.log.lock().connections,
+        1,
+        "the answer should reuse the verified connection"
+    );
+    manager.close(id).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_mistyped_password_can_be_retried_on_the_same_connection() {
+    let sshd = start_sshd().await;
+    let manager = SessionManager::new();
+    let trusted = Some(sshd.fingerprint.as_str());
+
+    let err = manager
+        .spawn_ssh(
+            "host",
+            target(&sshd, password("hunter2"), trusted),
+            COLS,
+            ROWS,
+            Screen::default(),
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(err, SshError::AuthRejected { .. }), "{err:?}");
+
+    let id = manager
+        .spawn_ssh(
+            "host",
+            target(&sshd, password(PASSWORD), trusted),
+            COLS,
+            ROWS,
+            Screen::default(),
+        )
+        .await
+        .expect("second try");
+    {
+        let log = sshd.log.lock();
+        assert_eq!(log.connections, 1, "the retry reconnected");
+        assert_eq!(log.auth_attempts, 2);
+    }
+    manager.close(id).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_edited_host_does_not_inherit_the_waiting_connection() {
+    let sshd = start_sshd().await;
+    let manager = SessionManager::new();
+    let trusted = Some(sshd.fingerprint.as_str());
+
+    let _ = manager
+        .spawn_ssh(
+            "host",
+            target(&sshd, SshAuth::Password(None), trusted),
+            COLS,
+            ROWS,
+            Screen::default(),
+        )
+        .await
+        .unwrap_err();
+
+    let mut edited = target(&sshd, password(PASSWORD), trusted);
+    edited.username = "someone-else".into();
+    let err = manager
+        .spawn_ssh("host", edited, COLS, ROWS, Screen::default())
+        .await
+        .unwrap_err();
+    assert!(matches!(err, SshError::AuthRejected { .. }), "{err:?}");
+    assert_eq!(
+        sshd.log.lock().connections,
+        2,
+        "another user must get its own connection and its own host key check"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn abandoning_an_attempt_drops_the_waiting_connection() {
+    let sshd = start_sshd().await;
+    let manager = SessionManager::new();
+    let trusted = Some(sshd.fingerprint.as_str());
+
+    let _ = manager
+        .spawn_ssh(
+            "host",
+            target(&sshd, SshAuth::Password(None), trusted),
+            COLS,
+            ROWS,
+            Screen::default(),
+        )
+        .await
+        .unwrap_err();
+    manager.abandon_ssh("host");
+
+    let id = manager
+        .spawn_ssh(
+            "host",
+            target(&sshd, password(PASSWORD), trusted),
+            COLS,
+            ROWS,
+            Screen::default(),
+        )
+        .await
+        .expect("fresh login");
+    assert_eq!(
+        sshd.log.lock().connections,
+        2,
+        "an abandoned connection was reused"
+    );
+    manager.close(id).unwrap();
 }
 
 // ── Logging in ──────────────────────────────────────────────────────────────
@@ -415,6 +571,7 @@ async fn a_wrong_password_is_rejected() {
     let sshd = start_sshd().await;
     let err = SessionManager::new()
         .spawn_ssh(
+            "host",
             target(&sshd, password("hunter2"), Some(&sshd.fingerprint)),
             COLS,
             ROWS,
@@ -434,6 +591,7 @@ async fn a_key_file_logs_in() {
 
     let id = manager
         .spawn_ssh(
+            "host",
             target(
                 &sshd,
                 SshAuth::Key {
@@ -485,7 +643,7 @@ async fn an_encrypted_key_asks_for_its_passphrase_and_rejects_a_wrong_one() {
     };
 
     let err = manager
-        .spawn_ssh(attempt(None), COLS, ROWS, Screen::default())
+        .spawn_ssh("key", attempt(None), COLS, ROWS, Screen::default())
         .await
         .unwrap_err();
     assert!(
@@ -494,7 +652,7 @@ async fn an_encrypted_key_asks_for_its_passphrase_and_rejects_a_wrong_one() {
     );
 
     let err = manager
-        .spawn_ssh(attempt(Some("wrong")), COLS, ROWS, Screen::default())
+        .spawn_ssh("key", attempt(Some("wrong")), COLS, ROWS, Screen::default())
         .await
         .unwrap_err();
     assert!(
@@ -509,9 +667,16 @@ async fn an_encrypted_key_asks_for_its_passphrase_and_rejects_a_wrong_one() {
     );
 
     let id = manager
-        .spawn_ssh(attempt(Some("hunter2")), COLS, ROWS, Screen::default())
+        .spawn_ssh(
+            "key",
+            attempt(Some("hunter2")),
+            COLS,
+            ROWS,
+            Screen::default(),
+        )
         .await
         .expect("login with the right passphrase");
+    assert_eq!(sshd.log.lock().connections, 1, "each answer reconnected");
     manager.close(id).unwrap();
 }
 
