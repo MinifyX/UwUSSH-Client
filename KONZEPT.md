@@ -37,18 +37,18 @@ UwUSSH besetzt die Lücke: **Termius-Optik, PuTTY-Funktionsumfang, Sync auf dein
 
 ## 2. Tech-Stack
 
-| Schicht      | Wahl                                                 | Warum                                                                                            |
-| ------------ | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| App-Shell    | **Tauri 2**                                          | Wie UwUMail. ~12 MB Binary statt 150 MB Electron, WebView2 auf Windows, Mobile-Support in v2.    |
-| Frontend     | **React + TypeScript**, Node 24, pnpm 11             | Exakt der UwUMail-Stack. Tokens, Komponenten, Nyu und die Build-Pipeline lassen sich übernehmen. |
-| UI-Font      | **Manrope** (variabel, gebündelt)                    | Wie UwUMail — keine Netzwerk-Fonts. Terminal-Font separat: JetBrains Mono.                       |
-| Terminal     | **xterm.js** + `@xterm/addon-webgl`                  | Das, was VS Code und Termius benutzen. WebGL-Renderer, Fallback auf Canvas.                      |
-| SSH          | **`russh`** (+ `russh-keys`, `russh-sftp`)           | Pure Rust, async/Tokio, kein libssh2-FFI-Schmerz. Unterstützt Agent, Port-Forwarding, SFTP.      |
-| Lokale Shell | **`portable-pty`** (WezTerm-Crate)                   | ConPTY auf Windows, PTY auf Unix — lokale Tabs für PowerShell/WSL/bash.                          |
-| Seriell      | **`serialport`**                                     | PuTTY-Parität für COM-Ports.                                                                     |
-| Store        | **SQLite** (`rusqlite`, WAL)                         | Wie UwUMail. Eine Datei, offline-first, einfach zu sichern.                                      |
-| Krypto       | `argon2`, `chacha20poly1305`, `zeroize` (RustCrypto) | Etablierte Crates. Nichts selbst bauen.                                                          |
-| Sync-Server  | **Rust + Axum**, SQLite (optional Postgres)          | Eine Sprache, ein Docker-Image, wenig RAM im Leerlauf.                                           |
+| Schicht      | Wahl                                                 | Warum                                                                                                                        |
+| ------------ | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| App-Shell    | **Tauri 2**                                          | Wie UwUMail. ~12 MB Binary statt 150 MB Electron, WebView2 auf Windows, Mobile-Support in v2.                                |
+| Frontend     | **React + TypeScript**, Node 24, pnpm 11             | Exakt der UwUMail-Stack. Tokens, Komponenten, Nyu und die Build-Pipeline lassen sich übernehmen.                             |
+| UI-Font      | **Manrope** (variabel, gebündelt)                    | Wie UwUMail — keine Netzwerk-Fonts. Terminal-Font separat: JetBrains Mono.                                                   |
+| Terminal     | **xterm.js** + `@xterm/addon-webgl`                  | Das, was VS Code und Termius benutzen. WebGL-Renderer, Fallback auf Canvas.                                                  |
+| SSH          | **`russh`** (+ `russh-sftp`)                         | Pure Rust, async/Tokio, kein libssh2-FFI-Schmerz. Liest OpenSSH-, PEM- und `.ppk`-Keys selbst; Agent, Port-Forwarding, SFTP. |
+| Lokale Shell | **`portable-pty`** (WezTerm-Crate)                   | ConPTY auf Windows, PTY auf Unix — lokale Tabs für PowerShell/WSL/bash.                                                      |
+| Seriell      | **`serialport`**                                     | PuTTY-Parität für COM-Ports.                                                                                                 |
+| Store        | **SQLite** (`rusqlite`, WAL)                         | Wie UwUMail. Eine Datei, offline-first, einfach zu sichern.                                                                  |
+| Krypto       | `argon2`, `chacha20poly1305`, `zeroize` (RustCrypto) | Etablierte Crates. Nichts selbst bauen.                                                                                      |
+| Sync-Server  | **Rust + Axum**, SQLite (optional Postgres)          | Eine Sprache, ein Docker-Image, wenig RAM im Leerlauf.                                                                       |
 
 ### Terminal-Durchsatz — gemessen, entschieden
 
@@ -406,15 +406,15 @@ Die ehrliche Zeile ist die vierte: Gegen ein entsperrtes, entwendetes Gerät hil
 
 ## 11. Roadmap
 
-| Meilenstein            | Inhalt                                                                                                                                  | Grob       |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| **M0 · Fundament**     | Tauri-Shell, xterm.js, `russh` connect, Passwort+Key-Auth, SQLite-Schema, Host-Liste. **Zuerst: Durchsatz messen.**                     | 2–3 Wochen |
-| **M1 · Daily Driver**  | Tabs/Splits, `known_hosts`, Agent, ProxyJump, Snippets, Themes, **Import aus PuTTY, KiTTY, `ssh_config` und Termius**, erste Nyu-Szenen | 3–4 Wochen |
-| **M2 · Vault & Sync**  | Vault-Krypto, Server v1, Device-Pairing, Konfliktauflösung, Recovery Kit                                                                | 4–5 Wochen |
-| **M3 · SFTP & Tunnel** | SFTP-Browser, Port-Forward-Manager, Remote-Edit                                                                                         | 3 Wochen   |
-| **M4 · Politur**       | Updater, Portable-Build, Linux/macOS, Onboarding, Accessibility                                                                         | 2–3 Wochen |
-| **M5 · Homelab**       | Tailscale-, Proxmox-, Netbox-Import, lokale Shells, Recording                                                                           | offen      |
-| **M6 · Mobil & Teams** | iOS/Android, Shared Vaults                                                                                                              | offen      |
+| Meilenstein            | Inhalt                                                                                                                                                                           | Grob       |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| **M0 · Fundament**     | Tauri-Shell, xterm.js, `russh` connect, Passwort+Key-Auth, Host-Key-Prüfung, SQLite-Schema, Host-Liste. **Zuerst: Durchsatz messen.** — **erledigt**                             | 2–3 Wochen |
+| **M1 · Daily Driver**  | Tabs/Splits, Agent, ProxyJump, Snippets, Themes, **Import aus PuTTY, KiTTY, `ssh_config` und Termius** samt der Host-Keys, denen diese Clients schon vertrauen, erste Nyu-Szenen | 3–4 Wochen |
+| **M2 · Vault & Sync**  | Vault-Krypto, Server v1, Device-Pairing, Konfliktauflösung, Recovery Kit                                                                                                         | 4–5 Wochen |
+| **M3 · SFTP & Tunnel** | SFTP-Browser, Port-Forward-Manager, Remote-Edit                                                                                                                                  | 3 Wochen   |
+| **M4 · Politur**       | Updater, Portable-Build, Linux/macOS, Onboarding, Accessibility                                                                                                                  | 2–3 Wochen |
+| **M5 · Homelab**       | Tailscale-, Proxmox-, Netbox-Import, lokale Shells, Recording                                                                                                                    | offen      |
+| **M6 · Mobil & Teams** | iOS/Android, Shared Vaults                                                                                                                                                       | offen      |
 
 **Die Risikoreihenfolge ist Absicht:** M0 klärt zuerst die einzige Frage, die das ganze Konzept kippen könnte — ob die IPC-Grenze den Terminal-Durchsatz trägt. Krypto und Sync kommen erst, wenn das steht.
 

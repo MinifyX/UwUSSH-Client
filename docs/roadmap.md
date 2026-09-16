@@ -27,10 +27,12 @@ caught four bugs no other test could see — see
 
 The point where I can stop using anything else.
 
-- Tabs and splits, `known_hosts` with TOFU, agent auth (Pageant,
-  `\\.\pipe\openssh-ssh-agent`, 1Password), ProxyJump chains
+- Tabs and splits, agent auth (Pageant, `\\.\pipe\openssh-ssh-agent`,
+  1Password), ProxyJump chains
 - Snippets, broadcast input, themes, the command palette
-- **Import: PuTTY, KiTTY, `ssh_config`, Termius**, plus the `.ppk` parser
+- **Import: PuTTY, KiTTY, `ssh_config`, Termius** — together with the host keys
+  those clients already trust, so 80 imported hosts don't mean 80 trust dialogs
+  that teach you to click "trust" without reading
 - First Nyu scenes and the playful/neutral string split
 
 ## M2 · Vault and sync

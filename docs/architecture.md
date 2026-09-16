@@ -10,7 +10,7 @@ long version.
 | Shell       | Tauri 2                                 | Same as UwUMail. ~12 MB instead of Electron's 150, WebView2 on Windows, mobile support built in. |
 | UI          | React + TypeScript, Node 24, pnpm 11    | UwUMail's stack, so tokens, components and Nyu carry over.                                       |
 | Terminal    | `xterm.js` + WebGL addon                | What VS Code and Termius use. Canvas fallback.                                                   |
-| SSH         | `russh`, `russh-keys`, `russh-sftp`     | Pure Rust, async, no libssh2 FFI pain.                                                           |
+| SSH         | `russh`, `russh-sftp`                   | Pure Rust, async, no libssh2 FFI pain. Reads OpenSSH, PEM and PuTTY `.ppk` keys itself.          |
 | Local shell | `portable-pty`                          | ConPTY on Windows, PTY elsewhere.                                                                |
 | Store       | `rusqlite` with WAL                     | One file, offline-first, trivial to back up.                                                     |
 | Crypto      | `argon2`, `chacha20poly1305`, `zeroize` | Established RustCrypto crates. Nothing home-made.                                                |
