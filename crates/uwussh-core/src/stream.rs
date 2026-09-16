@@ -51,6 +51,10 @@ pub enum SinkError {
 /// channel; implemented by tests over a `Vec`.
 pub trait FrameSink: Send + 'static {
     fn send(&self, frame: &[u8]) -> Result<(), SinkError>;
+
+    /// The stream has ended: every frame there will ever be has been sent.
+    /// Lets the UI show "disconnected" without polling for it.
+    fn finish(&self) {}
 }
 
 /// Consume raw chunks, emit coalesced frames, keep score.
@@ -106,6 +110,7 @@ pub async fn run_batcher<S: FrameSink>(
         }
     }
     metrics.mark_finished();
+    sink.finish();
 }
 
 #[cfg(test)]

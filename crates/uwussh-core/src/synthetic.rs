@@ -41,9 +41,9 @@ impl LogLines {
         let n = self.n;
         self.n += 1;
 
-        let (level, colour, status) = if n % 97 == 0 {
+        let (level, colour, status) = if n.is_multiple_of(97) {
             ("ERROR", "31", 502)
-        } else if n % 17 == 0 {
+        } else if n.is_multiple_of(17) {
             (" WARN", "33", 404)
         } else {
             (" INFO", "32", 200)
@@ -65,7 +65,7 @@ impl LogLines {
 
         // Every 31st line is long enough to wrap on a normal terminal width,
         // because reflowing wrapped lines is real work for the renderer.
-        if n % 31 == 0 {
+        if n.is_multiple_of(31) {
             let _ = write!(
                 out,
                 " \x1b[35mtrace\x1b[0m={a:016x}{b:016x}{c:016x}{d:016x}",

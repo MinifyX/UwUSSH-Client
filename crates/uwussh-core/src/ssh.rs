@@ -1,0 +1,517 @@
+//! SSH sessions, on the data path M0 measured.
+//!
+//! The order of operations is the security model, so it is spelled out here:
+//!
+//! 1. **A server whose key is not trusted is never authenticated against.**
+//!    Without a trusted fingerprint the connection exists only to learn the
+//!    key, and ends with [`SshError::UnknownHostKey`] before any credential
+//!    has been looked at.
+//! 2. **Credentials are prepared before touching the network.** A missing
+//!    password or an encrypted key without its passphrase is reported
+//!    immediately, so asking for a secret never costs a connection.
+//! 3. **The host key is checked during key exchange**, before authentication
+//!    — a changed key ends the attempt with [`SshError::HostKeyChanged`] and
+//!    the password never leaves this machine.
+//!
+//! Backpressure reaches the server: when the renderer falls behind, the batcher
+//! pauses, the reader stops pulling from russh, russh stops reading the socket
+//! (it awaits on a full channel queue rather than dropping), and TCP makes the
+//! remote program wait.
+
+use crate::flow::FlowControl;
+use crate::metrics::{Metrics, MetricsSnapshot};
+use crate::stream::{self, FrameSink};
+use crate::{CoreError, Result};
+use parking_lot::Mutex;
+use russh::client::{self, Handle};
+use russh::keys::{
+    self, Algorithm, HashAlg, PrivateKeyWithHashAlg, PublicKey, PublicKeyOrCertificate,
+};
+use russh::{ChannelMsg, Disconnect};
+use serde::Serialize;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::mpsc;
+use zeroize::Zeroizing;
+
+/// Long enough for a sleepy VPN, short enough that a typo in the address does
+/// not leave the user staring at a spinner.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// What the remote side is told it is talking to.
+const TERM: &str = "xterm-256color";
+
+pub enum SshAuth {
+    /// `None` means "not asked yet"; the session reports that before connecting.
+    Password(Option<Zeroizing<String>>),
+    /// A private key file — OpenSSH, PEM or PuTTY `.ppk`. `~` is expanded.
+    Key {
+        path: String,
+        passphrase: Option<Zeroizing<String>>,
+    },
+}
+
+pub struct SshTarget {
+    pub address: String,
+    pub port: u16,
+    pub username: String,
+    pub auth: SshAuth,
+    /// The `SHA256:…` fingerprint the user trusted for this address and port.
+    pub trusted_fingerprint: Option<String>,
+}
+
+/// A server key as the user needs to see it to decide whether to trust it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ObservedHostKey {
+    pub algorithm: String,
+    pub fingerprint: String,
+    pub public_key: String,
+    /// OpenSSH-style randomart: people notice a changed picture faster than a
+    /// changed line of base64.
+    pub randomart: String,
+}
+
+impl ObservedHostKey {
+    fn of(key: &PublicKey) -> Self {
+        let header = match key.algorithm() {
+            Algorithm::Ed25519 => "ED25519 256".to_string(),
+            Algorithm::Rsa { .. } => "RSA".to_string(),
+            Algorithm::Ecdsa { .. } => "ECDSA".to_string(),
+            other => other.as_str().to_uppercase(),
+        };
+        Self {
+            algorithm: key.algorithm().as_str().to_string(),
+            fingerprint: key.fingerprint(HashAlg::Sha256).to_string(),
+            public_key: key.to_openssh().unwrap_or_default(),
+            randomart: key.fingerprint(HashAlg::Sha256).to_randomart(&header),
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum SshError {
+    #[error("could not reach {address}: {reason}")]
+    Unreachable { address: String, reason: String },
+
+    #[error("the host key of this server is not trusted yet")]
+    #[serde(rename_all = "camelCase")]
+    UnknownHostKey { observed: ObservedHostKey },
+
+    #[error("the host key changed")]
+    #[serde(rename_all = "camelCase")]
+    HostKeyChanged {
+        trusted_fingerprint: String,
+        observed: ObservedHostKey,
+    },
+
+    #[error("a password is needed")]
+    PasswordRequired,
+
+    #[error("the key is protected by a passphrase")]
+    #[serde(rename_all = "camelCase")]
+    PassphraseRequired { key_path: String },
+
+    #[error("the passphrase did not unlock the key")]
+    #[serde(rename_all = "camelCase")]
+    PassphraseRejected { key_path: String },
+
+    #[error("the key could not be read: {reason}")]
+    #[serde(rename_all = "camelCase")]
+    KeyUnreadable { key_path: String, reason: String },
+
+    #[error("the server rejected the login")]
+    AuthRejected {
+        /// Methods the server said it would accept instead.
+        remaining: Vec<String>,
+    },
+
+    #[error("the server refused the terminal: {reason}")]
+    SessionRefused { reason: String },
+
+    #[error("ssh error: {reason}")]
+    Protocol { reason: String },
+}
+
+enum Input {
+    Data(Vec<u8>),
+    Resize(u16, u16),
+    Close,
+}
+
+pub struct SshSession {
+    input: mpsc::UnboundedSender<Input>,
+    metrics: Arc<Metrics>,
+    flow: Arc<FlowControl>,
+}
+
+impl SshSession {
+    pub async fn connect<S: FrameSink>(
+        target: SshTarget,
+        cols: u16,
+        rows: u16,
+        flow_control: bool,
+        sink: S,
+    ) -> std::result::Result<Self, SshError> {
+        let Some(trusted) = target.trusted_fingerprint.clone() else {
+            return Err(learn_host_key(&target).await);
+        };
+
+        let credential = prepare_credential(&target.auth)?;
+        let mut handle = open(&target, Some(trusted)).await?;
+
+        authenticate(&mut handle, &target.username, credential).await?;
+
+        let channel =
+            handle
+                .channel_open_session()
+                .await
+                .map_err(|e| SshError::SessionRefused {
+                    reason: e.to_string(),
+                })?;
+        channel
+            .request_pty(false, TERM, u32::from(cols), u32::from(rows), 0, 0, &[])
+            .await
+            .map_err(|e| SshError::SessionRefused {
+                reason: e.to_string(),
+            })?;
+        channel
+            .request_shell(false)
+            .await
+            .map_err(|e| SshError::SessionRefused {
+                reason: e.to_string(),
+            })?;
+        let (mut reader, writer) = channel.split();
+
+        let metrics = Arc::new(Metrics::new());
+        let flow = Arc::new(FlowControl::new(flow_control));
+        let (tx, rx) = mpsc::channel::<Vec<u8>>(stream::CHANNEL_CAPACITY);
+        let (input, mut inputs) = mpsc::unbounded_channel::<Input>();
+
+        tokio::spawn(stream::run_batcher(
+            rx,
+            sink,
+            Arc::clone(&metrics),
+            Arc::clone(&flow),
+        ));
+
+        let reader_metrics = Arc::clone(&metrics);
+        tokio::spawn(async move {
+            while let Some(message) = reader.wait().await {
+                match message {
+                    ChannelMsg::Data { data } | ChannelMsg::ExtendedData { data, .. } => {
+                        // Awaiting here while the batcher is paused is the
+                        // backpressure: see the module docs.
+                        if tx.send(Vec::from(data)).await.is_err() {
+                            break;
+                        }
+                    }
+                    ChannelMsg::ExitStatus { .. } | ChannelMsg::ExitSignal { .. } => {
+                        reader_metrics.mark_child_exited();
+                    }
+                    ChannelMsg::Eof | ChannelMsg::Close => break,
+                    _ => {}
+                }
+            }
+            // Dropping `tx` lets the batcher flush the last frame and finish.
+        });
+
+        // Inputs go through one queue in one task, so keystrokes reach the
+        // server in the order they were typed.
+        tokio::spawn(async move {
+            while let Some(next) = inputs.recv().await {
+                let sent = match next {
+                    Input::Data(bytes) => writer.data_bytes(bytes).await,
+                    Input::Resize(cols, rows) => {
+                        writer
+                            .window_change(u32::from(cols), u32::from(rows), 0, 0)
+                            .await
+                    }
+                    Input::Close => break,
+                };
+                if let Err(err) = sent {
+                    tracing::debug!(?err, "ssh input stopped");
+                    break;
+                }
+            }
+            let _ = writer.close().await;
+            let _ = handle.disconnect(Disconnect::ByApplication, "", "en").await;
+        });
+
+        tracing::info!(address = %target.address, port = target.port, "ssh session open");
+        Ok(Self {
+            input,
+            metrics,
+            flow,
+        })
+    }
+
+    pub fn write(&self, data: &[u8]) -> Result<()> {
+        self.input
+            .send(Input::Data(data.to_vec()))
+            .map_err(|_| CoreError::SessionClosed)
+    }
+
+    pub fn resize(&self, cols: u16, rows: u16) -> Result<()> {
+        self.input
+            .send(Input::Resize(cols, rows))
+            .map_err(|_| CoreError::SessionClosed)
+    }
+
+    pub fn ack(&self, bytes: u64) {
+        self.flow.ack(bytes);
+    }
+
+    pub fn metrics(&self) -> MetricsSnapshot {
+        self.metrics.snapshot(&self.flow)
+    }
+
+    pub fn close(&self) {
+        let _ = self.input.send(Input::Close);
+        self.flow.close();
+    }
+}
+
+// ── Connecting ──────────────────────────────────────────────────────────────
+
+enum Verdict {
+    Unknown(ObservedHostKey),
+    Changed {
+        trusted: String,
+        observed: ObservedHostKey,
+    },
+}
+
+struct HostKeyCheck {
+    trusted: Option<String>,
+    verdict: Arc<Mutex<Option<Verdict>>>,
+}
+
+impl client::Handler for HostKeyCheck {
+    type Error = russh::Error;
+
+    async fn check_server_key(
+        &mut self,
+        presented: &PublicKeyOrCertificate,
+    ) -> std::result::Result<bool, Self::Error> {
+        let key = match presented {
+            PublicKeyOrCertificate::PublicKey { key, .. } => key.clone(),
+            // Checking a host certificate properly needs a trusted CA, which
+            // arrives with SSH-CA support. Until then the key inside the
+            // certificate is pinned like any other key.
+            PublicKeyOrCertificate::Certificate(cert) => PublicKey::from(cert.public_key().clone()),
+        };
+        let observed = ObservedHostKey::of(&key);
+
+        match &self.trusted {
+            Some(trusted) if *trusted == observed.fingerprint => Ok(true),
+            Some(trusted) => {
+                *self.verdict.lock() = Some(Verdict::Changed {
+                    trusted: trusted.clone(),
+                    observed,
+                });
+                Ok(false)
+            }
+            None => {
+                *self.verdict.lock() = Some(Verdict::Unknown(observed));
+                Ok(false)
+            }
+        }
+    }
+}
+
+/// Connect far enough to see the server's key, then stop.
+async fn learn_host_key(target: &SshTarget) -> SshError {
+    match open(target, None).await {
+        Err(err) => err,
+        // Cannot happen — with nothing trusted, the check always refuses — but
+        // if it ever did, refusing to continue is the only safe reading.
+        Ok(_) => SshError::Protocol {
+            reason: "server key accepted without a trusted fingerprint".into(),
+        },
+    }
+}
+
+async fn open(
+    target: &SshTarget,
+    trusted: Option<String>,
+) -> std::result::Result<Handle<HostKeyCheck>, SshError> {
+    let verdict = Arc::new(Mutex::new(None));
+    let handler = HostKeyCheck {
+        trusted,
+        verdict: Arc::clone(&verdict),
+    };
+    let config = Arc::new(client::Config {
+        keepalive_interval: Some(Duration::from_secs(30)),
+        keepalive_max: 3,
+        nodelay: true,
+        ..Default::default()
+    });
+
+    let address = target.address.clone();
+    let connecting = client::connect(config, (target.address.as_str(), target.port), handler);
+
+    match tokio::time::timeout(CONNECT_TIMEOUT, connecting).await {
+        Ok(Ok(handle)) => Ok(handle),
+        Ok(Err(err)) => Err(match verdict.lock().take() {
+            Some(Verdict::Unknown(observed)) => SshError::UnknownHostKey { observed },
+            Some(Verdict::Changed { trusted, observed }) => SshError::HostKeyChanged {
+                trusted_fingerprint: trusted,
+                observed,
+            },
+            None => match err {
+                russh::Error::IO(io) => SshError::Unreachable {
+                    address,
+                    reason: io.to_string(),
+                },
+                other => SshError::Protocol {
+                    reason: other.to_string(),
+                },
+            },
+        }),
+        Err(_) => Err(SshError::Unreachable {
+            address,
+            reason: format!("no answer within {} s", CONNECT_TIMEOUT.as_secs()),
+        }),
+    }
+}
+
+enum Credential {
+    Password(Zeroizing<String>),
+    Key(Box<keys::PrivateKey>),
+}
+
+fn prepare_credential(auth: &SshAuth) -> std::result::Result<Credential, SshError> {
+    match auth {
+        SshAuth::Password(None) => Err(SshError::PasswordRequired),
+        SshAuth::Password(Some(password)) => Ok(Credential::Password(password.clone())),
+        SshAuth::Key { path, passphrase } => {
+            let key_path = path.clone();
+            let file = expand_home(path);
+            let contents = std::fs::read_to_string(&file).map_err(|e| SshError::KeyUnreadable {
+                key_path: key_path.clone(),
+                reason: e.to_string(),
+            })?;
+
+            match keys::decode_secret_key(&contents, passphrase.as_ref().map(|p| p.as_str())) {
+                Ok(key) => Ok(Credential::Key(Box::new(key))),
+                Err(keys::Error::KeyIsEncrypted) if passphrase.is_none() => {
+                    Err(SshError::PassphraseRequired { key_path })
+                }
+                Err(_) if passphrase.is_some() => Err(SshError::PassphraseRejected { key_path }),
+                Err(err) => Err(SshError::KeyUnreadable {
+                    key_path,
+                    reason: err.to_string(),
+                }),
+            }
+        }
+    }
+}
+
+async fn authenticate(
+    handle: &mut Handle<HostKeyCheck>,
+    username: &str,
+    credential: Credential,
+) -> std::result::Result<(), SshError> {
+    let protocol = |e: russh::Error| SshError::Protocol {
+        reason: e.to_string(),
+    };
+
+    let result = match credential {
+        Credential::Password(password) => handle
+            .authenticate_password(username, password.as_str())
+            .await
+            .map_err(protocol)?,
+        Credential::Key(key) => {
+            let hash = if matches!(key.algorithm(), Algorithm::Rsa { .. }) {
+                handle
+                    .best_supported_rsa_hash()
+                    .await
+                    .ok()
+                    .flatten()
+                    .flatten()
+            } else {
+                None
+            };
+            handle
+                .authenticate_publickey(username, PrivateKeyWithHashAlg::new(Arc::new(*key), hash))
+                .await
+                .map_err(protocol)?
+        }
+    };
+
+    match result {
+        client::AuthResult::Success => Ok(()),
+        client::AuthResult::Failure {
+            remaining_methods, ..
+        } => Err(SshError::AuthRejected {
+            remaining: remaining_methods
+                .iter()
+                .map(|method| format!("{method:?}").to_lowercase())
+                .collect(),
+        }),
+    }
+}
+
+/// `~/.ssh/id_ed25519` → the user's home directory, on Windows too.
+fn expand_home(path: &str) -> PathBuf {
+    let rest = path.strip_prefix("~/").or_else(|| path.strip_prefix("~\\"));
+    match (rest, home_dir()) {
+        (Some(rest), Some(home)) => home.join(rest),
+        _ => PathBuf::from(path),
+    }
+}
+
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_tilde_path_lands_in_the_home_directory() {
+        let Some(home) = home_dir() else { return };
+        assert_eq!(
+            expand_home("~/.ssh/id_ed25519"),
+            home.join(".ssh/id_ed25519")
+        );
+        assert_eq!(expand_home("~\\keys\\nas.ppk"), home.join("keys\\nas.ppk"));
+        assert_eq!(
+            expand_home("C:\\keys\\nas.ppk"),
+            PathBuf::from("C:\\keys\\nas.ppk")
+        );
+    }
+
+    #[test]
+    fn a_missing_password_is_reported_without_connecting() {
+        assert!(matches!(
+            prepare_credential(&SshAuth::Password(None)),
+            Err(SshError::PasswordRequired)
+        ));
+    }
+
+    #[test]
+    fn a_missing_key_file_says_which_file() {
+        let err = prepare_credential(&SshAuth::Key {
+            path: "C:\\definitely\\not\\here.ppk".into(),
+            passphrase: None,
+        });
+        assert!(
+            matches!(err, Err(SshError::KeyUnreadable { key_path, .. }) if key_path.ends_with("here.ppk"))
+        );
+    }
+
+    #[test]
+    fn errors_serialise_with_a_kind_tag_for_the_ui() {
+        let json = serde_json::to_value(SshError::PassphraseRequired {
+            key_path: "~/.ssh/id".into(),
+        })
+        .unwrap();
+        assert_eq!(json["kind"], "passphrase-required");
+        assert_eq!(json["keyPath"], "~/.ssh/id");
+    }
+}

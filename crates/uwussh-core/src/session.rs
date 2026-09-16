@@ -2,10 +2,12 @@
 //!
 //! Every session, whatever produces its bytes, has the same surface: write
 //! keystrokes, resize, acknowledge what the renderer processed, read metrics,
-//! close. SSH joins as a third variant next, without changing any of that.
+//! close. A local shell, an SSH connection and the M0 load source all look the
+//! same from here.
 
 use crate::metrics::MetricsSnapshot;
 use crate::pty::PtySession;
+use crate::ssh::{SshError, SshSession, SshTarget};
 use crate::stream::FrameSink;
 use crate::synthetic::SyntheticSession;
 use crate::{CoreError, Result};
@@ -39,8 +41,8 @@ impl fmt::Display for SessionId {
 
 enum Session {
     Pty(PtySession),
+    Ssh(SshSession),
     Synthetic(SyntheticSession),
-    // Ssh(SshSession) — next
 }
 
 // Sessions currently outlive a webview reload: a reloaded page stops
@@ -76,6 +78,21 @@ impl SessionManager {
         Ok(self.insert(Session::Pty(session), "command"))
     }
 
+    /// Connect to an SSH server and open a shell on it, flow-controlled.
+    ///
+    /// Errors are the interesting part: most of them are not failures but the
+    /// next question to ask the user — trust this key? what is the password?
+    pub async fn spawn_ssh<S: FrameSink>(
+        &self,
+        target: SshTarget,
+        cols: u16,
+        rows: u16,
+        sink: S,
+    ) -> std::result::Result<SessionId, SshError> {
+        let session = SshSession::connect(target, cols, rows, true, sink).await?;
+        Ok(self.insert(Session::Ssh(session), "ssh"))
+    }
+
     pub fn spawn_synthetic<S: FrameSink>(
         &self,
         total_bytes: usize,
@@ -89,6 +106,7 @@ impl SessionManager {
     pub fn write(&self, id: SessionId, data: &[u8]) -> Result<()> {
         match &*self.get(id)? {
             Session::Pty(pty) => pty.write(data),
+            Session::Ssh(ssh) => ssh.write(data),
             // Nothing is listening; typing into a benchmark is not an error.
             Session::Synthetic(_) => Ok(()),
         }
@@ -97,6 +115,7 @@ impl SessionManager {
     pub fn resize(&self, id: SessionId, cols: u16, rows: u16) -> Result<()> {
         match &*self.get(id)? {
             Session::Pty(pty) => pty.resize(cols, rows),
+            Session::Ssh(ssh) => ssh.resize(cols, rows),
             Session::Synthetic(_) => Ok(()),
         }
     }
@@ -105,6 +124,7 @@ impl SessionManager {
     pub fn ack(&self, id: SessionId, bytes: u64) -> Result<()> {
         match &*self.get(id)? {
             Session::Pty(pty) => pty.ack(bytes),
+            Session::Ssh(ssh) => ssh.ack(bytes),
             Session::Synthetic(synthetic) => synthetic.ack(bytes),
         }
         Ok(())
@@ -113,6 +133,7 @@ impl SessionManager {
     pub fn metrics(&self, id: SessionId) -> Result<MetricsSnapshot> {
         Ok(match &*self.get(id)? {
             Session::Pty(pty) => pty.metrics(),
+            Session::Ssh(ssh) => ssh.metrics(),
             Session::Synthetic(synthetic) => synthetic.metrics(),
         })
     }
@@ -125,6 +146,7 @@ impl SessionManager {
             .ok_or(CoreError::UnknownSession(id))?;
         match &*session {
             Session::Pty(pty) => pty.close(),
+            Session::Ssh(ssh) => ssh.close(),
             Session::Synthetic(synthetic) => synthetic.close(),
         }
         tracing::info!(%id, "session closed");

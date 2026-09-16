@@ -7,13 +7,16 @@ version = "0.0.1"
 edition = "2021"
 license = "GPL-3.0-only"
 repository = "https://github.com/MinifyX/UwUSSH-Client"
-rust-version = "1.77"
+# The real floor, set by russh. Cargo only offers dependency versions that
+# still build with this, so an arbitrary low number silently pins old crates.
+rust-version = "1.89"
 
 [workspace.dependencies]
 uwussh-core = { path = "crates/uwussh-core" }
 uwussh-import = { path = "crates/uwussh-import" }
 uwussh-proto = { path = "crates/uwussh-proto" }
 uwussh-sync = { path = "crates/uwussh-sync" }
+uwussh-store = { path = "crates/uwussh-store" }
 uwussh-vault = { path = "crates/uwussh-vault" }
 
 anyhow = "1"
@@ -24,24 +27,23 @@ serde_json = "1"
 thiserror = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
 tracing = "0.1"
-uuid = { version = "1", features = ["v4", "serde"] }
+uuid = { version = "1", features = ["v4", "v7", "serde"] }
 
 argon2 = "0.5"
 chacha20poly1305 = "0.10"
 rand = "0.8"
 zeroize = { version = "1", features = ["derive"] }
 
-# Deliberately NOT pinned here yet — these move fast enough that a guessed
-# version would break the whole workspace build. Add them with `cargo add`
-# in the crate that needs them, when that crate's turn comes:
+# `ring` instead of the default `aws-lc-rs`: aws-lc needs CMake and NASM to
+# build on Windows, ring needs nothing beyond MSVC.
+russh = { version = "0.63", default-features = false, features = ["ring", "rsa", "flate2"] }
+# Bundled SQLite, so the app never depends on whichever sqlite3.dll is around.
+rusqlite = { version = "0.40", features = ["bundled"] }
+
+# Still not pinned, because their milestone has not come yet:
 #
-#   crates/uwussh-core    cargo add russh russh-keys russh-sftp
-#   crates/uwussh-core    cargo add rusqlite --features bundled
-#   crates/uwussh-sync    cargo add reqwest --features json,rustls-tls
-#   server                cargo add axum tower-http
-#
-# M0 does not need any of them: the throughput spike runs against a local PTY,
-# which saturates the IPC boundary harder than SSH ever will.
+#   crates/uwussh-sync    cargo add reqwest --features json,rustls-tls   (M2)
+#   server                cargo add axum tower-http                      (M2)
 
 [profile.dev]
 opt-level = 1

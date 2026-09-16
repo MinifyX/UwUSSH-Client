@@ -1,7 +1,7 @@
 //! The UwUSSH session engine.
 //!
 //! Everything that talks to a terminal lives here: local PTY sessions and a
-//! synthetic load source today, SSH sessions next. All of them produce
+//! synthetic load source, and SSH sessions. All of them produce
 //! the same thing — a stream of bytes — so they share [`stream`] and [`flow`],
 //! the parts that decide how those bytes reach the UI without melting the IPC
 //! boundary.
@@ -14,12 +14,14 @@ pub mod flow;
 pub mod metrics;
 pub mod pty;
 pub mod session;
+pub mod ssh;
 pub mod stream;
 pub mod synthetic;
 
 pub use flow::FlowControl;
 pub use metrics::{Metrics, MetricsSnapshot};
 pub use session::{SessionId, SessionManager};
+pub use ssh::{ObservedHostKey, SshAuth, SshError, SshTarget};
 pub use stream::{FrameSink, SinkError};
 
 #[derive(Debug, thiserror::Error)]

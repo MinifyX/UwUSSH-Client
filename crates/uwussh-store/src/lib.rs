@@ -1,0 +1,155 @@
+//! The local store: one SQLite file with everything UwUSSH knows about your
+//! hosts.
+//!
+//! Records already carry the sync header from `uwussh-proto` — id, vault,
+//! hybrid logical clock, revision, tombstone — even though sync only arrives in
+//! M2. Adding those columns later would mean migrating every user's data;
+//! carrying them from the first row costs nothing.
+//!
+//! **No secrets live here.** Until the vault exists, passwords are asked for on
+//! every connect and never written anywhere, and keys are referenced by file
+//! path rather than copied in.
+
+pub mod hosts;
+pub mod known_hosts;
+mod schema;
+
+pub use hosts::{AuthMethod, HostDraft, HostRecord};
+pub use known_hosts::KnownHostRecord;
+pub use schema::SCHEMA_VERSION;
+
+use parking_lot::Mutex;
+use rusqlite::{params, Connection, Transaction};
+use std::path::Path;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use uuid::Uuid;
+use uwussh_proto::Hlc;
+
+#[derive(Debug, thiserror::Error)]
+pub enum StoreError {
+    #[error("database error: {0}")]
+    Sqlite(#[from] rusqlite::Error),
+    #[error("could not create the data directory: {0}")]
+    Io(#[from] std::io::Error),
+    /// A field failed validation. `field` uses the UI's camelCase names so the
+    /// frontend can put the message next to the right input.
+    #[error("invalid {field}: {problem}")]
+    Invalid {
+        field: &'static str,
+        problem: &'static str,
+    },
+    #[error("no host with id {0}")]
+    UnknownHost(Uuid),
+    #[error(
+        "this database was written by a newer UwUSSH (schema {found}, this build knows {known})"
+    )]
+    SchemaTooNew { found: i64, known: i64 },
+}
+
+pub type Result<T> = std::result::Result<T, StoreError>;
+
+pub struct Store {
+    // rusqlite's Connection is Send but not Sync. Every call is short, so one
+    // lock is simpler than a pool and never the bottleneck of an SSH client.
+    conn: Mutex<Connection>,
+    device: u32,
+}
+
+impl Store {
+    pub fn open(path: &Path) -> Result<Self> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let conn = Connection::open(path)?;
+        // WAL, like UwUMail: readers never block the writer, and a crash
+        // mid-write cannot corrupt the file.
+        conn.pragma_update_and_check(None, "journal_mode", "WAL", |row| row.get::<_, String>(0))?;
+        Self::init(conn)
+    }
+
+    pub fn open_in_memory() -> Result<Self> {
+        Self::init(Connection::open_in_memory()?)
+    }
+
+    fn init(mut conn: Connection) -> Result<Self> {
+        conn.pragma_update(None, "foreign_keys", "ON")?;
+        conn.busy_timeout(Duration::from_secs(5))?;
+        schema::migrate(&mut conn)?;
+        let device = conn.query_row("SELECT device_id FROM meta WHERE id = 1", [], |row| {
+            row.get::<_, i64>(0)
+        })? as u32;
+        Ok(Self {
+            conn: Mutex::new(conn),
+            device,
+        })
+    }
+
+    pub fn schema_version(&self) -> Result<i64> {
+        Ok(self
+            .conn
+            .lock()
+            .pragma_query_value(None, "user_version", |row| row.get(0))?)
+    }
+}
+
+/// Advance the local hybrid logical clock inside a write transaction.
+fn tick(tx: &Transaction, device: u32) -> Result<Hlc> {
+    let (wall, counter): (i64, i64) = tx.query_row(
+        "SELECT clock_wall_ms, clock_counter FROM meta WHERE id = 1",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    let next = Hlc::new(wall as u64, counter as u32, device).tick(now_ms());
+    tx.execute(
+        "UPDATE meta SET clock_wall_ms = ?1, clock_counter = ?2 WHERE id = 1",
+        params![next.wall_ms as i64, next.counter as i64],
+    )?;
+    Ok(next)
+}
+
+fn vault_id(tx: &Transaction) -> Result<String> {
+    Ok(
+        tx.query_row("SELECT vault_id FROM meta WHERE id = 1", [], |row| {
+            row.get(0)
+        })?,
+    )
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_fresh_store_is_on_the_current_schema_and_empty() {
+        let store = Store::open_in_memory().unwrap();
+        assert_eq!(store.schema_version().unwrap(), SCHEMA_VERSION);
+        assert!(store.list_hosts().unwrap().is_empty());
+    }
+
+    #[test]
+    fn data_survives_reopening_the_file() {
+        let path = std::env::temp_dir().join(format!("uwussh-store-test-{}.db", Uuid::now_v7()));
+        {
+            let store = Store::open(&path).unwrap();
+            store
+                .save_host(hosts::tests::draft("prox-1", "10.0.0.12"))
+                .unwrap();
+        }
+        let store = Store::open(&path).unwrap();
+        let hosts = store.list_hosts().unwrap();
+        assert_eq!(hosts.len(), 1);
+        assert_eq!(hosts[0].address, "10.0.0.12");
+
+        drop(store);
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
+        }
+    }
+}

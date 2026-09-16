@@ -28,7 +28,10 @@ pub struct PtySession {
     /// map is shared across threads — so the handle lives behind a lock. It is
     /// only touched on resize, so the lock is never contended.
     master: Mutex<Box<dyn MasterPty + Send>>,
-    writer: Mutex<Box<dyn Write + Send>>,
+    /// Keystrokes go through one queue to one writer thread: they arrive in
+    /// the order they were typed, and a program that stops reading its input
+    /// blocks that thread instead of the UI.
+    input: std::sync::mpsc::Sender<Vec<u8>>,
     /// The child itself lives on the watcher thread, blocked in `wait()`; this
     /// is the handle that can still end it from here.
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
@@ -76,7 +79,23 @@ impl PtySession {
         drop(pair.slave);
 
         let mut reader = pair.master.try_clone_reader().map_err(CoreError::Pty)?;
-        let writer = pair.master.take_writer().map_err(CoreError::Pty)?;
+        let mut writer = pair.master.take_writer().map_err(CoreError::Pty)?;
+
+        let (input, inputs) = std::sync::mpsc::channel::<Vec<u8>>();
+        std::thread::Builder::new()
+            .name("uwussh-pty-writer".into())
+            .spawn(move || {
+                for bytes in inputs {
+                    if writer
+                        .write_all(&bytes)
+                        .and_then(|()| writer.flush())
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            })
+            .map_err(CoreError::Io)?;
 
         let metrics = Arc::new(Metrics::new());
         let flow = Arc::new(FlowControl::new(flow_control));
@@ -131,7 +150,7 @@ impl PtySession {
 
         Ok(Self {
             master: Mutex::new(pair.master),
-            writer: Mutex::new(writer),
+            input,
             killer: Mutex::new(killer),
             metrics,
             flow,
@@ -139,10 +158,9 @@ impl PtySession {
     }
 
     pub fn write(&self, data: &[u8]) -> Result<()> {
-        let mut writer = self.writer.lock();
-        writer.write_all(data)?;
-        writer.flush()?;
-        Ok(())
+        self.input
+            .send(data.to_vec())
+            .map_err(|_| CoreError::SessionClosed)
     }
 
     pub fn resize(&self, cols: u16, rows: u16) -> Result<()> {
