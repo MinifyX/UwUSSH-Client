@@ -84,7 +84,19 @@ const work = mkdtempSync(join(tmpdir(), 'uwussh-release-'));
 try {
   console.log(`\n▸ Creating the release on ${REPOSITORY}`);
   const notesPath = join(work, 'notes.md');
-  writeFileSync(notesPath, `## Deutsch\n\n${notes.de}\n\n## English\n\n${notes.en}\n`);
+  const sha256 = createHash('sha256').update(readFileSync(setup)).digest('hex');
+  const guide = `https://github.com/${REPOSITORY}/blob/main/docs/install.md`;
+  writeFileSync(
+    notesPath,
+    [
+      `## Deutsch\n\n${notes.de}\n`,
+      `## English\n\n${notes.en}\n`,
+      `## Installieren · Install\n`,
+      `Windows 10/11, 64 Bit. Lade \`${setupName}\` unten unter **Assets** herunter und starte es. Warnt Windows („Der Computer wurde durch Windows geschützt“): **Weitere Informationen → Trotzdem ausführen**. [Anleitung](${guide}#uwussh-installieren)\n`,
+      `Windows 10/11, 64-bit. Download \`${setupName}\` below under **Assets** and run it. If Windows warns that it "protected your PC": **More info → Run anyway**. [Install guide](${guide})\n`,
+      `SHA-256 \`${setupName}\`: \`${sha256}\`\n`,
+    ].join('\n'),
+  );
   const channel = version.includes('-') ? '--prerelease' : '--latest';
   execFileSync(
     'gh',

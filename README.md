@@ -6,7 +6,15 @@
 
 <p align="center">
   The SSH client I build for myself, because every other one annoyed me. (◕‿◕✿)<br/>
-  SSH · SFTP · Port forwarding · Self-hosted sync · Windows · macOS · Linux
+  SSH · SFTP · Vault · Windows, beta
+</p>
+
+<p align="center">
+  <a href="https://github.com/MinifyX/UwUSSH-Client/releases"><b>Download for Windows</b></a>
+  ·
+  <a href="docs/install.md"><b>How to install</b></a>
+  ·
+  <a href="docs/install.md#uwussh-installieren">Anleitung auf Deutsch</a>
 </p>
 
 ---
@@ -36,7 +44,8 @@ it shares its design system, its tooling and its cat.
 ## What it is
 
 UwUSSH is an open-source SSH client for people who have more hosts than they
-can remember and more than one machine to reach them from.
+can remember and more than one machine to reach them from. This is where it is
+headed; the status below says what already works today.
 
 - **Your hosts, your keys, your server.** The sync server is
   [self-hosted](#the-sync-server) and gets only ciphertext. Host names, keys and
@@ -58,9 +67,10 @@ can remember and more than one machine to reach them from.
   Settings → Tone → Neutral. Security warnings are never playful, in either
   tone.
 
-> **Status: beta.** [UwUSSH 0.1.0-beta.2](https://github.com/MinifyX/UwUSSH-Client/releases)
-> is out for Windows, with its own installer and signed automatic updates in a
-> Stable and a Beta channel. It is a beta: expect rough edges.
+> **Status: beta.** [Betas are out for Windows](https://github.com/MinifyX/UwUSSH-Client/releases),
+> with their own installer and signed automatic updates. The sync server,
+> splits, port forwarding, agent login, ProxyJump and macOS and Linux builds are
+> still to come. It is a beta: expect rough edges.
 >
 > **What works.** SSH with a password or a key — OpenSSH, PEM and PuTTY `.ppk` —
 > with host keys checked on first contact and every time after, in tabs, on a
@@ -90,11 +100,20 @@ can remember and more than one machine to reach them from.
 
 ## Install
 
-Download `UwUSSH-Setup-<version>.exe` from the
-[releases](https://github.com/MinifyX/UwUSSH-Client/releases) and run it. It
-installs for your Windows user only, so no admin prompt, and keeps itself up to
-date. Beta or stable: Settings → Updates. UwUKeygen comes with it unless you
-untick it in the setup.
+Windows 10 or 11, 64-bit.
+
+1. Open the [releases](https://github.com/MinifyX/UwUSSH-Client/releases) and
+   download `UwUSSH-Setup-<version>.exe` from the newest one (every version is
+   a beta for now, marked **Pre-release**).
+2. Run it. Windows will probably warn that it "protected your PC", because the
+   setup isn't signed with a paid certificate: **More info → Run anyway**.
+3. Click **Install**. No admin prompt: it installs for your Windows user only,
+   brings UwUKeygen along unless you untick it under Options, and keeps itself
+   up to date.
+
+The [install guide](docs/install.md) has the details: checking the download,
+updates, uninstalling, where your data lives, and what to do when something
+goes wrong. [Auf Deutsch](docs/install.md#uwussh-installieren).
 
 ## The sync server
 
@@ -177,6 +196,7 @@ has the steps.
 
 ## Documentation
 
+- [Install guide](docs/install.md) — installing, updating, uninstalling, in English and German
 - [Konzept](KONZEPT.md) — the full concept, in German
 - [Vision](docs/vision.md) — what I want UwUSSH to be and what it will never do
 - [Architecture](docs/architecture.md) — how the pieces fit together
