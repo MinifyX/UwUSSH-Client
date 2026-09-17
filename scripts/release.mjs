@@ -208,6 +208,13 @@ function checkSignature(file, signatureBase64, pubkeyBase64) {
   ) {
     fail("The signature's trusted comment doesn't verify.");
   }
+  // Installed apps refuse a setup whose signature names another file: that is
+  // what ties the feed's version to the signed setup.
+  const names = trusted
+    .toString('utf8')
+    .split('\t')
+    .map((part) => part.trim().replace(/^file:/, ''));
+  if (!names.includes(setupName)) fail(`The signature doesn't name ${setupName}.`);
 }
 
 async function github(path) {

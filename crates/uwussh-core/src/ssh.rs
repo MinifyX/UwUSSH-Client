@@ -51,6 +51,11 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// connection.
 const PENDING_TTL: Duration = Duration::from_secs(110);
 
+/// How long the server may take to answer a login or to open the terminal,
+/// once connected. A server that accepts the connection and then goes silent
+/// must not leave a tab spinning forever.
+const ANSWER_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// What the remote side is told it is talking to.
 const TERM: &str = "xterm-256color";
 
@@ -257,11 +262,36 @@ impl SshConnection {
     /// Log in. A missing password or passphrase is reported without
     /// contacting the server; the connection stays usable for the retry.
     pub async fn authenticate(&mut self, auth: &SshAuth) -> std::result::Result<(), SshError> {
+        let credential = prepare_credential(auth)?;
+        let answered = tokio::time::timeout(ANSWER_TIMEOUT, self.login(credential)).await;
+        let result = answered.map_err(|_| SshError::Protocol {
+            reason: format!(
+                "the server did not answer the login within {} s",
+                ANSWER_TIMEOUT.as_secs()
+            ),
+        })??;
+
+        match result {
+            client::AuthResult::Success => Ok(()),
+            client::AuthResult::Failure {
+                remaining_methods, ..
+            } => Err(SshError::AuthRejected {
+                remaining: remaining_methods
+                    .iter()
+                    .map(|method| format!("{method:?}").to_lowercase())
+                    .collect(),
+            }),
+        }
+    }
+
+    async fn login(
+        &mut self,
+        credential: Credential,
+    ) -> std::result::Result<client::AuthResult, SshError> {
         let protocol = |e: russh::Error| SshError::Protocol {
             reason: e.to_string(),
         };
-
-        let result = match prepare_credential(auth)? {
+        Ok(match credential {
             Credential::Password(password) => self
                 .handle
                 .authenticate_password(&self.username, password.as_str())
@@ -286,19 +316,7 @@ impl SshConnection {
                     .await
                     .map_err(protocol)?
             }
-        };
-
-        match result {
-            client::AuthResult::Success => Ok(()),
-            client::AuthResult::Failure {
-                remaining_methods, ..
-            } => Err(SshError::AuthRejected {
-                remaining: remaining_methods
-                    .iter()
-                    .map(|method| format!("{method:?}").to_lowercase())
-                    .collect(),
-            }),
-        }
+        })
     }
 
     /// Open a shell on an authenticated connection and start streaming it.
@@ -312,12 +330,23 @@ impl SshConnection {
         let refused = |e: russh::Error| SshError::SessionRefused {
             reason: e.to_string(),
         };
-        let channel = self.handle.channel_open_session().await.map_err(refused)?;
-        channel
-            .request_pty(false, TERM, u32::from(cols), u32::from(rows), 0, 0, &[])
+        let opening = async {
+            let channel = self.handle.channel_open_session().await.map_err(refused)?;
+            channel
+                .request_pty(false, TERM, u32::from(cols), u32::from(rows), 0, 0, &[])
+                .await
+                .map_err(refused)?;
+            channel.request_shell(false).await.map_err(refused)?;
+            Ok::<_, SshError>(channel)
+        };
+        let channel = tokio::time::timeout(ANSWER_TIMEOUT, opening)
             .await
-            .map_err(refused)?;
-        channel.request_shell(false).await.map_err(refused)?;
+            .map_err(|_| SshError::SessionRefused {
+                reason: format!(
+                    "the server did not open a terminal within {} s",
+                    ANSWER_TIMEOUT.as_secs()
+                ),
+            })??;
         let (mut reader, writer) = channel.split();
 
         let metrics = Arc::new(Metrics::new());
@@ -496,6 +525,12 @@ fn prepare_credential(auth: &SshAuth) -> std::result::Result<Credential, SshErro
         SshAuth::Password(Some(password)) => Ok(Credential::Password(password.clone())),
         SshAuth::Key { path, passphrase } => {
             let key_path = path.clone();
+            if is_network_path(path) {
+                return Err(SshError::KeyUnreadable {
+                    key_path,
+                    reason: "keys on network shares are not read: Windows would send your login to that server".into(),
+                });
+            }
             let file = expand_home(path);
             let contents = std::fs::read_to_string(&file).map_err(|e| SshError::KeyUnreadable {
                 key_path: key_path.clone(),
@@ -531,6 +566,15 @@ fn prepare_credential(auth: &SshAuth) -> std::result::Result<Credential, SshErro
                 },
             }),
     }
+}
+
+/// `\\server\share\key` or `//server/share/key`. Opening one makes Windows
+/// authenticate to that server with the user's login hash, so a host entry
+/// (imported, or later synced) could use it to collect the hash.
+pub fn is_network_path(path: &str) -> bool {
+    let path = path.trim();
+    let bytes = path.as_bytes();
+    bytes.len() >= 2 && matches!(bytes[0], b'\\' | b'/') && matches!(bytes[1], b'\\' | b'/')
 }
 
 /// `~/.ssh/id_ed25519` → the user's home directory, on Windows too.
@@ -611,6 +655,25 @@ mod tests {
         assert!(
             matches!(broken, Err(SshError::KeyUnreadable { key_path, .. }) if key_path == "<vault>")
         );
+    }
+
+    #[test]
+    fn a_key_on_a_network_share_is_never_opened() {
+        for path in [
+            r"\\attacker\share\id",
+            "//attacker/share/id",
+            r"\\?\UNC\attacker\share\id",
+            r"/\attacker\share\id",
+        ] {
+            assert!(is_network_path(path), "{path}");
+            let err = prepare_credential(&SshAuth::Key {
+                path: path.into(),
+                passphrase: None,
+            });
+            assert!(matches!(err, Err(SshError::KeyUnreadable { .. })), "{path}");
+        }
+        assert!(!is_network_path(r"C:\keys\id"));
+        assert!(!is_network_path("~/.ssh/id_ed25519"));
     }
 
     #[test]

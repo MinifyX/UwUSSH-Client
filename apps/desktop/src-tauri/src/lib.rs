@@ -30,8 +30,9 @@ pub(crate) struct AppState {
     pub store: Arc<Store>,
     /// Host keys a server presented in the last connection attempt, per
     /// address and port. Trusting a key is only possible for a key in here,
-    /// so a compromised webview cannot hand in a key of its own choosing.
-    pub presented_keys: Mutex<HashMap<(String, u16), ObservedHostKey>>,
+    /// so a compromised webview cannot hand in a key of its own choosing. Each
+    /// entry expires, so a key the user declined doesn't stay trustable.
+    pub presented_keys: Mutex<HashMap<(String, u16), (ObservedHostKey, std::time::Instant)>>,
 }
 
 /// Terminal frames on their way to the webview.
@@ -124,6 +125,7 @@ pub fn run() {
             system::check_for_updates,
             system::install_update,
             system::open_project_page,
+            system::open_terminal_link,
             m0::spawn_m0_session,
             m0::m0_autorun,
             m0::m0_finish,

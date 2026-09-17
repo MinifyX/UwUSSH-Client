@@ -13,6 +13,7 @@ import {
   ACK_CHUNK,
   ackSession,
   closeSession,
+  openTerminalLink,
   resizeSession,
   writeSession,
   type Spawner,
@@ -91,6 +92,17 @@ export class TerminalDriver {
       lineHeight: 1.25,
       theme: NYU_THEME,
       allowProposedApi: true,
+      // Links a program prints (OSC 8) open only on Ctrl+click, only for http
+      // and https, and through Rust, which checks again. xterm.js' default
+      // would ask with confirm() and then navigate to whatever the server sent.
+      linkHandler: {
+        allowNonHttpProtocols: false,
+        activate: (event, uri) => {
+          if (event.ctrlKey && /^https?:\/\//i.test(uri)) {
+            void openTerminalLink(uri).catch(() => undefined);
+          }
+        },
+      },
       ...options,
     });
 

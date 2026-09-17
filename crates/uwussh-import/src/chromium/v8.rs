@@ -99,6 +99,8 @@ pub fn deserialize(data: &[u8]) -> Result<Value, V8Error> {
         version: 0,
         objects: Vec::new(),
         depth: 0,
+        nodes: 0,
+        starts: Vec::new(),
     };
     if reader.tag()? != tag::VERSION {
         return Err(V8Error::Malformed("no version header"));
@@ -154,14 +156,30 @@ const MAX_DEPTH: usize = 128;
 /// so they get a fixed ceiling instead of the bytes-left check.
 const MAX_SPARSE_LEN: usize = 1 << 16;
 
+/// How many values one record may expand to, counting every copy a
+/// back-reference makes. Without it, arrays that reference the previous array
+/// twice double in size per level: 40 levels of a few bytes each are 2^40
+/// values. Real Termius records have a few hundred.
+const MAX_NODES: usize = 200_000;
+
 struct Reader<'a> {
     data: &'a [u8],
     pos: usize,
     version: u64,
     /// Objects by the id V8 gave them, for back-references. `None` while an
     /// object is still being read, which is what a cycle would point at.
-    objects: Vec<Option<Value>>,
+    objects: Vec<Option<Object>>,
     depth: usize,
+    /// Values produced so far, references counted at their full size.
+    nodes: usize,
+    /// For each object id, the node count when it began.
+    starts: Vec<usize>,
+}
+
+/// A value that can be referenced, with how many values it expands to.
+struct Object {
+    value: Value,
+    weight: usize,
 }
 
 impl Reader<'_> {
@@ -212,14 +230,29 @@ impl Reader<'_> {
         Ok(f64::from_le_bytes(self.bytes(8)?.try_into().unwrap()))
     }
 
+    /// Reserves an id for an object about to be read, and notes how many
+    /// values existed before it, so its weight is known once it is complete.
     fn reserve_id(&mut self) -> usize {
         self.objects.push(None);
+        self.starts.push(self.nodes);
         self.objects.len() - 1
     }
 
     fn remember(&mut self, id: usize, value: Value) -> Value {
-        self.objects[id] = Some(value.clone());
+        let weight = self.nodes.saturating_sub(self.starts[id]).max(1);
+        self.objects[id] = Some(Object {
+            value: value.clone(),
+            weight,
+        });
         value
+    }
+
+    fn count(&mut self, nodes: usize) -> Result<(), V8Error> {
+        self.nodes = self.nodes.saturating_add(nodes);
+        if self.nodes > MAX_NODES {
+            return Err(V8Error::Malformed("the value expands too far"));
+        }
+        Ok(())
     }
 
     fn value(&mut self) -> Result<Value, V8Error> {
@@ -227,18 +260,20 @@ impl Reader<'_> {
             return Err(V8Error::TooDeep);
         }
         self.depth += 1;
-        let value = self.value_inner();
+        let value = self.count(1).and_then(|()| self.value_inner());
         self.depth -= 1;
         value
     }
 
     fn value_inner(&mut self) -> Result<Value, V8Error> {
-        let tag = self.tag()?;
+        let mut tag = self.tag()?;
+        // A loop, not a recursive call: a file of nothing but these markers
+        // would otherwise overflow the stack past the depth limit.
+        while tag == tag::VERIFY_OBJECT_COUNT {
+            self.varint()?;
+            tag = self.tag()?;
+        }
         Ok(match tag {
-            tag::VERIFY_OBJECT_COUNT => {
-                self.varint()?;
-                return self.value_inner();
-            }
             tag::UNDEFINED | tag::THE_HOLE => Value::Undefined,
             tag::NULL => Value::Null,
             tag::TRUE => Value::Bool(true),
@@ -255,11 +290,16 @@ impl Reader<'_> {
             }
             tag::OBJECT_REFERENCE => {
                 let id = self.varint()? as usize;
-                match self.objects.get(id) {
-                    Some(Some(value)) => value.clone(),
+                let weight = match self.objects.get(id) {
+                    Some(Some(object)) => object.weight,
                     Some(None) => return Err(V8Error::Malformed("cyclic reference")),
                     None => return Err(V8Error::Malformed("reference to an unknown object")),
-                }
+                };
+                // Counted before copying, so an oversized copy is never made.
+                self.count(weight)?;
+                self.objects[id]
+                    .as_ref()
+                    .map_or(Value::Undefined, |object| object.value.clone())
             }
             tag::BEGIN_OBJECT => {
                 let id = self.reserve_id();
@@ -296,6 +336,7 @@ impl Reader<'_> {
                 if len > MAX_SPARSE_LEN {
                     return Err(V8Error::Malformed("sparse array too long"));
                 }
+                self.count(len)?;
                 let mut items = vec![Value::Undefined; len];
                 while self.peek_tag()? != tag::END_SPARSE_ARRAY {
                     let key = self.property_key()?;
@@ -720,5 +761,46 @@ mod tests {
             writer.begin_array(1);
         }
         assert_eq!(deserialize(&writer.bytes()), Err(V8Error::TooDeep));
+    }
+
+    #[test]
+    fn a_run_of_object_count_markers_cannot_overflow_the_stack() {
+        let mut bytes = vec![0xff, 0x0f];
+        for _ in 0..200_000 {
+            bytes.extend_from_slice(&[b'?', 0]);
+        }
+        bytes.push(b'0');
+        assert_eq!(deserialize(&bytes), Ok(Value::Null));
+    }
+
+    #[test]
+    fn references_that_double_each_level_are_refused() {
+        // [[null], [^1, ^1], [^2, ^2], …]: 40 levels would be 2^40 values.
+        let mut writer = Writer::new();
+        writer.begin_array(41);
+        writer.begin_array(1).null().end_array(1);
+        for id in 1..=40 {
+            writer
+                .begin_array(2)
+                .reference(id)
+                .reference(id)
+                .end_array(2);
+        }
+        writer.end_array(41);
+        assert_eq!(
+            deserialize(&writer.bytes()),
+            Err(V8Error::Malformed("the value expands too far"))
+        );
+    }
+
+    #[test]
+    fn a_few_sparse_arrays_cannot_claim_megabytes_each() {
+        let mut bytes = vec![0xff, 0x0f, b'A', 8];
+        for _ in 0..8 {
+            // a sparse array of length 65536 with no entries
+            bytes.extend_from_slice(&[b'a', 0x80, 0x80, 0x04, b'@', 0, 0x80, 0x80, 0x04]);
+        }
+        bytes.extend_from_slice(&[b'$', 0, 8]);
+        assert!(deserialize(&bytes).is_err());
     }
 }

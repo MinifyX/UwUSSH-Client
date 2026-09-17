@@ -95,10 +95,19 @@ fn setup_file(dir: &Path, version: &str) -> PathBuf {
     dir.join(format!("UwUSSH-Setup-{version}.exe"))
 }
 
+/// A waiting update, opened and checked, with the file held so that nobody can
+/// change or replace it until the handle is dropped.
+struct Pending {
+    update: ReadyUpdate,
+    _locked: std::fs::File,
+}
+
 /// A waiting update, if it is where UwUSSH put it and still carries a valid
-/// release signature. `pending.json` lives in a folder any program of the user
-/// can write to, so neither its path nor the file is trusted blindly.
-fn read_pending(app: &AppHandle) -> Option<ReadyUpdate> {
+/// release signature for exactly that file name. `pending.json` lives in a
+/// folder any program of the user can write to, so neither its path nor the
+/// file is trusted blindly — and the file stays locked against writing and
+/// deleting from the check until the setup has started.
+fn open_pending(app: &AppHandle) -> Option<Pending> {
     let dir = updates_dir(app)?;
     let raw = std::fs::read(dir.join(PENDING)).ok()?;
     let update = serde_json::from_slice::<ReadyUpdate>(&raw).ok()?;
@@ -107,28 +116,54 @@ fn read_pending(app: &AppHandle) -> Option<ReadyUpdate> {
     if update.file != expected {
         return None;
     }
-    let bytes = std::fs::read(&expected).ok()?;
-    verify(app, &bytes, &update.signature).then_some(update)
+    let mut file = open_locked(&expected).ok()?;
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(&mut file, &mut bytes).ok()?;
+    let name = setup_name(&update.version);
+    verify(app, &bytes, &update.signature, &name).then_some(Pending {
+        update,
+        _locked: file,
+    })
 }
 
-/// Checks a setup against the release key from `tauri.conf.json`.
-fn verify(app: &AppHandle, bytes: &[u8], signature: &str) -> bool {
-    let Some(pubkey) = app
-        .config()
+/// Opens a file for reading while refusing everyone else write and delete
+/// access. Starting it as a program still works: that only needs reading.
+fn open_locked(path: &Path) -> std::io::Result<std::fs::File> {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_SHARE_READ: u32 = 0x1;
+        options.share_mode(FILE_SHARE_READ);
+    }
+    options.open(path)
+}
+
+fn setup_name(version: &str) -> String {
+    format!("UwUSSH-Setup-{version}.exe")
+}
+
+fn pubkey(app: &AppHandle) -> Option<String> {
+    app.config()
         .plugins
         .0
         .get("updater")
         .and_then(|updater| updater.get("pubkey"))
         .and_then(|key| key.as_str())
-    else {
-        return false;
-    };
-    verify_with(pubkey, bytes, signature)
+        .map(str::to_string)
+}
+
+/// Checks a setup against the release key from `tauri.conf.json`.
+fn verify(app: &AppHandle, bytes: &[u8], signature: &str, file_name: &str) -> bool {
+    pubkey(app).is_some_and(|key| verify_with(&key, bytes, signature, file_name))
 }
 
 /// Both the key and the signature come base64-wrapped, the way Tauri's signer
-/// writes them.
-fn verify_with(pubkey: &str, bytes: &[u8], signature: &str) -> bool {
+/// writes them. The feed is not signed, only the setup is; the signature's
+/// trusted comment names the file that was signed, so checking it ties the
+/// version the feed claims to the version that was actually signed.
+fn verify_with(pubkey: &str, bytes: &[u8], signature: &str, file_name: &str) -> bool {
     use base64::Engine as _;
     let decode = |text: &str| {
         base64::engine::general_purpose::STANDARD
@@ -146,6 +181,15 @@ fn verify_with(pubkey: &str, bytes: &[u8], signature: &str) -> bool {
         return false;
     };
     key.verify(bytes, &signature, false).is_ok()
+        && signs_file(signature.trusted_comment(), file_name)
+}
+
+/// Tauri's signer writes `timestamp:<secs>\tfile:<name>` as the trusted comment.
+fn signs_file(trusted_comment: &str, file_name: &str) -> bool {
+    trusted_comment
+        .split('\t')
+        .filter_map(|part| part.trim().strip_prefix("file:"))
+        .any(|name| name == file_name)
 }
 
 /// Whether another UwUSSH window is running from the same program file. Its
@@ -215,8 +259,10 @@ fn other_instances_running() -> bool {
     false
 }
 
-/// Starts the downloaded setup to replace this UwUSSH, which then quits.
-fn hand_over(update: &ReadyUpdate, relaunch: bool) -> Result<(), String> {
+/// Starts the checked setup to replace this UwUSSH, which then quits. The file
+/// stays locked until the setup process exists.
+fn hand_over(pending: Pending, relaunch: bool) -> Result<(), String> {
+    let update = &pending.update;
     // Each download gets one attempt. If the setup refuses (e.g. an older
     // version), the next start must not hand over again and again.
     if let Some(dir) = update.file.parent() {
@@ -227,11 +273,13 @@ fn hand_over(update: &ReadyUpdate, relaunch: bool) -> Result<(), String> {
     if relaunch {
         args.push("--relaunch");
     }
-    std::process::Command::new(&update.file)
+    let started = std::process::Command::new(&update.file)
         .args(&args)
         .spawn()
         .map(|_| ())
-        .map_err(|e| format!("Couldn't start the update: {e}"))
+        .map_err(|e| format!("Couldn't start the update: {e}"));
+    drop(pending);
+    started
 }
 
 /// Called first thing on start: installs a waiting update, or cleans up after
@@ -241,10 +289,10 @@ pub fn apply_pending_on_start(app: &AppHandle) -> bool {
     if !cfg!(windows) || cfg!(debug_assertions) {
         return false;
     }
-    match read_pending(app) {
-        Some(update) if is_newer(app, &update.version) => {
+    match open_pending(app) {
+        Some(pending) if is_newer(app, &pending.update.version) => {
             // Another window still has sessions open; the update waits.
-            !other_instances_running() && hand_over(&update, true).is_ok()
+            !other_instances_running() && hand_over(pending, true).is_ok()
         }
         _ => {
             if let Some(dir) = updates_dir(app) {
@@ -307,8 +355,16 @@ pub async fn check(app: &AppHandle) -> Result<Option<UpdateInfo>, String> {
         ));
     }
 
-    // The plugin checks the signature against the public key before handing out the bytes.
+    // The plugin checks the signature against the public key before handing
+    // out the bytes; the file name in it is checked here, against the version
+    // the feed claims.
     let bytes = found.download(|_, _| {}, || {}).await.map_err(fail)?;
+    let name = setup_name(&found.version);
+    if !verify(app, &bytes, &found.signature, &name) {
+        return Err(format!(
+            "The update's signature doesn't belong to {name}, so it was not saved."
+        ));
+    }
     let dir = updates_dir(app).ok_or("No folder for updates")?;
     let save = |e: std::io::Error| format!("Couldn't save the update: {e}");
     std::fs::create_dir_all(&dir).map_err(save)?;
@@ -343,9 +399,10 @@ pub fn install_now(app: &AppHandle) -> Result<(), String> {
                 .into(),
         );
     }
-    // Read it back from disk, so the signature is checked on the file that runs.
-    let update = read_pending(app).ok_or("The downloaded update is damaged.")?;
-    hand_over(&update, true)?;
+    // Read it back from disk and keep it locked, so the signature is checked
+    // on the file that runs.
+    let pending = open_pending(app).ok_or("The downloaded update is damaged.")?;
+    hand_over(pending, true)?;
     app.exit(0);
     Ok(())
 }
@@ -353,8 +410,8 @@ pub fn install_now(app: &AppHandle) -> Result<(), String> {
 /// Checks in the background for as long as UwUSSH runs.
 pub fn start(app: &AppHandle) {
     app.manage(Updates::default());
-    if let Some(update) = read_pending(app).filter(|update| is_newer(app, &update.version)) {
-        *app.state::<Updates>().ready.lock() = Some(update);
+    if let Some(pending) = open_pending(app).filter(|p| is_newer(app, &p.update.version)) {
+        *app.state::<Updates>().ready.lock() = Some(pending.update);
     }
     if cfg!(debug_assertions) {
         return;
@@ -388,11 +445,12 @@ mod tests {
 
     #[test]
     fn garbage_never_verifies() {
-        assert!(!verify_with("", b"setup", ""));
+        assert!(!verify_with("", b"setup", "", "UwUSSH-Setup-1.0.0.exe"));
         assert!(!verify_with(
             "bm90IGEga2V5",
             b"setup",
-            "bm90IGEgc2lnbmF0dXJl"
+            "bm90IGEgc2lnbmF0dXJl",
+            "UwUSSH-Setup-1.0.0.exe"
         ));
     }
 
@@ -404,7 +462,24 @@ mod tests {
             serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         let pubkey = conf["plugins"]["updater"]["pubkey"].as_str().unwrap();
         assert!(!pubkey.is_empty());
-        assert!(!verify_with(pubkey, b"a setup nobody signed", "AAAA"));
+        assert!(!verify_with(
+            pubkey,
+            b"a setup nobody signed",
+            "AAAA",
+            "UwUSSH-Setup-1.0.0.exe"
+        ));
+    }
+
+    #[test]
+    fn the_signature_must_name_the_setup_the_feed_promised() {
+        let comment = "timestamp:1789000000\tfile:UwUSSH-Setup-0.1.0-beta.2.exe";
+        assert!(signs_file(comment, "UwUSSH-Setup-0.1.0-beta.2.exe"));
+        // An older, validly signed setup offered as a newer version.
+        assert!(!signs_file(comment, "UwUSSH-Setup-0.2.0.exe"));
+        assert!(!signs_file(
+            "timestamp:1789000000",
+            "UwUSSH-Setup-0.2.0.exe"
+        ));
     }
 
     #[test]

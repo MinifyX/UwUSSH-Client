@@ -129,6 +129,12 @@ fn include_directive(line: &str) -> Option<&str> {
 /// `*`/`?` wildcard in the final path component, which is the common
 /// `config.d/*` case.
 fn resolve_include(pattern: &str, base: &Path) -> std::result::Result<Vec<PathBuf>, &'static str> {
+    // Reading `\\server\share\…` makes Windows log in to that server with the
+    // user's password hash; a config file must not be able to trigger that.
+    let bytes = pattern.as_bytes();
+    if bytes.len() >= 2 && matches!(bytes[0], b'\\' | b'/') && matches!(bytes[1], b'\\' | b'/') {
+        return Err("network paths are not followed");
+    }
     let expanded = expand_home(pattern);
     let full = if expanded.is_absolute() {
         expanded

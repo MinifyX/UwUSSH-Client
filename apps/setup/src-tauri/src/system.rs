@@ -246,14 +246,13 @@ pub fn spawn_detached(exe: &Path, args: &[&str]) -> Result<(), String> {
 /// Deletes a file a few seconds after this process has ended (for the
 /// uninstaller's temporary copy).
 pub fn delete_after_exit(file: &Path) {
-    // Only ever this setup's own copy in the temp folder, whose name we chose.
-    // cmd has its own quoting rules, so the command line goes in as it is.
-    let command = format!(
-        "/c ping 127.0.0.1 -n 4 > nul & del /f /q \"{}\"",
-        file.display()
-    );
+    // Only ever this setup's own copy in the temp folder. The path goes in
+    // through an environment variable: cmd expands %…% inside quotes too, so a
+    // profile path with a percent sign in it must never become part of the
+    // command line itself.
     let _ = std::process::Command::new("cmd")
-        .raw_arg(command)
+        .raw_arg("/c ping 127.0.0.1 -n 4 > nul & del /f /q \"%UWUSSH_SETUP_COPY%\"")
+        .env("UWUSSH_SETUP_COPY", file)
         .creation_flags(CREATE_NO_WINDOW)
         .spawn();
 }

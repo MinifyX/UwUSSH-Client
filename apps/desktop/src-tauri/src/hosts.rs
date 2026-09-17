@@ -115,6 +115,11 @@ fn check_attempt(attempt: &str) -> Result<(), ConnectFailure> {
     }
 }
 
+/// How long a key the server presented can be trusted from the dialog. Long
+/// enough to compare fingerprints calmly, short enough that a declined key
+/// doesn't stay trustable for the rest of the session.
+const PRESENTED_KEY_TTL: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
 fn key_for(address: &str, port: u16) -> (String, u16) {
     (address.trim().to_ascii_lowercase(), port)
 }
@@ -198,10 +203,10 @@ pub(crate) async fn connect_host(
             if let SshError::UnknownHostKey { observed }
             | SshError::HostKeyChanged { observed, .. } = &error
             {
-                state
-                    .presented_keys
-                    .lock()
-                    .insert(key_for(&host.address, host.port), observed.clone());
+                state.presented_keys.lock().insert(
+                    key_for(&host.address, host.port),
+                    (observed.clone(), std::time::Instant::now()),
+                );
             }
             Err(ConnectFailure::Ssh(error))
         }
@@ -227,7 +232,8 @@ pub(crate) fn trust_host_key(
         .presented_keys
         .lock()
         .get(&slot)
-        .cloned()
+        .filter(|(_, seen)| seen.elapsed() < PRESENTED_KEY_TTL)
+        .map(|(observed, _)| observed.clone())
         .filter(|observed| observed.fingerprint == fingerprint)
         .ok_or("this key was not presented by the server in the last connection attempt")?;
 

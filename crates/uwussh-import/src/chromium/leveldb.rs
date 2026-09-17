@@ -147,7 +147,10 @@ fn block_handle(data: &[u8], pos: &mut usize) -> Result<(usize, usize), &'static
 fn read_block(data: &[u8], (offset, size): (usize, usize)) -> Result<Vec<u8>, &'static str> {
     let end = offset
         .checked_add(size)
-        .filter(|end| end + BLOCK_TRAILER_LEN <= data.len())
+        .filter(|end| {
+            end.checked_add(BLOCK_TRAILER_LEN)
+                .is_some_and(|with_trailer| with_trailer <= data.len())
+        })
         .ok_or("block outside the file")?;
     let contents = &data[offset..end];
     let kind = data[end];
@@ -157,9 +160,15 @@ fn read_block(data: &[u8], (offset, size): (usize, usize)) -> Result<Vec<u8>, &'
     }
     match kind {
         0 => Ok(contents.to_vec()),
-        1 => snap::raw::Decoder::new()
-            .decompress_vec(contents)
-            .map_err(|_| "bad snappy block"),
+        1 => {
+            let size = snap::raw::decompress_len(contents).map_err(|_| "bad snappy block")?;
+            if size > super::idb::MAX_DECOMPRESSED {
+                return Err("snappy block too large");
+            }
+            snap::raw::Decoder::new()
+                .decompress_vec(contents)
+                .map_err(|_| "bad snappy block")
+        }
         _ => Err("unknown block compression"),
     }
 }
@@ -183,6 +192,11 @@ fn block_entries(block: &[u8]) -> Result<Vec<BlockEntry<'_>>, &'static str> {
     let mut entries = Vec::new();
     let mut key: Vec<u8> = Vec::new();
     let mut pos = 0;
+    // Every entry owns a copy of its whole key. Keys that grow by a byte per
+    // entry would make that quadratic in the block size, so the copies get a
+    // budget far above what real blocks need.
+    let mut copied = 0usize;
+    let budget = block.len().saturating_mul(16).saturating_add(64 * 1024);
     while pos < entries_end {
         let shared = varint(block, &mut pos).ok_or(BAD)? as usize;
         let unshared = varint(block, &mut pos).ok_or(BAD)? as usize;
@@ -194,6 +208,10 @@ fn block_entries(block: &[u8]) -> Result<Vec<BlockEntry<'_>>, &'static str> {
         }
         key.truncate(shared);
         key.extend_from_slice(&block[pos..key_end]);
+        copied = copied.saturating_add(key.len());
+        if copied > budget {
+            return Err(BAD);
+        }
         entries.push((key.clone(), &block[key_end..value_end]));
         pos = value_end;
     }
@@ -626,5 +644,31 @@ mod tests {
         assert_eq!(value(&snapshot, "other"), Some("fine"));
         assert_eq!(snapshot.unreadable.len(), 1);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_block_handle_near_the_end_of_memory_is_refused() {
+        assert!(read_block(&[0; 64], (usize::MAX - 2, 1)).is_err());
+        assert!(read_block(&[0; 64], (60, usize::MAX)).is_err());
+    }
+
+    #[test]
+    fn keys_that_grow_every_entry_hit_a_budget() {
+        let mut block = Vec::new();
+        for shared in 0u64..20_000 {
+            let mut v = shared;
+            loop {
+                let byte = (v & 0x7f) as u8;
+                v >>= 7;
+                if v == 0 {
+                    block.push(byte);
+                    break;
+                }
+                block.push(byte | 0x80);
+            }
+            block.extend_from_slice(&[1, 0, b'x']);
+        }
+        block.extend_from_slice(&0u32.to_le_bytes());
+        assert!(block_entries(&block).is_err());
     }
 }

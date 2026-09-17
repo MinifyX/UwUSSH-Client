@@ -78,24 +78,27 @@ pub fn from_session_values(
 }
 
 /// `My%20Server` → `My Server`.
+///
+/// Works on bytes: slicing the string next to a `%` could cut a character in
+/// half (`%1ü`) and panic, and non-ASCII names must come back as they were.
 fn decode_session_name(encoded: &str) -> String {
     let bytes = encoded.as_bytes();
-    let mut out = String::with_capacity(encoded.len());
+    let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
 
     while i < bytes.len() {
         if bytes[i] == b'%' && i + 2 < bytes.len() {
-            let hex = &encoded[i + 1..i + 3];
-            if let Ok(byte) = u8::from_str_radix(hex, 16) {
-                out.push(byte as char);
+            let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).ok();
+            if let Some(byte) = hex.and_then(|hex| u8::from_str_radix(hex, 16).ok()) {
+                out.push(byte);
                 i += 3;
                 continue;
             }
         }
-        out.push(bytes[i] as char);
+        out.push(bytes[i]);
         i += 1;
     }
-    out
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 fn split_faux_folder(name: &str) -> Option<(String, String)> {
@@ -364,5 +367,13 @@ mod tests {
             Source::Putty,
         );
         assert_eq!(host.key_path.as_deref(), Some(r"C:\keys\homelab.ppk"));
+    }
+
+    #[test]
+    fn session_names_decode_on_bytes_without_panicking() {
+        assert_eq!(decode_session_name("My%20Server"), "My Server");
+        assert_eq!(decode_session_name("%1ü"), "%1ü");
+        assert_eq!(decode_session_name("Büro%2Fnas"), "Büro/nas");
+        assert_eq!(decode_session_name("trailing%4"), "trailing%4");
     }
 }

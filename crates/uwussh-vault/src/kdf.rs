@@ -47,6 +47,15 @@ impl KdfParams {
         parallelism: KDF_PARALLELISM,
     };
 
+    /// Whether these costs are something a device can actually run. A header
+    /// is data like any other; a tampered one asking for 4 TiB of memory must
+    /// be refused rather than tried.
+    pub fn within_limits(&self) -> bool {
+        (1..=1024 * 1024).contains(&self.memory_kib)
+            && (1..=16).contains(&self.time_cost)
+            && (1..=16).contains(&self.parallelism)
+    }
+
     /// For tests only: fast, and worthless against guessing.
     pub const INSECURE_FOR_TESTS: Self = Self {
         memory_kib: 8,
@@ -68,6 +77,9 @@ pub fn derive_master_secrets_with(
     salt: &[u8],
     kdf: KdfParams,
 ) -> Result<MasterSecrets> {
+    if !kdf.within_limits() {
+        return Err(VaultError::Kdf("unreasonable key derivation costs".into()));
+    }
     let params = Params::new(kdf.memory_kib, kdf.time_cost, kdf.parallelism, Some(64))
         .map_err(|e| VaultError::Kdf(e.to_string()))?;
     let argon = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
@@ -125,6 +137,18 @@ mod tests {
         let a = fast(b"pw", b"salt-one-aaaaaaa");
         let b = fast(b"pw", b"salt-one-aaaaaaa");
         assert_eq!(a, b, "unlocking on a second device depends on this");
+    }
+
+    #[test]
+    fn absurd_costs_are_refused_before_anything_is_allocated() {
+        let greedy = KdfParams {
+            memory_kib: u32::MAX,
+            ..KdfParams::RECOMMENDED
+        };
+        assert!(!greedy.within_limits());
+        assert!(derive_master_secrets_with(b"pw", b"salt-one-aaaaaaa", greedy).is_err());
+        assert!(KdfParams::RECOMMENDED.within_limits());
+        assert!(KdfParams::INSECURE_FOR_TESTS.within_limits());
     }
 
     #[test]

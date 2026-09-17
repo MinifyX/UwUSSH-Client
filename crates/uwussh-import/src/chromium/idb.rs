@@ -182,14 +182,29 @@ fn utf16_be(bytes: &[u8]) -> String {
     String::from_utf16_lossy(&units)
 }
 
+/// Array keys nest; a real key is a handful of levels deep, and two bytes per
+/// level must not be enough to overflow the stack.
+const MAX_KEY_DEPTH: usize = 32;
+
+/// Snappy says how large a value will be before it is inflated. Termius'
+/// records are kilobytes; anything past this is not one of them.
+pub(crate) const MAX_DECOMPRESSED: usize = 64 * 1024 * 1024;
+
 fn decode_key(data: &[u8], pos: &mut usize) -> Option<Key> {
+    decode_key_at(data, pos, 0)
+}
+
+fn decode_key_at(data: &[u8], pos: &mut usize, depth: usize) -> Option<Key> {
+    if depth > MAX_KEY_DEPTH {
+        return None;
+    }
     let kind = *data.get(*pos)?;
     *pos += 1;
     Some(match kind {
         0 => Key::Null,
         1 => Key::String(string_with_length(data, pos)?),
         2 | 3 => {
-            let bytes = data.get(*pos..*pos + 8)?;
+            let bytes = data.get(*pos..pos.checked_add(8)?)?;
             *pos += 8;
             let n = f64::from_le_bytes(bytes.try_into().ok()?);
             if kind == 2 {
@@ -202,7 +217,7 @@ fn decode_key(data: &[u8], pos: &mut usize) -> Option<Key> {
             let len = usize::try_from(varint(data, pos)?).ok()?;
             let mut items = Vec::new();
             for _ in 0..len {
-                items.push(decode_key(data, pos)?);
+                items.push(decode_key_at(data, pos, depth + 1)?);
             }
             Key::Array(items)
         }
@@ -229,6 +244,11 @@ fn decode_value(stored: &[u8]) -> Result<v8::Value, ValueError> {
     let serialized = match serialized {
         [0xff, 0x11, 0x01, ..] => return Err(ValueError::InBlob),
         [0xff, 0x11, 0x02, compressed @ ..] => {
+            let size =
+                snap::raw::decompress_len(compressed).map_err(|_| ValueError::Compression)?;
+            if size > MAX_DECOMPRESSED {
+                return Err(ValueError::Compression);
+            }
             decompressed = snap::raw::Decoder::new()
                 .decompress_vec(compressed)
                 .map_err(|_| ValueError::Compression)?;
@@ -468,5 +488,15 @@ mod tests {
                 Key::Binary(vec![0xde, 0xad]),
             ]))
         );
+    }
+
+    #[test]
+    fn deeply_nested_array_keys_are_refused_not_a_stack_overflow() {
+        let mut data = Vec::new();
+        for _ in 0..100_000 {
+            data.extend_from_slice(&[4, 1]);
+        }
+        data.push(0);
+        assert_eq!(decode_key(&data, &mut 0), None);
     }
 }

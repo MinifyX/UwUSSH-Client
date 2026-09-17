@@ -299,6 +299,11 @@ export function installUpdate(): Promise<void> {
 
 export type ProjectPage = 'source' | 'releases' | 'issues' | 'license';
 
+/** A web link a program printed in the terminal; Rust only opens http and https. */
+export function openTerminalLink(url: string): Promise<void> {
+  return invoke('open_terminal_link', { url });
+}
+
 export function openProjectPage(page: ProjectPage): Promise<void> {
   return invoke('open_project_page', { page });
 }

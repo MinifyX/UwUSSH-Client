@@ -57,6 +57,9 @@ impl Store {
         let (header, unlocked) = uwussh_vault::create(password, vault_id, kdf)?;
         store_header(&tx, &header)?;
         tx.commit()?;
+        // Locks are always taken connection first, vault second, and never
+        // the other way round: reveal and import run at the same time.
+        drop(conn);
         *self.vault.lock() = Some(unlocked);
         tracing::info!("vault created");
         Ok(())
@@ -81,8 +84,12 @@ impl Store {
     /// Open one stored secret by id. Fails if the vault is locked; the
     /// plaintext comes back in memory that wipes itself.
     pub fn reveal_secret(&self, id: Uuid) -> Result<Revealed> {
-        let guard = self.vault.lock();
-        let vault = guard.as_ref().ok_or(StoreError::VaultLocked)?;
+        // The row first, with only the connection locked; the vault after.
+        // Holding the vault while waiting for the connection deadlocked
+        // against an import, which takes them in the other order.
+        if self.vault.lock().is_none() {
+            return Err(StoreError::VaultLocked);
+        }
         let sealed = self
             .conn
             .lock()
@@ -98,6 +105,8 @@ impl Store {
             )
             .optional()?
             .ok_or(StoreError::NoVault)?;
+        let guard = self.vault.lock();
+        let vault = guard.as_ref().ok_or(StoreError::VaultLocked)?;
         Ok(vault.open(id, uwussh_proto::EntityKind::Secret, &sealed)?)
     }
 
@@ -152,6 +161,12 @@ fn header_row(conn: &rusqlite::Connection) -> Result<Option<VaultHeader>> {
     .optional()?
     .map(|(vault_id, kdf, salt, wrapped_key)| {
         let vault_id = Uuid::parse_str(&vault_id).map_err(|_| StoreError::NoVault)?;
+        // A header with absurd costs would make every unlock run out of memory.
+        if !kdf.within_limits() {
+            return Err(StoreError::Vault(uwussh_vault::VaultError::Kdf(
+                "the vault header asks for unreasonable key derivation costs".into(),
+            )));
+        }
         let salt: [u8; 16] = salt
             .as_slice()
             .try_into()
@@ -222,6 +237,42 @@ mod tests {
         for suffix in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
         }
+    }
+
+    #[test]
+    fn a_header_with_absurd_kdf_costs_is_refused() {
+        let store = store();
+        create(&store);
+        store.lock_vault();
+        store
+            .conn
+            .lock()
+            .execute("UPDATE vault SET kdf_memory_kib = 4294967295", [])
+            .unwrap();
+        assert!(matches!(
+            store.unlock_vault(b"open sesame"),
+            Err(StoreError::Vault(uwussh_vault::VaultError::Kdf(_)))
+        ));
+    }
+
+    #[test]
+    fn revealing_and_importing_at_once_does_not_deadlock() {
+        use crate::import::ImportSet;
+        let store = std::sync::Arc::new(store());
+        create(&store);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(400);
+        let revealer = {
+            let store = std::sync::Arc::clone(&store);
+            std::thread::spawn(move || {
+                while std::time::Instant::now() < deadline {
+                    let _ = store.reveal_secret(Uuid::now_v7());
+                }
+            })
+        };
+        while std::time::Instant::now() < deadline {
+            store.import(ImportSet::default()).unwrap();
+        }
+        revealer.join().unwrap();
     }
 
     #[test]
