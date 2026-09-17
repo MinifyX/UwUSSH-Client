@@ -1,11 +1,11 @@
 {
-  "version": "0.1.0-beta.5",
-  "notes": "{\"de\":\"Hotfix ✧\\n\\n- UwUKeygen: Private Keys im OpenSSH-Format lassen sich wieder speichern (vorher meldete Windows das Dateiformat „.*“ als unbekannt)\\n- UwUKeygen: Nyu will länger spielen. Der Zufall füllt sich jetzt mit echten Bewegungen statt mit jedem Mausereignis, gut eine Viertelminute Laserpointer-Jagd\\n- Dialoge schließen sich nicht mehr, wenn man daneben klickt. Wer einen Dialog mit ungespeicherten Eingaben schließt (Host-Formular, UwUKeygen, Export, Import), wird vorher gefragt\",\"en\":\"Hotfix ✧\\n\\n- UwUKeygen: private keys in OpenSSH format can be saved again (Windows called the file type “.*” unknown)\\n- UwUKeygen: Nyu wants to play longer. The randomness bar now fills with real movement rather than every mouse event, a good quarter of a minute of laser chasing\\n- Dialogs no longer close when you click beside them. Closing one with unsaved input (host form, UwUKeygen, export, import) asks first\"}",
-  "pub_date": "2026-09-17T15:18:38Z",
+  "version": "0.1.0-beta.6",
+  "notes": "{\"de\":\"UwUSSH spricht jetzt auch Englisch ✧\\n\\n- Die ganze App und UwUKeygen gibt es auf Deutsch und Englisch. Standard ist die Sprache von Windows, umschalten geht unter Einstellungen → Darstellung → Sprache, sofort und ohne Neustart\\n- Die Update-Hinweise zeigen die Neuigkeiten in der gewählten Sprache\",\"en\":\"UwUSSH speaks English now ✧\\n\\n- The whole app and UwUKeygen come in English and German. It follows the language Windows uses; Settings → Appearance → Language switches, right away and without a restart\\n- Update hints show what's new in the language you picked\"}",
+  "pub_date": "2026-09-17T17:09:22Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzVQZjJVdlJ5K1FaNTB4MGEyZWh5N3ptWldJam9ETjdFSkk3b2tQaUdHbnZnNXN4SFdmUWtlYlIya2RaL0xPbFlYL3F4RCs3WTMxVVBkc0RxRTBLamdnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5NjU4MzEzCWZpbGU6VXdVU1NILVNldHVwLTAuMS4wLWJldGEuNS5leGUKdnZIN1ZwYitkdm9DbkJWdUNBQk9WV1hNbSszdkExdGo4ZGdWeWQ1Y09ZakhOVTl2SW1tOVlDQmkrVkR1WlRWams5YVREMVh1VlJlQUluMHVxbzBLQVE9PQo=",
-      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.0-beta.5/UwUSSH-Setup-0.1.0-beta.5.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzB4SjBRdlBvc0tWOGhmaEVBL2RQZ2VzS0lKSW83RU1iVkRJYkxkbkI5SlFFazVtbXAxUUtSZlhicktHcXFmTm53ZktKa2lzdXlxbUpEdDQ3eTN3Q1FBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5NjY0ODkxCWZpbGU6VXdVU1NILVNldHVwLTAuMS4wLWJldGEuNi5leGUKUmVFTjYzVGFYaDlaMHBwU1RsRDlVVTJrVFJ5d0Jnam1OV0lWTHgwNGEyTldrWUZyWnFGRWl5UGM0ZGU1aVd6VkdwZUVrc25WQTBEZ0hpZ2pzUzBvQWc9PQo=",
+      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.0-beta.6/UwUSSH-Setup-0.1.0-beta.6.exe"
     }
   }
 }
