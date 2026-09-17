@@ -1,11 +1,11 @@
 {
-  "version": "0.1.0-beta.4",
-  "notes": "{\"de\":\"Hotfix ✧\\n\\n- „Passwort eintippen“ geht jetzt immer, per Knopf oder Strg+Umschalt+P. Fragt gerade etwas nach einer Eingabe (die Zeile endet auf einen Doppelpunkt, etwa „Password:“), kommt Enter gleich mit; an einer normalen Shell nur das Passwort, damit nichts versehentlich ausgeführt wird\\n- Der Passwort-Hinweis erkennt jetzt auch sudo-rs auf neuem Ubuntu: „[sudo: authenticate] Password:“\",\"en\":\"Hotfix ✧\\n\\n- “Type password” now always works, by button or Ctrl+Shift+P. When something is asking for input (the line ends in a colon, like “Password:”), Enter comes along; at a plain shell only the password, so nothing runs by accident\\n- The password hint now also recognises sudo-rs on recent Ubuntu: “[sudo: authenticate] Password:”\"}",
-  "pub_date": "2026-09-17T14:58:36Z",
+  "version": "0.1.0-beta.5",
+  "notes": "{\"de\":\"Hotfix ✧\\n\\n- UwUKeygen: Private Keys im OpenSSH-Format lassen sich wieder speichern (vorher meldete Windows das Dateiformat „.*“ als unbekannt)\\n- UwUKeygen: Nyu will länger spielen. Der Zufall füllt sich jetzt mit echten Bewegungen statt mit jedem Mausereignis, gut eine Viertelminute Laserpointer-Jagd\\n- Dialoge schließen sich nicht mehr, wenn man daneben klickt. Wer einen Dialog mit ungespeicherten Eingaben schließt (Host-Formular, UwUKeygen, Export, Import), wird vorher gefragt\",\"en\":\"Hotfix ✧\\n\\n- UwUKeygen: private keys in OpenSSH format can be saved again (Windows called the file type “.*” unknown)\\n- UwUKeygen: Nyu wants to play longer. The randomness bar now fills with real movement rather than every mouse event, a good quarter of a minute of laser chasing\\n- Dialogs no longer close when you click beside them. Closing one with unsaved input (host form, UwUKeygen, export, import) asks first\"}",
+  "pub_date": "2026-09-17T15:18:38Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzFJWkhRWmhJRHk4b0tiSXpQZ1VzNVA5UjI0V3ovNXRlMlZMTFJHZmpSVm1Kb2ttNDhaT1F5YnRyN1ZOZ2YrYXhMVkwrTWVoUmVjQzVUNVgyaHRqdGc0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5NjU3MTExCWZpbGU6VXdVU1NILVNldHVwLTAuMS4wLWJldGEuNC5leGUKSFVYUVo3QUFDTHdDTFUxdm4wWE9ya0VFeFlELzN4Q0NtK1dsSDJuL256M1RSbVFIdy91NWRCZ0cwOUY5MU8rdjVvc2ExK0pKemFqOHdhWE5wSXU5QWc9PQo=",
-      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.0-beta.4/UwUSSH-Setup-0.1.0-beta.4.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzVQZjJVdlJ5K1FaNTB4MGEyZWh5N3ptWldJam9ETjdFSkk3b2tQaUdHbnZnNXN4SFdmUWtlYlIya2RaL0xPbFlYL3F4RCs3WTMxVVBkc0RxRTBLamdnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5NjU4MzEzCWZpbGU6VXdVU1NILVNldHVwLTAuMS4wLWJldGEuNS5leGUKdnZIN1ZwYitkdm9DbkJWdUNBQk9WV1hNbSszdkExdGo4ZGdWeWQ1Y09ZakhOVTl2SW1tOVlDQmkrVkR1WlRWams5YVREMVh1VlJlQUluMHVxbzBLQVE9PQo=",
+      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.0-beta.5/UwUSSH-Setup-0.1.0-beta.5.exe"
     }
   }
 }
