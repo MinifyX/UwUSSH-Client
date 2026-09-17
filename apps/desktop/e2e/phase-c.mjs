@@ -27,13 +27,27 @@ check(
     `[...document.querySelectorAll('.host-name')].some(e => e.textContent === 'dev-sshd')`,
   ),
 );
+// A vault this device doesn't open on its own asks once at start.
+await page.waitFor(
+  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Tresor entsperren'`,
+  {
+    what: 'unlock prompt at start',
+  },
+);
+check('a locked vault asks once when the app starts', true);
+check('it can be put off', (await page.text('.modal-footer button')).includes('Später'));
 await shot('c1-start');
+await page.click('.modal-footer button', 'Später');
+await page.waitFor(`!document.querySelector('.modal')`, { what: 'start prompt dismissed' });
 
 // ── Connect: the vault is locked, so it must be unlocked first ──────────────
 await page.click('.host .host-name', 'dev-sshd');
-await page.waitFor(`document.querySelector('.modal-title')?.textContent === 'Tresor entsperren'`, {
-  what: 'unlock dialog',
-});
+await page.waitFor(
+  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Tresor entsperren'`,
+  {
+    what: 'unlock dialog',
+  },
+);
 check('a vault host asks to unlock before connecting', true);
 check(
   'no password went to the server yet',
@@ -43,6 +57,9 @@ check(
 await shot('c2-unlock');
 
 // A wrong master password is reported, and the prompt comes back.
+await page.waitFor(`document.activeElement?.type === 'password'`, {
+  what: 'master password field focused',
+});
 await page.type('nope');
 await page.key('Enter');
 await page.waitFor(`document.querySelector('.field-error')?.textContent.includes('falsch')`, {
@@ -55,7 +72,7 @@ await page.key('Enter');
 
 // ── Trust the host key, then the key login goes through ─────────────────────
 await page.waitFor(
-  `document.querySelector('.modal-title')?.textContent === 'Unbekannter Host-Key'`,
+  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Unbekannter Host-Key'`,
   { what: 'trust dialog after unlock' },
 );
 check('after unlocking, the host key is offered for trust', true);
@@ -79,6 +96,11 @@ check(
   'the server was never sent a password',
   !log().includes('password for uwu'),
   'the server saw a password attempt',
+);
+
+check(
+  'unlocking remembered the vault on this device',
+  (await page.eval(`window.__TAURI_INTERNALS__.invoke('vault_state')`)).remembered === true,
 );
 
 // A typed command still works over the key session.

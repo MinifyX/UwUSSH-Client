@@ -1,0 +1,574 @@
+//! Groups, workspaces and the order of the host list.
+//!
+//! A host names its group by `group_path`; the group itself is a record in
+//! `host_groups`, so an empty group stays and groups keep the order they were
+//! dragged into. Every move is one call — a host onto a group, between two
+//! hosts, into the other workspace — and renumbers what it touched in one
+//! transaction. Only rows whose place actually changed get a new revision, so a
+//! drag doesn't turn into a sync of the whole list.
+
+use crate::hosts::{ensure_group, group_name, read_host, HostRecord, Workspace};
+use crate::{tick, vault_id, Result, Store, StoreError};
+use rusqlite::{params, OptionalExtension, Transaction};
+use serde::Serialize;
+use uuid::Uuid;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupRecord {
+    pub workspace: Workspace,
+    pub name: String,
+    pub position: i64,
+}
+
+fn required(name: &str) -> Result<String> {
+    group_name(Some(name.to_string()))?.ok_or(StoreError::Invalid {
+        field: "groupPath",
+        problem: "required",
+    })
+}
+
+impl Store {
+    /// Every group, in order, per workspace. A group a host names without a
+    /// record (sync could bring one) is listed after the recorded ones.
+    pub fn list_groups(&self) -> Result<Vec<GroupRecord>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT workspace, name, position FROM (
+                SELECT workspace, name, position, 0 AS implicit
+                  FROM host_groups WHERE deleted = 0
+                UNION
+                SELECT DISTINCT h.workspace, h.group_path, 0, 1 FROM hosts h
+                 WHERE h.deleted = 0 AND h.group_path IS NOT NULL
+                   AND NOT EXISTS (SELECT 1 FROM host_groups g
+                                    WHERE g.deleted = 0 AND g.workspace = h.workspace
+                                      AND g.name = h.group_path)
+             )
+             ORDER BY workspace, implicit, position, lower(name)",
+        )?;
+        let groups = stmt
+            .query_map([], |row| {
+                let workspace: String = row.get(0)?;
+                Ok(GroupRecord {
+                    workspace: Workspace::parse(&workspace),
+                    name: row.get(1)?,
+                    position: row.get(2)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(groups)
+    }
+
+    pub fn create_group(&self, workspace: Workspace, name: &str) -> Result<GroupRecord> {
+        let name = required(name)?;
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        if group_exists(&tx, workspace, &name)? {
+            return Err(StoreError::Invalid {
+                field: "groupPath",
+                problem: "exists",
+            });
+        }
+        let vault = vault_id(&tx)?;
+        ensure_group(&tx, self.device, &vault, workspace, &name)?;
+        let position = tx.query_row(
+            "SELECT position FROM host_groups WHERE workspace = ?1 AND name = ?2 AND deleted = 0",
+            params![workspace.as_str(), name],
+            |row| row.get(0),
+        )?;
+        tx.commit()?;
+        Ok(GroupRecord {
+            workspace,
+            name,
+            position,
+        })
+    }
+
+    /// Rename a group. Renaming onto a group that already exists merges the
+    /// two: the hosts join it at the end.
+    pub fn rename_group(&self, workspace: Workspace, from: &str, to: &str) -> Result<()> {
+        let to = required(to)?;
+        if from == to {
+            return Ok(());
+        }
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        let vault = vault_id(&tx)?;
+        if group_exists(&tx, workspace, &to)? {
+            move_members(&tx, self.device, workspace, from, workspace, &to)?;
+            tombstone_group(&tx, self.device, workspace, from)?;
+        } else {
+            ensure_group(&tx, self.device, &vault, workspace, from)?;
+            let clock = tick(&tx, self.device)?;
+            tx.execute(
+                "UPDATE host_groups
+                    SET name = ?3, rev = rev + 1,
+                        hlc_wall_ms = ?4, hlc_counter = ?5, hlc_device = ?6
+                  WHERE workspace = ?1 AND name = ?2 AND deleted = 0",
+                params![
+                    workspace.as_str(),
+                    from,
+                    to,
+                    clock.wall_ms as i64,
+                    clock.counter,
+                    clock.device
+                ],
+            )?;
+            tx.execute(
+                "UPDATE hosts
+                    SET group_path = ?3, rev = rev + 1,
+                        hlc_wall_ms = ?4, hlc_counter = ?5, hlc_device = ?6
+                  WHERE workspace = ?1 AND group_path = ?2 AND deleted = 0",
+                params![
+                    workspace.as_str(),
+                    from,
+                    to,
+                    clock.wall_ms as i64,
+                    clock.counter,
+                    clock.device
+                ],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Delete a group. Its hosts stay, without a group, at the end of the list.
+    pub fn delete_group(&self, workspace: Workspace, name: &str) -> Result<()> {
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        let hosts = members(&tx, workspace, Some(name))?;
+        let first = crate::hosts::next_position(&tx, workspace, None)?;
+        let clock = tick(&tx, self.device)?;
+        for (position, id) in (first..).zip(hosts) {
+            tx.execute(
+                "UPDATE hosts
+                    SET group_path = NULL, position = ?2, rev = rev + 1,
+                        hlc_wall_ms = ?3, hlc_counter = ?4, hlc_device = ?5
+                  WHERE id = ?1",
+                params![
+                    id,
+                    position,
+                    clock.wall_ms as i64,
+                    clock.counter,
+                    clock.device
+                ],
+            )?;
+        }
+        tombstone_group(&tx, self.device, workspace, name)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Put a group before another one (or at the end), in the same or the
+    /// other workspace. Its hosts move with it; onto a group of the same name
+    /// in the other workspace, they merge.
+    pub fn move_group(
+        &self,
+        workspace: Workspace,
+        name: &str,
+        to: Workspace,
+        before: Option<&str>,
+    ) -> Result<()> {
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        let vault = vault_id(&tx)?;
+        ensure_group(&tx, self.device, &vault, workspace, name)?;
+
+        if to != workspace {
+            if group_exists(&tx, to, name)? {
+                move_members(&tx, self.device, workspace, name, to, name)?;
+                tombstone_group(&tx, self.device, workspace, name)?;
+            } else {
+                let clock = tick(&tx, self.device)?;
+                tx.execute(
+                    "UPDATE host_groups
+                        SET workspace = ?3, rev = rev + 1,
+                            hlc_wall_ms = ?4, hlc_counter = ?5, hlc_device = ?6
+                      WHERE workspace = ?1 AND name = ?2 AND deleted = 0",
+                    params![
+                        workspace.as_str(),
+                        name,
+                        to.as_str(),
+                        clock.wall_ms as i64,
+                        clock.counter,
+                        clock.device
+                    ],
+                )?;
+                tx.execute(
+                    "UPDATE hosts
+                        SET workspace = ?3, rev = rev + 1,
+                            hlc_wall_ms = ?4, hlc_counter = ?5, hlc_device = ?6
+                      WHERE workspace = ?1 AND group_path = ?2 AND deleted = 0",
+                    params![
+                        workspace.as_str(),
+                        name,
+                        to.as_str(),
+                        clock.wall_ms as i64,
+                        clock.counter,
+                        clock.device
+                    ],
+                )?;
+            }
+        }
+
+        let mut order: Vec<(String, i64)> = {
+            let mut stmt = tx.prepare(
+                "SELECT name, position FROM host_groups
+                  WHERE workspace = ?1 AND deleted = 0
+                  ORDER BY position, lower(name)",
+            )?;
+            let rows = stmt
+                .query_map([to.as_str()], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            rows
+        };
+        let Some(from) = order.iter().position(|(n, _)| n == name) else {
+            tx.commit()?;
+            return Ok(());
+        };
+        let moved = order.remove(from);
+        let at = before
+            .and_then(|b| order.iter().position(|(n, _)| n == b))
+            .unwrap_or(order.len());
+        order.insert(at, moved);
+
+        let clock = tick(&tx, self.device)?;
+        for (index, (group, position)) in order.iter().enumerate() {
+            if *position == index as i64 {
+                continue;
+            }
+            tx.execute(
+                "UPDATE host_groups
+                    SET position = ?3, rev = rev + 1,
+                        hlc_wall_ms = ?4, hlc_counter = ?5, hlc_device = ?6
+                  WHERE workspace = ?1 AND name = ?2 AND deleted = 0",
+                params![
+                    to.as_str(),
+                    group,
+                    index as i64,
+                    clock.wall_ms as i64,
+                    clock.counter,
+                    clock.device
+                ],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Move a host into a workspace and group, before another host of that
+    /// group or at its end.
+    pub fn move_host(
+        &self,
+        id: Uuid,
+        to: Workspace,
+        group: Option<&str>,
+        before: Option<Uuid>,
+    ) -> Result<HostRecord> {
+        let group = group_name(group.map(str::to_string))?;
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        let current: Option<(String, Option<String>, i64)> = tx
+            .query_row(
+                "SELECT workspace, group_path, position FROM hosts WHERE id = ?1 AND deleted = 0",
+                [id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
+        let (workspace, old_group, old_position) = current.ok_or(StoreError::UnknownHost(id))?;
+        let vault = vault_id(&tx)?;
+        if let Some(group) = &group {
+            ensure_group(&tx, self.device, &vault, to, group)?;
+        }
+
+        let mut order: Vec<(String, i64)> = {
+            let mut stmt = tx.prepare(
+                "SELECT id, position FROM hosts
+                  WHERE deleted = 0 AND workspace = ?1 AND group_path IS ?2 AND id != ?3
+                  ORDER BY position, lower(name)",
+            )?;
+            let rows = stmt
+                .query_map(params![to.as_str(), group, id.to_string()], |row| {
+                    Ok((row.get(0)?, row.get(1)?))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            rows
+        };
+        let at = before
+            .map(|b| b.to_string())
+            .and_then(|b| order.iter().position(|(other, _)| *other == b))
+            .unwrap_or(order.len());
+        // The moved host counts as changed if anything about its place is new.
+        let moved_changed =
+            Workspace::parse(&workspace) != to || old_group != group || old_position != at as i64;
+        order.insert(
+            at,
+            (
+                id.to_string(),
+                if moved_changed { -1 } else { old_position },
+            ),
+        );
+
+        let clock = tick(&tx, self.device)?;
+        for (index, (host, position)) in order.iter().enumerate() {
+            if *position == index as i64 {
+                continue;
+            }
+            tx.execute(
+                "UPDATE hosts
+                    SET workspace = ?2, group_path = ?3, position = ?4, rev = rev + 1,
+                        hlc_wall_ms = ?5, hlc_counter = ?6, hlc_device = ?7
+                  WHERE id = ?1",
+                params![
+                    host,
+                    to.as_str(),
+                    group,
+                    index as i64,
+                    clock.wall_ms as i64,
+                    clock.counter,
+                    clock.device
+                ],
+            )?;
+        }
+        let record = read_host(&tx, id)?.ok_or(StoreError::UnknownHost(id))?;
+        tx.commit()?;
+        Ok(record)
+    }
+}
+
+fn group_exists(tx: &Transaction, workspace: Workspace, name: &str) -> Result<bool> {
+    let count: i64 = tx.query_row(
+        "SELECT count(*) FROM host_groups WHERE workspace = ?1 AND name = ?2 AND deleted = 0",
+        params![workspace.as_str(), name],
+        |row| row.get(0),
+    )?;
+    Ok(count > 0)
+}
+
+/// The ids of a group's hosts, in order.
+fn members(tx: &Transaction, workspace: Workspace, group: Option<&str>) -> Result<Vec<String>> {
+    let mut stmt = tx.prepare(
+        "SELECT id FROM hosts
+          WHERE deleted = 0 AND workspace = ?1 AND group_path IS ?2
+          ORDER BY position, lower(name)",
+    )?;
+    let ids = stmt
+        .query_map(params![workspace.as_str(), group], |row| row.get(0))?
+        .collect::<rusqlite::Result<Vec<String>>>()?;
+    Ok(ids)
+}
+
+/// Every host of one group joins another, at its end.
+fn move_members(
+    tx: &Transaction,
+    device: u32,
+    from_workspace: Workspace,
+    from: &str,
+    to_workspace: Workspace,
+    to: &str,
+) -> Result<()> {
+    let hosts = members(tx, from_workspace, Some(from))?;
+    let first = crate::hosts::next_position(tx, to_workspace, Some(to))?;
+    let clock = tick(tx, device)?;
+    for (position, id) in (first..).zip(hosts) {
+        tx.execute(
+            "UPDATE hosts
+                SET workspace = ?2, group_path = ?3, position = ?4, rev = rev + 1,
+                    hlc_wall_ms = ?5, hlc_counter = ?6, hlc_device = ?7
+              WHERE id = ?1",
+            params![
+                id,
+                to_workspace.as_str(),
+                to,
+                position,
+                clock.wall_ms as i64,
+                clock.counter,
+                clock.device
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+fn tombstone_group(tx: &Transaction, device: u32, workspace: Workspace, name: &str) -> Result<()> {
+    let clock = tick(tx, device)?;
+    tx.execute(
+        "UPDATE host_groups
+            SET deleted = 1, rev = rev + 1,
+                hlc_wall_ms = ?3, hlc_counter = ?4, hlc_device = ?5
+          WHERE workspace = ?1 AND name = ?2 AND deleted = 0",
+        params![
+            workspace.as_str(),
+            name,
+            clock.wall_ms as i64,
+            clock.counter,
+            clock.device
+        ],
+    )?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hosts::tests::draft;
+
+    fn store() -> Store {
+        Store::open_in_memory().unwrap()
+    }
+
+    fn add(store: &Store, name: &str, workspace: Workspace, group: Option<&str>) -> HostRecord {
+        let mut host = draft(name, &format!("{name}.lan"));
+        host.workspace = Some(workspace);
+        host.group_path = group.map(str::to_string);
+        store.save_host(host).unwrap()
+    }
+
+    /// Host names of one group, in list order.
+    fn names(store: &Store, workspace: Workspace, group: Option<&str>) -> Vec<String> {
+        store
+            .list_hosts()
+            .unwrap()
+            .into_iter()
+            .filter(|h| h.workspace == workspace && h.group_path.as_deref() == group)
+            .map(|h| h.name)
+            .collect()
+    }
+
+    fn group_names(store: &Store, workspace: Workspace) -> Vec<String> {
+        store
+            .list_groups()
+            .unwrap()
+            .into_iter()
+            .filter(|g| g.workspace == workspace)
+            .map(|g| g.name)
+            .collect()
+    }
+
+    const P: Workspace = Workspace::Private;
+    const B: Workspace = Workspace::Business;
+
+    #[test]
+    fn an_empty_group_stays() {
+        let store = store();
+        store.create_group(P, "Homelab").unwrap();
+        assert_eq!(group_names(&store, P), vec!["Homelab"]);
+        assert!(matches!(
+            store.create_group(P, "Homelab"),
+            Err(StoreError::Invalid {
+                problem: "exists",
+                ..
+            })
+        ));
+        // The same name in the other workspace is another group.
+        store.create_group(B, "Homelab").unwrap();
+        assert!(matches!(
+            store.create_group(P, "  "),
+            Err(StoreError::Invalid {
+                problem: "required",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn a_host_dropped_between_two_hosts_lands_there() {
+        let store = store();
+        let a = add(&store, "a", P, Some("g"));
+        let b = add(&store, "b", P, Some("g"));
+        let c = add(&store, "c", P, Some("g"));
+        store.move_host(c.id, P, Some("g"), Some(b.id)).unwrap();
+        assert_eq!(names(&store, P, Some("g")), vec!["a", "c", "b"]);
+        store.move_host(a.id, P, Some("g"), None).unwrap();
+        assert_eq!(names(&store, P, Some("g")), vec!["c", "b", "a"]);
+    }
+
+    #[test]
+    fn a_host_dropped_on_the_other_workspace_moves_there() {
+        let store = store();
+        let a = add(&store, "a", P, Some("home"));
+        add(&store, "b", B, Some("work"));
+        let moved = store.move_host(a.id, B, Some("work"), None).unwrap();
+        assert_eq!(moved.workspace, B);
+        assert_eq!(names(&store, B, Some("work")), vec!["b", "a"]);
+        assert!(names(&store, P, Some("home")).is_empty());
+        assert_eq!(
+            group_names(&store, P),
+            vec!["home"],
+            "the empty group stays behind"
+        );
+
+        let ungrouped = store.move_host(a.id, P, None, None).unwrap();
+        assert_eq!((ungrouped.workspace, ungrouped.group_path), (P, None));
+    }
+
+    #[test]
+    fn moving_within_a_group_bumps_only_what_moved() {
+        let store = store();
+        let a = add(&store, "a", P, None);
+        let b = add(&store, "b", P, None);
+        add(&store, "c", P, None);
+        // b to the end: a keeps its place, b and c swap.
+        store.move_host(b.id, P, None, None).unwrap();
+        let rev = |id: Uuid| -> i64 {
+            store
+                .conn
+                .lock()
+                .query_row(
+                    "SELECT rev FROM hosts WHERE id = ?1",
+                    [id.to_string()],
+                    |r| r.get(0),
+                )
+                .unwrap()
+        };
+        assert_eq!(rev(a.id), 1, "an untouched host keeps its revision");
+        assert_eq!(rev(b.id), 2);
+    }
+
+    #[test]
+    fn renaming_a_group_renames_it_for_its_hosts() {
+        let store = store();
+        add(&store, "a", P, Some("old"));
+        store.rename_group(P, "old", "new").unwrap();
+        assert_eq!(group_names(&store, P), vec!["new"]);
+        assert_eq!(names(&store, P, Some("new")), vec!["a"]);
+    }
+
+    #[test]
+    fn renaming_onto_an_existing_group_merges_them() {
+        let store = store();
+        add(&store, "a", P, Some("x"));
+        add(&store, "b", P, Some("y"));
+        store.rename_group(P, "x", "y").unwrap();
+        assert_eq!(group_names(&store, P), vec!["y"]);
+        assert_eq!(names(&store, P, Some("y")), vec!["b", "a"]);
+    }
+
+    #[test]
+    fn deleting_a_group_keeps_its_hosts() {
+        let store = store();
+        add(&store, "loose", P, None);
+        add(&store, "a", P, Some("g"));
+        store.delete_group(P, "g").unwrap();
+        assert!(group_names(&store, P).is_empty());
+        assert_eq!(names(&store, P, None), vec!["loose", "a"]);
+    }
+
+    #[test]
+    fn groups_can_be_reordered_and_moved_to_the_other_workspace() {
+        let store = store();
+        for name in ["one", "two", "three"] {
+            store.create_group(P, name).unwrap();
+        }
+        store.move_group(P, "three", P, Some("one")).unwrap();
+        assert_eq!(group_names(&store, P), vec!["three", "one", "two"]);
+
+        add(&store, "a", P, Some("two"));
+        store.create_group(B, "clients").unwrap();
+        store.move_group(P, "two", B, None).unwrap();
+        assert_eq!(group_names(&store, P), vec!["three", "one"]);
+        assert_eq!(group_names(&store, B), vec!["clients", "two"]);
+        assert_eq!(names(&store, B, Some("two")), vec!["a"]);
+    }
+}

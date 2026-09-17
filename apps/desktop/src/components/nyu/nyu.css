@@ -51,6 +51,128 @@
   animation: nyu-cursor 1.06s steps(1) infinite;
 }
 
+.nyu-bob,
+.nyu-hop,
+.nyu-walk,
+.nyu-plug,
+.nyu-sparks,
+.nyu-twinkle,
+.nyu-zzz path {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.nyu-bob {
+  animation: nyu-bob 2.2s ease-in-out infinite;
+}
+
+.nyu-hop {
+  animation: nyu-hop 0.9s ease-in-out infinite;
+}
+
+.nyu-walk {
+  animation: nyu-walk 1.4s ease-in-out infinite;
+}
+
+.nyu-plug {
+  animation: nyu-plug 0.9s ease-in-out infinite;
+}
+
+.nyu-sparks {
+  animation: nyu-twinkle 1.2s ease-in-out infinite;
+}
+
+.nyu-twinkle {
+  animation: nyu-twinkle 1.8s ease-in-out infinite;
+}
+
+.nyu-cable {
+  stroke-dasharray: 10 8;
+  animation: nyu-cable 0.8s linear infinite;
+}
+
+.nyu-zzz path {
+  opacity: 0;
+  animation: nyu-zzz 3s ease-in-out infinite;
+}
+
+.nyu-zzz path:nth-child(2) {
+  animation-delay: 1.2s;
+}
+
+@keyframes nyu-bob {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0);
+  }
+  50% {
+    transform: translateY(-6px) rotate(-3deg);
+  }
+}
+
+@keyframes nyu-hop {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  40% {
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes nyu-walk {
+  0%,
+  100% {
+    transform: translateX(-6px) rotate(-2deg);
+  }
+  50% {
+    transform: translateX(6px) rotate(2deg);
+  }
+}
+
+@keyframes nyu-plug {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(6px);
+  }
+}
+
+@keyframes nyu-twinkle {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.75);
+  }
+}
+
+@keyframes nyu-cable {
+  to {
+    stroke-dashoffset: -18;
+  }
+}
+
+@keyframes nyu-zzz {
+  0% {
+    opacity: 0;
+    transform: translate(0, 8px);
+  }
+  30%,
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(6px, -14px);
+  }
+}
+
 @keyframes nyu-ear-l {
   0%,
   100% {

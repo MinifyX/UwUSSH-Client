@@ -64,6 +64,8 @@ fn main() {
                 port,
                 group_path: None,
                 identity: Some(0),
+                workspace: Default::default(),
+                position: None,
             }],
             ..Default::default()
         })

@@ -23,10 +23,21 @@ export function Shadow({ cx = 160, rx = 104 }: { cx?: number; rx?: number }) {
   );
 }
 
-export function Star({ x, y, r = 12 }: { x: number; y: number; r?: number }) {
+export function Star({
+  x,
+  y,
+  r = 12,
+  className,
+}: {
+  x: number;
+  y: number;
+  r?: number;
+  className?: string;
+}) {
   const k = r * 0.2;
   return (
     <path
+      className={className}
       d={`M${x} ${y - r} Q${x + k} ${y - k} ${x + r} ${y} Q${x + k} ${y + k} ${x} ${y + r} Q${x - k} ${y + k} ${x - r} ${y} Q${x - k} ${y - k} ${x} ${y - r}Z`}
       fill={NYU.star}
       stroke={NYU.outline}
@@ -291,6 +302,152 @@ function Goodbye() {
   );
 }
 
+/** The vault: Nyu hugs a padlock, a key tucked under her paw. */
+function Vault() {
+  return (
+    <>
+      <Shadow cx={160} rx={96} />
+      <NyuFigure mood="happy" x={128} y={130} scale={0.58} tilt={-5} edge={NYU_EDGE} />
+      <Sticker edge={EDGE}>
+        <g className="nyu-bob">
+          <path
+            d="M204 104 v-16 a24 24 0 0 1 48 0 v16"
+            fill="none"
+            stroke={NYU.outline}
+            strokeWidth={9}
+          />
+          <rect x="190" y="100" width="76" height="66" rx="14" fill={NYU.star} {...S} />
+          <circle cx="228" cy="126" r="8" fill={NYU.outline} />
+          <path d="M228 130 v16" stroke={NYU.outline} strokeWidth={7} />
+        </g>
+        <Paw x={188} y={140} />
+      </Sticker>
+      <Sticker edge={EDGE}>
+        <Key x={70} y={176} rotate={-58} size={0.8} />
+      </Sticker>
+      <Sticker edge={12}>
+        <Heart x={272} y={52} size={0.8} />
+        <Star x={40} y={60} r={9} className="nyu-twinkle" />
+      </Sticker>
+    </>
+  );
+}
+
+/** Connecting: Nyu carries a plug to the server, sparks flying. */
+function Connecting() {
+  return (
+    <>
+      <Shadow cx={150} />
+      <path
+        className="nyu-cable"
+        d="M20 190 C60 150 90 196 128 170"
+        fill="none"
+        stroke={NYU.violet}
+        strokeWidth={6}
+      />
+      <g className="nyu-hop">
+        <NyuFigure
+          mood="cheer"
+          x={150}
+          y={128}
+          scale={0.56}
+          tilt={-4}
+          edge={NYU_EDGE}
+          front={<Paw x={236} y={140} />}
+        />
+      </g>
+      <Sticker edge={EDGE}>
+        <g className="nyu-plug">
+          <rect x="248" y="112" width="30" height="24" rx="6" fill={NYU.lilac} {...S} />
+          <path d="M278 118 h14 M278 130 h14" stroke={NYU.outline} strokeWidth={5} />
+        </g>
+      </Sticker>
+      <Sticker edge={10}>
+        <g className="nyu-sparks">
+          <Star x={300} y={100} r={8} />
+          <Star x={292} y={150} r={6} />
+        </g>
+      </Sticker>
+    </>
+  );
+}
+
+/** Files: Nyu carries a cardboard box across. */
+function Files() {
+  return (
+    <>
+      <Shadow cx={160} />
+      <g className="nyu-walk">
+        <NyuFigure mood="happy" x={150} y={120} scale={0.55} tilt={3} edge={NYU_EDGE} />
+        <Sticker edge={EDGE}>
+          <g transform="rotate(-6 160 172)">
+            <rect x="112" y="150" width="96" height="50" rx="6" fill={NYU.kraft} {...S} />
+            <path d="M112 164 h96" stroke={NYU.outline} strokeWidth={5} />
+            <rect
+              className="no-edge"
+              x="148"
+              y="150"
+              width="24"
+              height="14"
+              fill={NYU.kraftLight}
+            />
+          </g>
+          <Paw x={112} y={170} />
+          <Paw x={208} y={166} />
+        </Sticker>
+      </g>
+      <Sticker edge={12}>
+        <Heart x={48} y={70} size={0.7} fill={NYU.mint} />
+        <Star x={278} y={58} r={9} className="nyu-twinkle" />
+      </Sticker>
+    </>
+  );
+}
+
+/** Keys: Nyu holds up a freshly made key, glowing. */
+function Keys() {
+  return (
+    <>
+      <Shadow cx={150} />
+      <NyuFigure
+        mood="sparkle"
+        x={140}
+        y={132}
+        scale={0.58}
+        tilt={-3}
+        edge={NYU_EDGE}
+        front={<Paw x={226} y={96} />}
+      />
+      <Sticker edge={EDGE}>
+        <g className="nyu-bob">
+          <Key x={262} y={70} rotate={24} size={1.2} />
+        </g>
+      </Sticker>
+      <Sticker edge={10}>
+        <g className="nyu-sparks">
+          <Star x={296} y={36} r={9} />
+          <Star x={232} y={34} r={6} />
+          <Star x={300} y={112} r={6} />
+        </g>
+      </Sticker>
+    </>
+  );
+}
+
+/** Nothing going on: Nyu naps, a little "z" floating up. */
+function Sleepy() {
+  return (
+    <>
+      <Shadow cx={160} rx={90} />
+      <NyuFigure mood="sleepy" x={160} y={140} scale={0.6} tilt={8} edge={NYU_EDGE} />
+      <g className="nyu-zzz" fill="none" stroke={NYU.violet} strokeWidth={5}>
+        <path d="M232 70 h16 l-16 16 h16" />
+        <path d="M258 40 h11 l-11 11 h11" />
+      </g>
+    </>
+  );
+}
+
 const SCENES = {
   welcome: Welcome,
   done: Done,
@@ -298,6 +455,11 @@ const SCENES = {
   puzzled: Puzzled,
   pick: Pick,
   goodbye: Goodbye,
+  vault: Vault,
+  connecting: Connecting,
+  files: Files,
+  keys: Keys,
+  sleepy: Sleepy,
 } satisfies Record<string, () => ReactNode>;
 
 export type SceneName = keyof typeof SCENES;

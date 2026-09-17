@@ -69,6 +69,8 @@ struct Info {
     options: Options,
     app_running: bool,
     has_payload: bool,
+    /// UwUKeygen is packed in and can be chosen.
+    has_keygen: bool,
     sandbox: bool,
     /// Update mode: start UwUSSH again when done.
     relaunch: bool,
@@ -102,6 +104,7 @@ fn info(setup: State<'_, Setup>) -> Info {
         app_running: install::app_running(&setup.layout, &current_dir(&setup)),
         options,
         has_payload: install::has_payload(),
+        has_keygen: install::has_keygen(),
         sandbox: setup.layout.sandbox,
         relaunch: matches!(setup.mode, Mode::Update { relaunch: true, .. }),
     }

@@ -14,9 +14,10 @@ const de = {
   folder: 'Speicherort',
   change: 'Ändern …',
   desktopShortcut: 'Verknüpfung auf dem Desktop',
+  keygen: 'UwUKeygen mitinstallieren (SSH-Schlüssel erzeugen)',
   runningTitle: 'UwUSSH ist gerade offen',
   runningBody:
-    'Ich schließe es kurz, damit ich weitermachen kann. Offene Verbindungen werden dabei getrennt.',
+    'Ich schließe es kurz, damit ich weitermachen kann. Offene Verbindungen werden dabei getrennt, und ein Key in UwUKeygen, der noch nicht gespeichert ist, geht verloren.',
   closeAndContinue: 'Schließen und weiter',
   back: 'Zurück',
   progressInstall: 'Nyu richtet alles ein …',
@@ -76,8 +77,10 @@ const en: typeof de = {
   folder: 'Location',
   change: 'Change …',
   desktopShortcut: 'Shortcut on the desktop',
+  keygen: 'Also install UwUKeygen (make SSH keys)',
   runningTitle: 'UwUSSH is open right now',
-  runningBody: "I'll close it for a moment so I can carry on. Open connections will be closed.",
+  runningBody:
+    "I'll close it for a moment so I can carry on. Open connections will be closed, and a key in UwUKeygen that isn't saved yet is lost.",
   closeAndContinue: 'Close and continue',
   back: 'Back',
   progressInstall: 'Nyu is setting everything up …',

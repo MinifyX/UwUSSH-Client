@@ -9,6 +9,7 @@
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
+import { cursorLineText, Highlighter, passwordPromptUser, type Rule } from './highlight';
 import {
   ACK_CHUNK,
   ackSession,
@@ -61,6 +62,9 @@ export type TerminalOptions = {
 /** How long output has to pause before a partial ack chunk is sent anyway. */
 const ACK_IDLE_MS = 20;
 
+/** How long output has to rest before the cursor's line is checked for a prompt. */
+const PROMPT_IDLE_MS = 120;
+
 export class TerminalDriver {
   readonly term: Terminal;
   renderer: Renderer = 'canvas';
@@ -85,6 +89,11 @@ export class TerminalDriver {
   private generation = 0;
   private pendingAck = 0;
   private ackTimer: number | undefined;
+  private readonly highlighter: Highlighter;
+  private promptTimer: number | undefined;
+  /** The user a password prompt under the cursor asks for, as last seen. */
+  private prompted: string | null = null;
+  private readonly promptListeners = new Set<(user: string | null) => void>();
 
   constructor(host: HTMLElement, options: TerminalOptions) {
     this.term = new Terminal({
@@ -113,6 +122,14 @@ export class TerminalDriver {
 
     this.term.onData((data) => {
       if (this.sessionId) void writeSession(this.sessionId, data);
+      // Typing answers a prompt, or moves past it.
+      this.setPrompt(null);
+    });
+
+    this.highlighter = new Highlighter(this.term);
+    this.term.onWriteParsed(() => {
+      window.clearTimeout(this.promptTimer);
+      this.promptTimer = window.setTimeout(() => this.setPrompt(this.promptUser()), PROMPT_IDLE_MS);
     });
 
     // A tab in the background has no size (display: none). Fitting then
@@ -132,6 +149,38 @@ export class TerminalDriver {
     if (term.options.scrollback !== options.scrollback)
       term.options.scrollback = options.scrollback;
     this.refit();
+  }
+
+  setHighlightRules(rules: Rule[]) {
+    this.highlighter.setRules(rules);
+  }
+
+  /** A clean screen for a new session, highlights and prompt state included. */
+  resetScreen() {
+    this.term.reset();
+    this.highlighter.reset();
+    this.setPrompt(null);
+  }
+
+  /**
+   * Called whenever a password prompt appears under the cursor or goes away,
+   * with the user it asks for, or `null`.
+   */
+  onPasswordPrompt(listener: (user: string | null) => void): () => void {
+    this.promptListeners.add(listener);
+    return () => this.promptListeners.delete(listener);
+  }
+
+  /** The user a password prompt under the cursor asks for right now, or `null`. */
+  promptUser(): string | null {
+    if (this.term.buffer.active.type !== 'normal') return null;
+    return passwordPromptUser(cursorLineText(this.term));
+  }
+
+  private setPrompt(user: string | null) {
+    if (user === this.prompted) return;
+    this.prompted = user;
+    for (const listener of this.promptListeners) listener(user);
   }
 
   private refit() {
@@ -185,6 +234,7 @@ export class TerminalDriver {
     const id = this.sessionId;
     this.generation += 1;
     this.sessionId = null;
+    this.setPrompt(null);
     this.pendingAck = 0;
     window.clearTimeout(this.ackTimer);
     this.ackTimer = undefined;
@@ -193,6 +243,9 @@ export class TerminalDriver {
 
   dispose() {
     void this.detach();
+    window.clearTimeout(this.promptTimer);
+    this.promptListeners.clear();
+    this.highlighter.dispose();
     this.resizeObserver.disconnect();
     this.term.dispose();
   }

@@ -1,9 +1,9 @@
 [workspace]
 resolver = "2"
-members = ["crates/*", "apps/desktop/src-tauri", "apps/setup/src-tauri"]
+members = ["crates/*", "apps/desktop/src-tauri", "apps/keygen/src-tauri", "apps/setup/src-tauri"]
 
 [workspace.package]
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 edition = "2021"
 license = "GPL-3.0-only"
 repository = "https://github.com/MinifyX/UwUSSH-Client"
@@ -14,6 +14,7 @@ rust-version = "1.89"
 [workspace.dependencies]
 uwussh-core = { path = "crates/uwussh-core" }
 uwussh-import = { path = "crates/uwussh-import" }
+uwussh-keygen = { path = "crates/uwussh-keygen" }
 uwussh-proto = { path = "crates/uwussh-proto" }
 uwussh-sync = { path = "crates/uwussh-sync" }
 uwussh-store = { path = "crates/uwussh-store" }
@@ -29,7 +30,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"
 tracing = "0.1"
 uuid = { version = "1", features = ["v4", "v7", "serde"] }
 
-argon2 = "0.5"
+argon2 = { version = "0.5", features = ["zeroize"] }
 chacha20poly1305 = "0.10"
 rand = "0.8"
 zeroize = { version = "1", features = ["derive"] }
@@ -37,6 +38,8 @@ zeroize = { version = "1", features = ["derive"] }
 # `ring` instead of the default `aws-lc-rs`: aws-lc needs CMake and NASM to
 # build on Windows, ring needs nothing beyond MSVC.
 russh = { version = "0.63", default-features = false, features = ["ring", "rsa", "flate2"] }
+# SFTP on top of russh, from the same circle of maintainers, transport-agnostic.
+russh-sftp = "3"
 # Bundled SQLite, so the app never depends on whichever sqlite3.dll is around.
 rusqlite = { version = "0.40", features = ["bundled"] }
 # The Termius import: Snappy for LevelDB tables and compressed IndexedDB values,
@@ -46,6 +49,20 @@ base64 = "0.22"
 crypto_secretbox = { version = "0.1", default-features = false, features = ["alloc", "salsa20"] }
 snap = "1"
 windows-sys = "0.61"
+# Key generation and the files keys are saved as. Exactly the versions russh and
+# ssh-key already build, so a key moves between them without a second copy of
+# any curve or cipher: ChaCha20 seeded from the OS for generating, PKCS#8 for
+# PEM, HMAC and SHA-1 for PuTTY's files, MD5 for the fingerprint older tools show.
+chacha20 = { version = "0.10", default-features = false, features = ["rng", "zeroize"] }
+getrandom = { version = "0.4", features = ["sys_rng"] }
+hmac = "0.13"
+md5 = "0.8"
+p256 = { version = "0.14", default-features = false, features = ["alloc", "arithmetic", "pkcs8"] }
+p384 = { version = "0.14", default-features = false, features = ["alloc", "arithmetic", "pkcs8"] }
+p521 = { version = "0.14", default-features = false, features = ["alloc", "arithmetic", "pkcs8"] }
+pkcs8 = { version = "0.11", features = ["encryption", "pem"] }
+rsa = { version = "=0.10.0-rc.18", default-features = false, features = ["std", "encoding"] }
+sha1 = "0.11"
 
 # Still not pinned, because their milestone has not come yet:
 #

@@ -5,10 +5,12 @@ import {
   HostKeyChanged,
   SecretPrompt,
   TrustHostKey,
-  UnlockVault,
+  type SecretKind,
 } from './components/ConnectDialogs';
+import { FileBrowser } from './components/FileBrowser';
 import { HostForm } from './components/HostForm';
 import { HostList } from './components/HostList';
+import { Icon } from './components/Icon';
 import { ImportDialog } from './components/ImportDialog';
 import { M0Results, M0Status } from './components/M0Panel';
 import { Modal } from './components/Modal';
@@ -18,7 +20,9 @@ import { TabBar } from './components/TabBar';
 import { TerminalView } from './components/Terminal';
 import { TitleBar } from './components/TitleBar';
 import { UpdateHint } from './components/UpdateHint';
+import { VaultDialog } from './components/VaultDialog';
 import type { Renderer, TerminalDriver } from './lib/driver';
+import { openFiles, type OpenedFiles } from './lib/files';
 import { runSuite, type Progress, type ScenarioResult } from './lib/m0';
 import {
   asConnectFailure,
@@ -26,18 +30,25 @@ import {
   closeAllSessions,
   connectHost,
   installUpdate,
+  listGroups,
   listHosts,
   m0Autorun,
   m0Finish,
+  sessionCanTypePassword,
+  setHostPassword,
   setUpdateChannel,
   spawnShellSession,
   trustHostKey,
-  unlockVault,
+  typeSessionPassword,
   updateStatus,
+  vaultState,
   type ConnectFailure,
+  type GroupRecord,
+  type HostOsEvent,
   type HostRecord,
   type ObservedHostKey,
   type UpdateInfo,
+  type Workspace,
 } from './lib/session';
 import { getSettings, useSettings } from './lib/settings';
 import {
@@ -54,14 +65,17 @@ import {
 /** Long enough for layout and the WebGL context to settle before measuring. */
 const AUTORUN_DELAY_MS = 1_500;
 
+type SecretAnswer = { value: string; save: boolean };
+
 /** A question one tab's connection needs answered. Asked one at a time, in order. */
 type Dialog = { tabId: string; cancel: () => void } & (
   | {
       kind: 'secret';
       host: HostRecord;
-      secret: 'password' | 'passphrase';
+      secret: SecretKind;
       retry: boolean;
-      resolve: (value: string | null) => void;
+      canSave: boolean;
+      resolve: (value: SecretAnswer | null) => void;
     }
   | { kind: 'trust'; host: HostRecord; observed: ObservedHostKey; resolve: (ok: boolean) => void }
   | {
@@ -69,10 +83,13 @@ type Dialog = { tabId: string; cancel: () => void } & (
       host: HostRecord;
       trustedFingerprint: string;
       observed: ObservedHostKey;
-      resolve: (confirmation: string | null) => void;
+      resolve: (accept: boolean) => void;
     }
-  | { kind: 'unlock'; host: HostRecord; retry: boolean; resolve: (value: string | null) => void }
+  | { kind: 'unlock'; reason: string; resolve: (unlocked: boolean) => void }
 );
+
+/** What connecting ended with: the thing it opened, or a notice for the tab. */
+type Negotiated<T> = { ok: true; value: T } | { ok: false; notice: Notice | null };
 
 /** Failures that are not a question for the user, in words the user can act on. */
 function describeFailure(failure: ConnectFailure, host: HostRecord): string {
@@ -80,7 +97,7 @@ function describeFailure(failure: ConnectFailure, host: HostRecord): string {
     case 'unreachable':
       return `${host.address} ist nicht erreichbar: ${failure.reason}`;
     case 'key-unreadable':
-      return `Die Key-Datei ${failure.keyPath} ließ sich nicht lesen: ${failure.reason}`;
+      return `Der Key ${failure.keyPath === '<vault>' ? 'aus dem Tresor' : failure.keyPath} ließ sich nicht lesen: ${failure.reason}`;
     case 'auth-rejected':
       return failure.remaining.length > 0
         ? `Der Server hat die Anmeldung abgelehnt. Er würde akzeptieren: ${failure.remaining.join(', ')}.`
@@ -89,6 +106,12 @@ function describeFailure(failure: ConnectFailure, host: HostRecord): string {
       return `Angemeldet, aber der Server hat kein Terminal geöffnet: ${failure.reason}`;
     case 'protocol':
       return `SSH-Fehler: ${failure.reason}`;
+    case 'refused':
+      return `Der Server erlaubt keinen Dateizugriff: ${failure.reason}`;
+    case 'sudo-refused':
+      return `sudo hat abgelehnt: ${failure.message}`;
+    case 'no-sftp-server':
+      return 'Auf dem Server gibt es kein sftp-server, das als root laufen könnte.';
     case 'internal':
       return failure.message;
     default:
@@ -132,16 +155,22 @@ export function App() {
   const starting = useRef(new Set<string>());
 
   const [hosts, setHosts] = useState<HostRecord[]>([]);
+  const [groups, setGroups] = useState<GroupRecord[]>([]);
   const hostsRef = useRef<HostRecord[]>([]);
   hostsRef.current = hosts;
   const [appNotice, setAppNotice] = useState<Notice | null>(null);
   const [dialogs, setDialogs] = useState<Dialog[]>([]);
   const dialogsRef = useRef<Dialog[]>([]);
   dialogsRef.current = dialogs;
-  const [form, setForm] = useState<{ host: HostRecord | null } | null>(null);
+  const [form, setForm] = useState<{
+    host: HostRecord | null;
+    workspace?: Workspace;
+    group?: string | null;
+  } | null>(null);
   const [importing, setImporting] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState<SettingsSection | null>(null);
   const [confirmClose, setConfirmClose] = useState(false);
+  const [startupVault, setStartupVault] = useState(false);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [updateDismissed, setUpdateDismissed] = useState(false);
   const backgroundRef = useRef<HTMLDivElement>(null);
@@ -161,10 +190,23 @@ export function App() {
 
   /** Still the same terminal in the same open tab? Anything else means: stop. */
   const alive = (id: string, driver: TerminalDriver) => drivers.current.get(id) === driver;
+  const tabOpen = (id: string) => tabsRef.current.some((tab) => tab.id === id);
 
   const refreshHosts = useCallback(async () => {
     try {
-      setHosts(await listHosts());
+      const [loadedHosts, loadedGroups] = await Promise.all([listHosts(), listGroups()]);
+      setHosts(loadedHosts);
+      setGroups(loadedGroups);
+      // Open tabs show the newest record: name, icon, what it logs in with.
+      setTabs((current) =>
+        current.map((tab) => {
+          if (tab.kind !== 'ssh' && tab.kind !== 'files') return tab;
+          const fresh = loadedHosts.find((h) => h.id === tab.host.id);
+          return fresh && fresh !== tab.host
+            ? ({ ...tab, host: fresh, title: fresh.name } as Tab)
+            : tab;
+        }),
+      );
     } catch (e) {
       setAppNotice({ tone: 'error', text: `Hosts konnten nicht geladen werden: ${String(e)}` });
     }
@@ -193,11 +235,197 @@ export function App() {
     });
   }
 
+  const unlock = (tabId: string, reason: string) =>
+    ask<boolean>(tabId, false, (resolve) => ({ kind: 'unlock', reason, resolve }));
+
+  // ── Connecting: the conversation every server connection goes through ─────
+
+  /**
+   * Try `attempt` until it opens or the user stops: trust a new host key,
+   * accept or reject a changed one, open the vault, type a password or
+   * passphrase, give sudo its password. Secrets live in local variables for
+   * the one attempt that needs them.
+   */
+  const negotiate = async <T,>(
+    id: string,
+    host: HostRecord,
+    attempt: (answers: { secret: string | null; sudo: string | null }) => Promise<T>,
+    gone: () => boolean,
+  ): Promise<Negotiated<T>> => {
+    let secret: string | null = null;
+    let save = false;
+    let sudo: string | null = null;
+    let lastKind: ConnectFailure['kind'] | null = null;
+    const reconnect = { label: 'Neu verbinden', run: () => void restart(id) };
+    const stop = (notice: Notice | null): Negotiated<T> => ({ ok: false, notice });
+
+    const askSecret = async (kind: SecretKind, retry: boolean) => {
+      const answer = await ask<SecretAnswer | null>(id, null, (resolve) => ({
+        kind: 'secret',
+        host,
+        secret: kind,
+        retry,
+        canSave: kind === 'password',
+        resolve,
+      }));
+      return answer;
+    };
+
+    for (;;) {
+      if (gone()) return stop(null);
+      try {
+        const value = await attempt({ secret, sudo });
+        if (secret !== null && save) {
+          const typed = secret;
+          void (async () => {
+            for (let tries = 0; tries < 2; tries += 1) {
+              try {
+                await setHostPassword(host.id, typed);
+                void refreshHosts();
+                return;
+              } catch (error) {
+                const failure = error as { kind?: string };
+                if (failure?.kind !== 'vault-locked') throw error;
+                const opened = await unlock(
+                  id,
+                  'Das Passwort wird verschlüsselt im Tresor gespeichert.',
+                );
+                if (!opened) return;
+              }
+            }
+          })().catch((e) =>
+            setAppNotice({ tone: 'error', text: `Passwort nicht gespeichert: ${String(e)}` }),
+          );
+        }
+        return { ok: true, value };
+      } catch (raw) {
+        if (gone()) {
+          void cancelConnect(id).catch(() => undefined);
+          return stop(null);
+        }
+        const failure = asConnectFailure(raw);
+        const retry = lastKind === failure.kind;
+        lastKind = failure.kind;
+        const keepSecret =
+          failure.kind === 'sudo-password-required' || failure.kind === 'sudo-password-rejected';
+        if (!keepSecret) {
+          secret = null;
+          save = false;
+        }
+        sudo = null;
+
+        switch (failure.kind) {
+          case 'unknown-host-key': {
+            const trusted = await ask<boolean>(id, false, (resolve) => ({
+              kind: 'trust',
+              host,
+              observed: failure.observed,
+              resolve,
+            }));
+            if (!trusted) {
+              return stop({
+                tone: 'info',
+                text: 'Nicht verbunden: Der Host-Key wurde nicht bestätigt.',
+                action: reconnect,
+              });
+            }
+            await trustHostKey(host.address, host.port, failure.observed.fingerprint);
+            continue;
+          }
+          case 'host-key-changed': {
+            const accepted = await ask<boolean>(id, false, (resolve) => ({
+              kind: 'changed',
+              host,
+              trustedFingerprint: failure.trustedFingerprint,
+              observed: failure.observed,
+              resolve,
+            }));
+            if (!accepted) {
+              return stop({
+                tone: 'error',
+                text: `Nicht verbunden: Der Host-Key von ${host.address} hat sich geändert.`,
+              });
+            }
+            await trustHostKey(host.address, host.port, failure.observed.fingerprint, true);
+            continue;
+          }
+          case 'vault-locked': {
+            const opened = await unlock(id, `Die Anmeldedaten für ${host.name} liegen im Tresor.`);
+            if (!opened) {
+              return stop({
+                tone: 'info',
+                text: 'Nicht verbunden: Der Tresor ist gesperrt.',
+                action: reconnect,
+              });
+            }
+            continue;
+          }
+          case 'password-required':
+          case 'passphrase-required':
+          case 'passphrase-rejected': {
+            const answer = await askSecret(
+              failure.kind === 'password-required' ? 'password' : 'passphrase',
+              failure.kind === 'passphrase-rejected',
+            );
+            if (!answer) {
+              void cancelConnect(id);
+              return stop({ tone: 'info', text: 'Nicht verbunden.', action: reconnect });
+            }
+            secret = answer.value;
+            save = answer.save;
+            continue;
+          }
+          case 'auth-rejected':
+            // A rejected password gets another try; a rejected key would be
+            // rejected again, so that one is reported instead.
+            if (host.auth === 'password') {
+              const answer = await askSecret('password', true);
+              if (!answer) {
+                void cancelConnect(id);
+                return stop({ tone: 'info', text: 'Nicht verbunden.', action: reconnect });
+              }
+              secret = answer.value;
+              save = answer.save;
+              continue;
+            }
+            return stop({ tone: 'error', text: describeFailure(failure, host) });
+          case 'sudo-password-required':
+          case 'sudo-password-rejected': {
+            const answer = await askSecret('sudo', failure.kind === 'sudo-password-rejected');
+            if (!answer) {
+              void cancelConnect(id);
+              return stop({ tone: 'info', text: 'Nicht als root geöffnet.' });
+            }
+            sudo = answer.value;
+            continue;
+          }
+          default:
+            return stop({
+              tone: 'error',
+              text: describeFailure(failure, host),
+              action: retry ? undefined : { label: 'Nochmal', run: () => void restart(id) },
+            });
+        }
+      }
+    }
+  };
+
   // ── Starting what a tab shows ─────────────────────────────────────────────
+
+  /** The helper only ever offers a login's password to sudo asking for that login. */
+  const asksForLogin = (id: string, user: string | null) => {
+    const tab = tabsRef.current.find((t) => t.id === id);
+    return tab?.kind === 'ssh' && user !== null && user === tab.host.username;
+  };
+
+  const watchPrompts = (id: string, driver: TerminalDriver) =>
+    driver.onPasswordPrompt((user) => {
+      if (alive(id, driver)) patchTab(id, { prompt: asksForLogin(id, user) });
+    });
 
   const runShell = async (id: string, driver: TerminalDriver) => {
     patchTab(id, { status: 'connecting', notice: null });
-    driver.term.reset();
+    driver.resetScreen();
     try {
       await driver.attach(
         (onData, onEnd) => spawnShellSession(driver.term.cols, driver.term.rows, onData, onEnd),
@@ -226,32 +454,22 @@ export function App() {
   };
 
   const runConnect = async (id: string, driver: TerminalDriver, host: HostRecord) => {
-    patchTab(id, { status: 'connecting', notice: null });
-    // The secret lives in this one variable, for the one attempt that needs
-    // it, and is dropped the moment that attempt is over.
-    let secret: string | null = null;
-    let lastKind: ConnectFailure['kind'] | null = null;
-    const gone = () => {
-      if (alive(id, driver)) return false;
-      void cancelConnect(id).catch(() => undefined);
-      return true;
-    };
-    const fail = (notice: Notice) => {
-      if (!gone()) patchTab(id, { status: 'failed', notice });
-    };
+    patchTab(id, { status: 'connecting', notice: null, prompt: false, canTypePassword: false });
     const reconnect = { label: 'Neu verbinden', run: () => void restart(id) };
-
     try {
-      for (;;) {
-        if (gone()) return;
-        driver.term.reset();
-        try {
-          await driver.attach(
+      const result = await negotiate(
+        id,
+        host,
+        ({ secret }) => {
+          driver.resetScreen();
+          return driver.attach(
             (onData, onEnd) =>
               connectHost(host.id, id, driver.term.cols, driver.term.rows, secret, onData, onEnd),
             () =>
               patchTab(id, {
                 status: 'ended',
+                prompt: false,
+                canTypePassword: false,
                 notice: {
                   tone: 'info',
                   text: `Die Verbindung zu ${host.name} wurde beendet.`,
@@ -259,141 +477,22 @@ export function App() {
                 },
               }),
           );
-          secret = null;
-          if (gone()) return;
-          patchTab(id, { status: 'live' });
-          if (activeRef.current === id) driver.term.focus();
-          void refreshHosts();
-          return;
-        } catch (raw) {
-          secret = null;
-          if (gone()) return;
-          const failure = asConnectFailure(raw);
-          const retry = lastKind === failure.kind;
-          lastKind = failure.kind;
-
-          switch (failure.kind) {
-            case 'unknown-host-key': {
-              const trusted = await ask<boolean>(id, false, (resolve) => ({
-                kind: 'trust',
-                host,
-                observed: failure.observed,
-                resolve,
-              }));
-              if (!trusted) {
-                fail({
-                  tone: 'info',
-                  text: 'Nicht verbunden: Der Host-Key wurde nicht bestätigt.',
-                  action: reconnect,
-                });
-                return;
-              }
-              await trustHostKey(host.address, host.port, failure.observed.fingerprint);
-              continue;
-            }
-            case 'host-key-changed': {
-              const confirmation = await ask<string | null>(id, null, (resolve) => ({
-                kind: 'changed',
-                host,
-                trustedFingerprint: failure.trustedFingerprint,
-                observed: failure.observed,
-                resolve,
-              }));
-              if (confirmation === null) {
-                fail({
-                  tone: 'error',
-                  text: `Nicht verbunden: Der Host-Key von ${host.address} hat sich geändert.`,
-                });
-                return;
-              }
-              await trustHostKey(
-                host.address,
-                host.port,
-                failure.observed.fingerprint,
-                confirmation,
-              );
-              continue;
-            }
-            case 'vault-locked': {
-              // Unlock, retrying inside the prompt on a wrong master
-              // password, then connect again — no wasted round trip.
-              let unlocked = false;
-              let wrong = false;
-              while (!unlocked) {
-                const password = await ask<string | null>(id, null, (resolve) => ({
-                  kind: 'unlock',
-                  host,
-                  retry: wrong,
-                  resolve,
-                }));
-                if (password === null) {
-                  fail({
-                    tone: 'info',
-                    text: 'Nicht verbunden: Der Tresor ist gesperrt.',
-                    action: reconnect,
-                  });
-                  return;
-                }
-                try {
-                  await unlockVault(password);
-                  unlocked = true;
-                } catch {
-                  wrong = true;
-                }
-              }
-              continue;
-            }
-            case 'password-required':
-            case 'passphrase-required':
-            case 'passphrase-rejected': {
-              secret = await ask<string | null>(id, null, (resolve) => ({
-                kind: 'secret',
-                host,
-                secret: failure.kind === 'password-required' ? 'password' : 'passphrase',
-                retry: failure.kind === 'passphrase-rejected',
-                resolve,
-              }));
-              if (secret === null) {
-                void cancelConnect(id);
-                fail({ tone: 'info', text: 'Nicht verbunden.', action: reconnect });
-                return;
-              }
-              continue;
-            }
-            case 'auth-rejected':
-              // A rejected password gets another try; a rejected key would be
-              // rejected again, so that one is reported instead.
-              if (host.auth === 'password') {
-                secret = await ask<string | null>(id, null, (resolve) => ({
-                  kind: 'secret',
-                  host,
-                  secret: 'password',
-                  retry: true,
-                  resolve,
-                }));
-                if (secret === null) {
-                  void cancelConnect(id);
-                  fail({ tone: 'info', text: 'Nicht verbunden.', action: reconnect });
-                  return;
-                }
-                continue;
-              }
-              fail({ tone: 'error', text: describeFailure(failure, host) });
-              return;
-            default:
-              fail({
-                tone: 'error',
-                text: describeFailure(failure, host),
-                action: retry ? undefined : { label: 'Nochmal', run: () => void restart(id) },
-              });
-              return;
-          }
-        }
+        },
+        () => !alive(id, driver),
+      );
+      if (!alive(id, driver)) return;
+      if (!result.ok) {
+        patchTab(id, { status: 'failed', notice: result.notice });
+        return;
       }
+      patchTab(id, { status: 'live' });
+      if (activeRef.current === id) driver.term.focus();
+      void refreshHosts();
+      const canType = await sessionCanTypePassword(result.value).catch(() => false);
+      if (alive(id, driver)) patchTab(id, { canTypePassword: canType });
     } catch (e) {
-      fail({ tone: 'error', text: String(e) });
-    } finally {
-      secret = null;
+      if (alive(id, driver))
+        patchTab(id, { status: 'failed', notice: { tone: 'error', text: String(e) } });
     }
   };
 
@@ -424,7 +523,7 @@ export function App() {
     try {
       if (tab.kind === 'shell') await runShell(id, driver);
       else if (tab.kind === 'm0') await runM0(id, driver);
-      else {
+      else if (tab.kind === 'ssh') {
         // The newest record for the host, in case it was edited meanwhile.
         const host = hostsRef.current.find((candidate) => candidate.id === tab.host.id) ?? tab.host;
         await runConnect(id, driver, host);
@@ -436,7 +535,36 @@ export function App() {
   const startRef = useRef(start);
   startRef.current = start;
 
-  const restart = (id: string) => startRef.current(id);
+  const restart = (id: string) => {
+    const tab = tabsRef.current.find((candidate) => candidate.id === id);
+    if (tab?.kind === 'files') {
+      // A file tab reconnects by mounting its browser anew.
+      patchTab(id, { reload: (tab.reload ?? 0) + 1, notice: null, status: 'connecting' });
+      return;
+    }
+    void startRef.current(id);
+  };
+
+  /** Opening a file tab's server side, through the same conversation. */
+  const openFilesIn =
+    (id: string, host: HostRecord) =>
+    async (root: boolean): Promise<OpenedFiles | null> => {
+      patchTab(id, { status: 'connecting', notice: null });
+      const fresh = hostsRef.current.find((candidate) => candidate.id === host.id) ?? host;
+      const result = await negotiate(
+        id,
+        fresh,
+        ({ secret, sudo }) => openFiles(fresh.id, id, secret, root, sudo),
+        () => !tabOpen(id),
+      );
+      if (!tabOpen(id)) return null;
+      if (!result.ok) {
+        patchTab(id, { status: 'failed', notice: result.notice });
+        return null;
+      }
+      patchTab(id, { status: 'live' });
+      return result.value;
+    };
 
   // ── Opening, closing, switching ───────────────────────────────────────────
 
@@ -464,11 +592,13 @@ export function App() {
     drivers.current.set(id, driver);
     setRenderer(driver.renderer);
     driver.term.attachCustomKeyEventHandler((event) => !isPasteKey(event, getSettings()));
+    watchPrompts(id, driver);
     // Wait a tick: StrictMode disposes a first driver right away, and only the
     // one that is still there should start anything.
     window.setTimeout(() => {
       if (drivers.current.get(id) === driver) void startRef.current(id);
     }, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const onDriverDispose = useCallback((id: string, driver: TerminalDriver) => {
@@ -477,12 +607,17 @@ export function App() {
 
   const connect = useCallback((host: HostRecord) => openTab({ kind: 'ssh', host }), [openTab]);
   const openShell = useCallback(() => openTab({ kind: 'shell' }), [openTab]);
+  const openFilesTab = useCallback(
+    (host: HostRecord) => openTab({ kind: 'files', host }),
+    [openTab],
+  );
 
   const duplicate = useCallback(
     (id: string | null) => {
       const tab = tabsRef.current.find((candidate) => candidate.id === id);
       if (!tab) return;
       if (tab.kind === 'ssh') openTab({ kind: 'ssh', host: tab.host });
+      else if (tab.kind === 'files') openTab({ kind: 'files', host: tab.host });
       else openTab({ kind: 'shell' });
     },
     [openTab],
@@ -492,6 +627,45 @@ export function App() {
     setSettingsOpen(null);
     openTab({ kind: 'm0' });
   }, [openTab]);
+
+  const typePassword = useCallback(
+    (id: string) => {
+      const driver = drivers.current.get(id);
+      const session = driver?.session;
+      if (!driver || !session) return;
+      patchTab(id, { prompt: false });
+      // Asked again right before typing: the prompt may be gone by now — sudo
+      // timed out, or the vault took a while — and the password plus Enter
+      // must never land in a shell.
+      const stillAsking = () => asksForLogin(id, driver.promptUser());
+      const type = () => {
+        if (!stillAsking()) {
+          patchTab(id, {
+            notice: {
+              tone: 'info',
+              text: 'Gerade fragt nichts nach dem Passwort. Nichts eingetippt.',
+            },
+          });
+          return Promise.resolve();
+        }
+        return typeSessionPassword(session).then(() => driver.term.focus());
+      };
+      void type().catch((error) => {
+        const failure = error as { kind?: string };
+        if (failure?.kind === 'vault-locked') {
+          void unlock(id, 'Das gespeicherte Passwort liegt im Tresor.').then(
+            (opened) => opened && void type(),
+          );
+        } else {
+          patchTab(id, {
+            notice: { tone: 'error', text: `Passwort nicht eingegeben: ${String(error)}` },
+          });
+        }
+      });
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+    [patchTab],
+  );
 
   // ── Start-up ──────────────────────────────────────────────────────────────
 
@@ -506,7 +680,13 @@ export function App() {
       if (autorun) {
         await new Promise((resolve) => window.setTimeout(resolve, AUTORUN_DELAY_MS));
         if (!cancelled && tabsRef.current.length === 0) openTab({ kind: 'm0' });
-      } else if (getSettings().openShellOnStart && tabsRef.current.length === 0) {
+        return;
+      }
+      // A vault this device doesn't open on its own asks once, now, instead
+      // of on the first host that needs it.
+      const vault = await vaultState().catch(() => null);
+      if (!cancelled && vault?.status === 'locked' && !vault.remembered) setStartupVault(true);
+      if (!cancelled && getSettings().openShellOnStart && tabsRef.current.length === 0) {
         openTab({ kind: 'shell' });
       }
     });
@@ -514,6 +694,12 @@ export function App() {
       cancelled = true;
     };
   }, [openTab, refreshHosts]);
+
+  // The server told what it runs: the host list gets its icon.
+  useEffect(() => {
+    const stop = listen<HostOsEvent>('host:os', () => void refreshHosts());
+    return () => void stop.then((unlisten) => unlisten());
+  }, [refreshHosts]);
 
   // Dev builds only: lets end-to-end tests read the active terminal, whose
   // text never reaches the DOM with the WebGL renderer. Stripped from release.
@@ -545,7 +731,9 @@ export function App() {
   // ── Derived state ─────────────────────────────────────────────────────────
 
   const activeTab = tabs.find((tab) => tab.id === activeId) ?? null;
-  const liveConnections = tabs.filter((tab) => tab.kind === 'ssh' && tab.status === 'live').length;
+  const liveConnections = tabs.filter(
+    (tab) => (tab.kind === 'ssh' || tab.kind === 'files') && tab.status === 'live',
+  ).length;
   const liveRef = useRef(0);
   liveRef.current = liveConnections;
   const onlineIds = useMemo(
@@ -559,13 +747,17 @@ export function App() {
     () =>
       new Set(
         tabs.flatMap((tab) =>
-          tab.kind === 'ssh' && tab.status === 'connecting' ? [tab.host.id] : [],
+          (tab.kind === 'ssh' || tab.kind === 'files') && tab.status === 'connecting'
+            ? [tab.host.id]
+            : [],
         ),
       ),
     [tabs],
   );
   const dialog = dialogs[0] ?? null;
-  const modalOpen = Boolean(dialog || form || importing || settingsOpen || confirmClose);
+  const modalOpen = Boolean(
+    dialog || form || importing || settingsOpen || confirmClose || startupVault,
+  );
   const modalRef = useRef(false);
   modalRef.current = modalOpen;
 
@@ -575,7 +767,9 @@ export function App() {
 
   // A question belongs to its tab: show that tab while it is asked.
   useEffect(() => {
-    if (dialog && dialog.tabId !== activeRef.current) setActiveId(dialog.tabId);
+    if (dialog && dialog.tabId !== activeRef.current && tabOpen(dialog.tabId)) {
+      setActiveId(dialog.tabId);
+    }
   }, [dialog]);
 
   // The shown tab gets the keyboard.
@@ -599,6 +793,7 @@ export function App() {
 
       const list = tabsRef.current;
       const index = list.findIndex((tab) => tab.id === id);
+      const tab = list[index];
       switch (action.kind) {
         case 'new-shell':
           openTab({ kind: 'shell' });
@@ -632,12 +827,18 @@ export function App() {
           }
           break;
         }
+        case 'type-password':
+          if (tab?.kind === 'ssh' && tab.canTypePassword && tab.prompt && id) typePassword(id);
+          break;
+        case 'open-files':
+          if (tab?.kind === 'ssh' || tab?.kind === 'files') openFilesTab(tab.host);
+          break;
       }
     };
     // Capture phase: the terminal must not see the app's own shortcuts.
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [closeTab, duplicate, openTab]);
+  }, [closeTab, duplicate, openFilesTab, openTab, typePassword]);
 
   // ── Closing the window ────────────────────────────────────────────────────
 
@@ -665,9 +866,14 @@ export function App() {
   // ── Render ────────────────────────────────────────────────────────────────
 
   const sidebarActive =
-    activeTab?.kind === 'ssh' ? activeTab.host.id : activeTab?.kind === 'shell' ? 'shell' : null;
+    activeTab?.kind === 'ssh' || activeTab?.kind === 'files'
+      ? activeTab.host.id
+      : activeTab?.kind === 'shell'
+        ? 'shell'
+        : null;
   const notice = activeTab?.notice ?? appNotice;
   const showM0 = activeTab !== null && activeTab.id === m0TabId;
+  const helperOn = settings.passwordHelper;
 
   return (
     <div className="shell">
@@ -677,14 +883,18 @@ export function App() {
         <div className="body">
           <HostList
             hosts={hosts}
+            groups={groups}
             activeId={sidebarActive}
             onlineIds={onlineIds}
             connectingIds={connectingIds}
             onConnect={connect}
+            onOpenFiles={openFilesTab}
             onLocalShell={openShell}
-            onAdd={() => setForm({ host: null })}
+            onAdd={(workspace, group) => setForm({ host: null, workspace, group })}
             onEdit={(host) => setForm({ host })}
             onImport={() => setImporting(true)}
+            onChanged={() => void refreshHosts()}
+            onError={(text) => setAppNotice({ tone: 'error', text })}
           />
 
           <main className="main">
@@ -707,6 +917,33 @@ export function App() {
                   )}
                 </span>
                 <span className="spacer" />
+                {activeTab.kind === 'ssh' &&
+                  activeTab.canTypePassword &&
+                  activeTab.status === 'live' && (
+                    <button
+                      className="quiet toolbar-button"
+                      disabled={!activeTab.prompt}
+                      onClick={() => typePassword(activeTab.id)}
+                      title={
+                        activeTab.prompt
+                          ? 'Das Passwort des Hosts ins Terminal tippen (Strg+Umschalt+P)'
+                          : 'Geht, sobald sudo nach dem Passwort fragt'
+                      }
+                    >
+                      <Icon name="key" size={15} />
+                      Passwort eintippen
+                    </button>
+                  )}
+                {activeTab.kind === 'ssh' && (
+                  <button
+                    className="quiet toolbar-button"
+                    onClick={() => openFilesTab(activeTab.host)}
+                    title="Dateien dieses Hosts in einem neuen Tab (Strg+Umschalt+F)"
+                  >
+                    <Icon name="files" size={15} />
+                    Dateien
+                  </button>
+                )}
                 {showM0 && (
                   <M0Status
                     renderer={renderer}
@@ -750,14 +987,71 @@ export function App() {
                 <div
                   key={tab.id}
                   className="terminal-pane"
+                  data-kind={tab.kind}
                   hidden={tab.id !== activeId}
                   role="tabpanel"
                   aria-label={tab.title}
                 >
-                  <TerminalView
-                    onReady={(driver) => onDriverReady(tab.id, driver)}
-                    onDispose={(driver) => onDriverDispose(tab.id, driver)}
-                  />
+                  {tab.kind === 'files' ? (
+                    <FileBrowser
+                      key={tab.reload ?? 0}
+                      host={tab.host}
+                      open={openFilesIn(tab.id, tab.host)}
+                      onLive={(live) => patchTab(tab.id, { status: live ? 'live' : 'ended' })}
+                    />
+                  ) : (
+                    <TerminalView
+                      onReady={(driver) => onDriverReady(tab.id, driver)}
+                      onDispose={(driver) => onDriverDispose(tab.id, driver)}
+                    />
+                  )}
+                  {tab.kind === 'ssh' &&
+                    tab.status === 'connecting' &&
+                    !dialogs.some((d) => d.tabId === tab.id) && (
+                      <div className="pane-overlay" aria-live="polite">
+                        <NyuScene name="connecting" className="pane-scene" />
+                        <p>Verbinde mit {tab.host.name}…</p>
+                      </div>
+                    )}
+                  {tab.kind === 'ssh' && tab.status === 'failed' && (
+                    <div className="pane-overlay" data-tone="failed">
+                      <NyuScene name="loadError" className="pane-scene" />
+                      <p>Nicht verbunden.</p>
+                      <button className="primary" onClick={() => restart(tab.id)}>
+                        Neu verbinden
+                      </button>
+                    </div>
+                  )}
+                  {tab.kind === 'ssh' &&
+                    helperOn &&
+                    tab.prompt &&
+                    tab.canTypePassword &&
+                    tab.status === 'live' && (
+                      <div className="password-helper" role="status">
+                        <Icon name="key" size={16} />
+                        <span>
+                          Passwort für{' '}
+                          <code>
+                            {tab.host.username}@{tab.host.address}
+                          </code>{' '}
+                          eintippen?
+                        </span>
+                        <button className="primary" onClick={() => typePassword(tab.id)}>
+                          Eintippen
+                        </button>
+                        <kbd>Strg+Umschalt+P</kbd>
+                        <button
+                          className="icon-button"
+                          onClick={() => {
+                            patchTab(tab.id, { prompt: false });
+                            drivers.current.get(tab.id)?.term.focus();
+                          }}
+                          aria-label="Nicht eintippen"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    )}
                 </div>
               ))}
               {tabs.length === 0 && (
@@ -790,18 +1084,14 @@ export function App() {
       {form && (
         <HostForm
           host={form.host}
+          workspace={form.workspace}
+          group={form.group}
+          groups={groups}
           onCancel={() => setForm(null)}
-          onSaved={(saved) => {
+          onSaved={() => {
             setForm(null);
+            // Open tabs of this host show the new record; they reconnect with the new data.
             void refreshHosts();
-            // Open tabs of this host show the new name; they reconnect with the new data.
-            setTabs((current) =>
-              current.map((tab) =>
-                tab.kind === 'ssh' && tab.host.id === saved.id
-                  ? { ...tab, host: saved, title: saved.name }
-                  : tab,
-              ),
-            );
           }}
           onDeleted={() => {
             setForm(null);
@@ -828,6 +1118,23 @@ export function App() {
             setUpdateDismissed(false);
           }}
           onRunM0={runM0InNewTab}
+          onImport={() => {
+            setSettingsOpen(null);
+            setImporting(true);
+          }}
+          onChanged={() => void refreshHosts()}
+        />
+      )}
+
+      {startupVault && !dialog && (
+        <VaultDialog
+          reason="Einmal entsperren – dann verbinden alle Hosts mit gespeicherten Passwörtern und Keys, ohne weiter zu fragen."
+          cancelLabel="Später"
+          onDone={() => {
+            setStartupVault(false);
+            void refreshHosts();
+          }}
+          onCancel={() => setStartupVault(false)}
         />
       )}
 
@@ -851,10 +1158,11 @@ export function App() {
             </>
           }
         >
+          <NyuScene name="goodbye" className="dialog-scene" />
           <p className="dialog-lead">
             {liveConnections === 1
-              ? 'Eine SSH-Verbindung ist noch offen und wird getrennt.'
-              : `${liveConnections} SSH-Verbindungen sind noch offen und werden getrennt.`}
+              ? 'Eine Verbindung ist noch offen und wird getrennt.'
+              : `${liveConnections} Verbindungen sind noch offen und werden getrennt.`}
           </p>
         </Modal>
       )}
@@ -864,7 +1172,8 @@ export function App() {
           host={dialog.host}
           secret={dialog.secret}
           retry={dialog.retry}
-          onSubmit={(value) => dialog.resolve(value)}
+          canSave={dialog.canSave}
+          onSubmit={(value, save) => dialog.resolve({ value, save })}
           onCancel={() => dialog.resolve(null)}
         />
       )}
@@ -881,16 +1190,15 @@ export function App() {
           host={dialog.host}
           trustedFingerprint={dialog.trustedFingerprint}
           observed={dialog.observed}
-          onReplace={(confirmation) => dialog.resolve(confirmation)}
-          onCancel={() => dialog.resolve(null)}
+          onAccept={() => dialog.resolve(true)}
+          onReject={() => dialog.resolve(false)}
         />
       )}
       {dialog?.kind === 'unlock' && (
-        <UnlockVault
-          host={dialog.host}
-          retry={dialog.retry}
-          onSubmit={(value) => dialog.resolve(value)}
-          onCancel={() => dialog.resolve(null)}
+        <VaultDialog
+          reason={dialog.reason}
+          onDone={() => dialog.resolve(true)}
+          onCancel={() => dialog.resolve(false)}
         />
       )}
     </div>

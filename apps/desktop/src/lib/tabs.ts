@@ -7,7 +7,11 @@
 import type { Settings } from './settings';
 import type { HostRecord } from './session';
 
-export type TabKind = { kind: 'shell' } | { kind: 'ssh'; host: HostRecord } | { kind: 'm0' };
+export type TabKind =
+  | { kind: 'shell' }
+  | { kind: 'ssh'; host: HostRecord }
+  | { kind: 'files'; host: HostRecord }
+  | { kind: 'm0' };
 
 /**
  * - `connecting` — spawning or logging in, possibly waiting for a dialog
@@ -31,6 +35,12 @@ export type Tab = TabKind & {
   ordinal: number;
   status: TabStatus;
   notice: Notice | null;
+  /** The terminal's cursor sits after a password prompt. */
+  prompt: boolean;
+  /** The terminal has a password it can type (the login's, or a stored one). */
+  canTypePassword: boolean;
+  /** Bumped to mount a file tab's browser anew, for a fresh connection. */
+  reload?: number;
 };
 
 let counter = 0;
@@ -43,7 +53,7 @@ export function newTabId(): string {
 
 /** What makes two tabs "the same thing": the host, or the kind for local tabs. */
 export function sameKey(kind: TabKind): string {
-  return kind.kind === 'ssh' ? `ssh:${kind.host.id}` : kind.kind;
+  return kind.kind === 'ssh' || kind.kind === 'files' ? `${kind.kind}:${kind.host.id}` : kind.kind;
 }
 
 export function describe(kind: TabKind): { title: string; subtitle: string | null } {
@@ -52,6 +62,10 @@ export function describe(kind: TabKind): { title: string; subtitle: string | nul
       const { host } = kind;
       const port = host.port === 22 ? '' : `:${host.port}`;
       return { title: host.name, subtitle: `${host.username}@${host.address}${port}` };
+    }
+    case 'files': {
+      const { host } = kind;
+      return { title: host.name, subtitle: `Dateien · ${host.username}@${host.address}` };
     }
     case 'm0':
       return { title: 'Durchsatz-Messung', subtitle: null };
@@ -77,6 +91,8 @@ export function createTab(tabs: Tab[], kind: TabKind, id: string = newTabId()): 
     ordinal: nextOrdinal(tabs, kind),
     status: 'connecting',
     notice: null,
+    prompt: false,
+    canTypePassword: false,
   };
 }
 
@@ -90,6 +106,8 @@ export function neighbourAfterClose(tabs: Tab[], id: string): string | null {
 
 export type ShortcutAction =
   | { kind: 'new-shell' }
+  | { kind: 'type-password' }
+  | { kind: 'open-files' }
   | { kind: 'close-tab' }
   | { kind: 'duplicate-tab' }
   | { kind: 'next-tab' }
@@ -130,6 +148,10 @@ export function shortcutFor(
       return { kind: 'duplicate-tab' };
     case 'KeyC':
       return { kind: 'copy' };
+    case 'KeyP':
+      return { kind: 'type-password' };
+    case 'KeyF':
+      return { kind: 'open-files' };
   }
   const digit = /^Digit([1-9])$/.exec(event.code);
   if (digit) return { kind: 'select-tab', index: Number(digit[1]) - 1 };

@@ -1,0 +1,396 @@
+/* Nyu's laser pad (NyuLaserPad.tsx). The laser colours are artwork like Nyu
+   herself and arrive as custom properties from the NYU palette; the mat uses
+   the --uwu-* tokens so it sits right in light and dark. */
+
+.nyu-laser {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+}
+
+.nyu-laser-pad {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 7 / 4;
+  overflow: hidden;
+  border-radius: var(--uwu-radius-card);
+  background-color: var(--uwu-pink-tint);
+  background-image:
+    radial-gradient(
+      ellipse 55% 65% at 50% 70%,
+      color-mix(in srgb, var(--uwu-surface) 45%, transparent),
+      transparent
+    ),
+    linear-gradient(color-mix(in srgb, var(--uwu-pink) 12%, transparent) 1px, transparent 1px),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--uwu-pink) 12%, transparent) 1px,
+      transparent 1px
+    );
+  background-size:
+    100% 100%,
+    24px 24px,
+    24px 24px;
+  background-position: center;
+  cursor: none;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* The dashed edge is an overlay, so the pad's box and the drawing line up exactly. */
+.nyu-laser-pad::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 2px dashed color-mix(in srgb, var(--uwu-pink) 50%, transparent);
+  border-radius: inherit;
+  pointer-events: none;
+  transition: border-color 160ms ease;
+}
+
+.nyu-laser-pad[data-active='true'][data-inside='true']::after {
+  border-color: var(--uwu-pink);
+}
+
+.nyu-laser-pad[data-active='false'] {
+  cursor: default;
+}
+
+.nyu-laser-pad[data-active='false']::after {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--uwu-pink) 30%, transparent);
+}
+
+/* More specific than app.css's global ring, which would square off the corners. */
+.nyu-laser-pad:focus-visible {
+  outline: 2px solid var(--uwu-pink);
+  outline-offset: 3px;
+  border-radius: var(--uwu-radius-card);
+}
+
+.nyu-laser-stage,
+.nyu-laser-beam {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.nyu-laser-stage {
+  overflow: visible;
+}
+
+/* ── The laser ─────────────────────────────────────────── */
+
+.nyu-laser-beam {
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.nyu-laser-pad[data-active='true'][data-inside='true'] .nyu-laser-beam {
+  opacity: 1;
+}
+
+.nyu-laser-dot,
+.nyu-laser-trail,
+.nyu-laser-spark {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: 50%;
+  will-change: transform;
+}
+
+.nyu-laser-dot {
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  background: radial-gradient(circle, var(--nyu-laser-hot) 0 24%, var(--nyu-laser-core) 58%);
+  box-shadow:
+    0 0 6px 2px color-mix(in srgb, var(--nyu-laser-core) 75%, transparent),
+    0 0 22px 9px color-mix(in srgb, var(--nyu-laser-core) 30%, transparent);
+}
+
+.nyu-laser-dot::after {
+  content: '';
+  position: absolute;
+  inset: -10px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--nyu-laser-core) 40%, transparent),
+    transparent 70%
+  );
+  animation: nyu-laser-halo 1.3s ease-in-out infinite;
+}
+
+.nyu-laser-pad[data-pose='caught'] .nyu-laser-dot {
+  animation: nyu-laser-flicker 520ms steps(1) infinite;
+}
+
+.nyu-laser-trail {
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  opacity: 0;
+  background: var(--nyu-laser-core);
+  box-shadow: 0 0 8px 2px color-mix(in srgb, var(--nyu-laser-core) 40%, transparent);
+}
+
+.nyu-laser-spark {
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  opacity: 0;
+  border-radius: 0;
+  background: var(--nyu-laser-hot);
+  clip-path: polygon(50% 0, 61% 39%, 100% 50%, 61% 61%, 50% 100%, 39% 61%, 0 50%, 39% 39%);
+}
+
+.nyu-laser-spark-gold {
+  background: var(--nyu-laser-spark);
+}
+
+/* ── Nyu on the mat ────────────────────────────────────── */
+
+.nyu-laser-tail,
+.nyu-laser-breathe,
+.nyu-laser-bubble,
+.nyu-laser-twinkle,
+.nyu-laser-burst,
+.nyu-laser-confetto,
+.nyu-laser-print {
+  transform-box: fill-box;
+}
+
+.nyu-laser-tail {
+  transform-origin: 12% 90%;
+  animation: nyu-laser-swish 2.8s ease-in-out infinite;
+}
+
+/* The tail is a stroke, so its die-cut edge has to be as wide as the stroke plus the body's edge. */
+.nyu-edge .nyu-laser-tail-line {
+  stroke-width: 41;
+}
+
+.nyu-laser-pad[data-pose='crouch'] .nyu-laser-tail {
+  animation-duration: 0.5s;
+}
+
+.nyu-laser-pad:is([data-pose='sleep'], [data-pose='calm']) .nyu-laser-tail {
+  animation-duration: 5s;
+}
+
+/* Mid-pounce the tail streams out low, clear of the reaching paw. */
+.nyu-laser-pad:is([data-pose='pounce'], [data-pose='caught']) .nyu-laser-tail {
+  animation: none;
+  transform: rotate(26deg);
+}
+
+.nyu-laser-breathe {
+  transform-origin: 50% 100%;
+}
+
+.nyu-laser-pad:is([data-pose='idle'], [data-pose='wonder'], [data-pose='sleep'], [data-pose='calm'])
+  .nyu-laser-breathe {
+  animation: nyu-laser-breathe 3.4s ease-in-out infinite;
+}
+
+/* Ears flick while she wiggles before the pounce. The keyframes are nyu.css's. */
+.nyu-laser-pad[data-pose='crouch'] .nyu-ear-l {
+  animation: nyu-ear-l 480ms ease-in-out infinite;
+}
+
+.nyu-laser-pad[data-pose='crouch'] .nyu-ear-r {
+  animation: nyu-ear-r 480ms ease-in-out 120ms infinite;
+}
+
+.nyu-laser-pad[data-pose='idle'] .nyu-laser-glance {
+  animation: nyu-laser-glance 6s ease-in-out infinite;
+}
+
+.nyu-laser-bubble {
+  transform-origin: 50% 100%;
+  animation:
+    nyu-laser-pop 420ms cubic-bezier(0.3, 1.6, 0.5, 1) backwards,
+    nyu-laser-bob 1.6s ease-in-out 420ms infinite;
+}
+
+.nyu-laser-z {
+  animation: nyu-laser-z 2.6s ease-in-out infinite backwards;
+}
+
+.nyu-laser-z-late {
+  animation-delay: 1.3s;
+}
+
+.nyu-laser-twinkle {
+  transform-origin: center;
+  animation: nyu-laser-twinkle 1.6s ease-in-out infinite;
+}
+
+.nyu-laser-twinkle-late {
+  animation-delay: 0.8s;
+}
+
+/* Only ever visible while the loop animates them. */
+.nyu-laser-burst,
+.nyu-laser-confetto {
+  transform-origin: center;
+  opacity: 0;
+}
+
+/* ── Progress ──────────────────────────────────────────── */
+
+.nyu-laser-print-empty {
+  fill: var(--uwu-pink);
+  opacity: 0.22;
+}
+
+.nyu-laser-print {
+  transform-origin: center;
+}
+
+.nyu-laser-print[data-full='true'] {
+  animation: nyu-laser-pop 380ms cubic-bezier(0.3, 1.6, 0.5, 1) both;
+}
+
+.nyu-laser-hint {
+  margin: 0;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--uwu-muted);
+}
+
+.nyu-laser-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ── Motion ────────────────────────────────────────────── */
+
+:root[data-motion='reduced'] .nyu-laser *,
+:root[data-motion='reduced'] .nyu-laser *::after {
+  animation: none !important;
+}
+
+@keyframes nyu-laser-swish {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+  35% {
+    transform: rotate(-10deg);
+  }
+  70% {
+    transform: rotate(6deg);
+  }
+}
+
+@keyframes nyu-laser-breathe {
+  0%,
+  100% {
+    transform: scale(1, 1);
+  }
+  50% {
+    transform: scale(1.012, 0.975);
+  }
+}
+
+@keyframes nyu-laser-glance {
+  0%,
+  38%,
+  86%,
+  100% {
+    transform: translate(0, 0);
+  }
+  44%,
+  58% {
+    transform: translate(-5px, 0);
+  }
+  64%,
+  80% {
+    transform: translate(5px, -1px);
+  }
+}
+
+@keyframes nyu-laser-pop {
+  0% {
+    transform: scale(0.3);
+  }
+  60% {
+    transform: scale(1.2);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes nyu-laser-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes nyu-laser-z {
+  0% {
+    transform: translate(0, 4px) scale(0.6);
+    opacity: 0;
+  }
+  25%,
+  60% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(10px, -16px) scale(1.1);
+    opacity: 0;
+  }
+}
+
+@keyframes nyu-laser-twinkle {
+  0%,
+  100% {
+    transform: scale(1) rotate(0);
+  }
+  50% {
+    transform: scale(0.7) rotate(20deg);
+  }
+}
+
+@keyframes nyu-laser-halo {
+  0%,
+  100% {
+    transform: scale(0.75);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 0.5;
+  }
+}
+
+@keyframes nyu-laser-flicker {
+  0%,
+  40%,
+  100% {
+    opacity: 1;
+  }
+  20% {
+    opacity: 0.3;
+  }
+  60% {
+    opacity: 0.5;
+  }
+}

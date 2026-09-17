@@ -57,3 +57,6 @@ security-test-notes.local.md
 # End-to-end run artefacts: logs, throwaway database, screenshots
 apps/desktop/e2e/.run/
 apps/desktop/e2e/shots/
+
+# Agent worktrees
+.claude/worktrees/

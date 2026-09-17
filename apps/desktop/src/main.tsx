@@ -5,6 +5,7 @@ import { App } from './App';
 import './components/nyu/nyu.css';
 import { applyAppearance } from './lib/settings';
 import './styles/app.css';
+import './styles/features.css';
 import './styles/tokens.css';
 
 // Dark by default, as the concept says; Settings → Appearance switches to light

@@ -108,6 +108,28 @@ impl Store {
             .expect("the row written in the committed transaction above"))
     }
 
+    /// Every trusted key, for an export.
+    pub fn list_known_hosts(&self) -> Result<Vec<KnownHostRecord>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT address, port, algorithm, fingerprint_sha256, public_key, first_seen_ms
+               FROM known_hosts WHERE deleted = 0 ORDER BY address, port",
+        )?;
+        let keys = stmt
+            .query_map([], |row| {
+                Ok(KnownHostRecord {
+                    address: row.get(0)?,
+                    port: row.get::<_, i64>(1)? as u16,
+                    algorithm: row.get(2)?,
+                    fingerprint: row.get(3)?,
+                    public_key: row.get(4)?,
+                    first_seen_ms: row.get::<_, i64>(5)? as u64,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(keys)
+    }
+
     /// Stop trusting the key for `address:port`. Returns whether one was trusted.
     pub fn forget_host_key(&self, address: &str, port: u16) -> Result<bool> {
         let mut conn = self.conn.lock();

@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type ReactNode } from 'react';
 
 type ModalProps = {
   title: string;
@@ -12,6 +12,12 @@ type ModalProps = {
 };
 
 const FOCUSABLE = 'input, button, textarea, select, [href], [tabindex]:not([tabindex="-1"])';
+
+/**
+ * Open dialogs, innermost last. A dialog can open another (the host form opens
+ * the vault), and only the one on top may react to Escape and Tab.
+ */
+const stack: HTMLElement[] = [];
 
 /**
  * A dialog. Escape and a click on the backdrop cancel; focus moves into the
@@ -33,6 +39,8 @@ export function Modal({
   footer,
 }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
+  // Dialogs stack (the host form opens the vault): each needs its own title id.
+  const titleId = useId();
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -48,8 +56,10 @@ export function Modal({
       dialog.querySelector<HTMLElement>('input, button:not([data-secondary]), textarea, select') ??
       dialog;
     first.focus();
+    stack.push(dialog);
 
     const onKey = (event: KeyboardEvent) => {
+      if (stack[stack.length - 1] !== dialog) return;
       if (event.key === 'Escape') {
         event.preventDefault();
         onCancel();
@@ -80,6 +90,7 @@ export function Modal({
     window.addEventListener('keydown', onKey);
     return () => {
       window.removeEventListener('keydown', onKey);
+      stack.splice(stack.indexOf(dialog), 1);
       previous?.focus();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -94,10 +105,10 @@ export function Modal({
         data-size={size}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="modal-title"
+        aria-labelledby={titleId}
         tabIndex={-1}
       >
-        <h2 id="modal-title" className="modal-title">
+        <h2 id={titleId} className="modal-title">
           {title}
         </h2>
         <div className="modal-body">{children}</div>

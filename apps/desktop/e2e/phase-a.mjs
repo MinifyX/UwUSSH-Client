@@ -1,17 +1,26 @@
 // Phase A: add a host, first contact, password, a working shell, session end,
-// and reconnecting to a host whose key is already trusted.
-import { readFileSync } from 'node:fs';
+// reconnecting to a host whose key is already trusted, tabs, window controls
+// and settings — then what beta.2 added: saving the password into a new vault,
+// the sudo password helper, keyword highlighting, Ctrl+wheel zoom, the detected
+// system, workspaces and dragging, the file browser, and an export.
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { check, connect, failed, sleep } from './cdp.mjs';
 
 const SHOTS = new URL('./shots/', import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1');
 const EXPECTED_FINGERPRINT = process.argv[2];
 const SERVER_LOG = process.argv[3];
+/** The folder dev_sshd serves as the server's `/`. */
+const SERVER_FILES = process.argv[4];
+/** A scratch folder for downloads, and where the export lands. */
+const WORK_DIR = process.argv[5];
 const count = (what) => readFileSync(SERVER_LOG, 'utf8').split(what).length - 1;
 const connectionsAtStart = count('connection from');
 const connectionsSince = () => count('connection from') - connectionsAtStart;
 
 const page = await connect();
 const shot = (name) => page.screenshot(`${SHOTS}${name}.png`);
+const terminalHas = (text) =>
+  `(() => { const t = window.__uwusshDriver?.term.buffer.active; if (!t) return false; for (let i = 0; i < t.length; i++) if (t.getLine(i)?.translateToString().includes(${JSON.stringify(text)})) return true; })()`;
 
 await page.waitFor(`document.querySelector('.sidebar')`, { what: 'app shell' });
 await page.waitFor(`window.__uwusshDriver`, { what: 'dev driver hook' });
@@ -26,9 +35,12 @@ await shot('01-start');
 
 // ── Add a host ──────────────────────────────────────────────────────────────
 await page.click('.sidebar-empty button', 'Host hinzufügen');
-await page.waitFor(`document.querySelector('.modal-title')?.textContent === 'Neuer Host'`, {
-  what: 'host form',
-});
+await page.waitFor(
+  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Neuer Host'`,
+  {
+    what: 'host form',
+  },
+);
 check(
   'address field has focus when the form opens',
   await page.eval(`document.activeElement === document.querySelectorAll('.modal input')[0]`),
@@ -53,8 +65,12 @@ await page.eval(`document.querySelectorAll('${inputs}')[2].focus()`);
 await page.type('uwu');
 await page.eval(`document.querySelectorAll('${inputs}')[3].focus()`);
 await page.type('dev-sshd');
-await page.eval(`document.querySelectorAll('${inputs}')[4].focus()`);
+await page.eval(`document.querySelector('.modal input[list]').focus()`);
 await page.type('lokal');
+check(
+  'the password stays empty, so it is asked on connect',
+  await page.eval(`document.querySelector('.modal input[type=password]').value === ''`),
+);
 await shot('02-form');
 
 await page.click('.modal-footer button', 'Speichern');
@@ -67,7 +83,7 @@ check('saved host appears in its group', (await page.text('.host-group h3')).inc
 // ── First contact: unknown host key ─────────────────────────────────────────
 await page.click('.host .host-name', 'dev-sshd');
 await page.waitFor(
-  `document.querySelector('.modal-title')?.textContent === 'Unbekannter Host-Key'`,
+  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Unbekannter Host-Key'`,
   { what: 'trust dialog' },
 );
 await sleep(300);
@@ -85,15 +101,20 @@ await page.key('Enter');
 await sleep(300);
 check(
   'Enter alone does not trust the key',
-  await page.eval(`document.querySelector('.modal-title')?.textContent === 'Unbekannter Host-Key'`),
+  await page.eval(
+    `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Unbekannter Host-Key'`,
+  ),
 );
 
 await page.click('.modal-footer button', 'Vertrauen und verbinden');
 
 // ── Password: wrong, then right ─────────────────────────────────────────────
-await page.waitFor(`document.querySelector('.modal-title')?.textContent === 'Passwort'`, {
-  what: 'password prompt',
-});
+await page.waitFor(
+  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Passwort'`,
+  {
+    what: 'password prompt',
+  },
+);
 check('password field has focus', await page.eval(`document.activeElement?.type === 'password'`));
 await shot('04-password');
 await page.type('falsch');
@@ -109,6 +130,12 @@ check(
   await page.eval(`document.activeElement?.value === ''`),
 );
 await shot('05-rejected');
+check(
+  'the password prompt offers to keep it in the vault',
+  await page.eval(`document.querySelector('.modal .check input')?.checked === true`),
+);
+// Not this time: the vault comes later, on purpose.
+await page.click('.modal .check input');
 await page.type('nyu');
 await page.key('Enter');
 
@@ -193,12 +220,13 @@ await shot('09-ended');
 
 // ── Reconnect: key already trusted, so straight to the password ─────────────
 await page.click('.notice button', 'Neu verbinden');
-await page.waitFor(`document.querySelector('.modal-title')`, { what: 'next dialog' });
+await page.waitFor(`[...document.querySelectorAll('.modal-title')].pop()`, { what: 'next dialog' });
 check(
   'a trusted host skips the key dialog',
   (await page.text('.modal-title')) === 'Passwort',
   await page.text('.modal-title'),
 );
+await page.click('.modal .check input');
 await page.type('nyu');
 await page.key('Enter');
 await page.waitFor(
@@ -214,8 +242,6 @@ check(
 await shot('10-reconnected');
 
 // ── Tabs: a second connection to the same server, side by side ─────────────
-const terminalHas = (text) =>
-  `(() => { const t = window.__uwusshDriver?.term.buffer.active; if (!t) return false; for (let i = 0; i < t.length; i++) if (t.getLine(i)?.translateToString().includes(${JSON.stringify(text)})) return true; })()`;
 const tabCount = () => page.eval(`document.querySelectorAll('.tab').length`);
 const tabsBefore = await tabCount();
 check(
@@ -225,16 +251,20 @@ check(
 );
 
 await page.click('.host .host-name', 'dev-sshd');
-await page.waitFor(`document.querySelector('.modal-title')?.textContent === 'Passwort'`, {
-  what: 'password prompt for the second tab',
-  timeout: 15_000,
-});
+await page.waitFor(
+  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Passwort'`,
+  {
+    what: 'password prompt for the second tab',
+    timeout: 15_000,
+  },
+);
 check('clicking the host again opens another tab', (await tabCount()) === tabsBefore + 1);
 check(
   'the second tab to the same host is numbered',
   (await page.text('.tab[data-active="true"] .tab-ordinal')) === '2',
   await page.text('.tab[data-active="true"]'),
 );
+await page.click('.modal .check input');
 await page.type('nyu');
 await page.key('Enter');
 await page.waitFor(terminalHas('toy shell'), { what: 'banner in the second tab', timeout: 15_000 });
@@ -291,9 +321,12 @@ await page.waitFor(`document.querySelector('.window-control[aria-label="Maximier
   what: 'restored window',
 });
 await page.click('.window-control[aria-label="Schließen"]');
-await page.waitFor(`document.querySelector('.modal-title')?.textContent === 'UwUSSH schließen?'`, {
-  what: 'close confirmation',
-});
+await page.waitFor(
+  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'UwUSSH schließen?'`,
+  {
+    what: 'close confirmation',
+  },
+);
 check('closing with an open connection asks first', true);
 await shot('10c-close');
 await page.click('.modal-footer button', 'Abbrechen');
@@ -301,9 +334,12 @@ await page.waitFor(`!document.querySelector('.modal')`, { what: 'confirmation di
 
 // ── Settings ────────────────────────────────────────────────────────────────
 await page.click('.titlebar-action[aria-label="Einstellungen"]');
-await page.waitFor(`document.querySelector('.modal-title')?.textContent === 'Einstellungen'`, {
-  what: 'settings',
-});
+await page.waitFor(
+  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Einstellungen'`,
+  {
+    what: 'settings',
+  },
+);
 await page.click('.settings-nav button', 'Terminal');
 await page.click('.segmented button', 'Strich');
 await sleep(200);
@@ -323,29 +359,382 @@ await shot('10d-settings');
 await page.key('Escape');
 await page.waitFor(`!document.querySelector('.modal')`, { what: 'settings closed' });
 
-// ── Import: preview first, and the vault is asked before anything is written ─
-await page.click('.sidebar-head [aria-label="Hosts importieren"]');
-await page.waitFor(`document.querySelector('.modal-title')?.textContent === 'Importieren'`, {
-  what: 'import dialog',
+// ── The system the server runs ─────────────────────────────────────────────
+const invoke = (command, args = {}) =>
+  page.eval(
+    `window.__TAURI_INTERNALS__.invoke(${JSON.stringify(command)}, ${JSON.stringify(args)})`,
+  );
+const devHost = async () => (await invoke('list_hosts')).find((h) => h.name === 'dev-sshd');
+await page.waitFor(
+  `window.__TAURI_INTERNALS__.invoke('list_hosts').then(h => h.some(x => x.name === 'dev-sshd' && x.os === 'ubuntu'))`,
+  { what: 'detected system' },
+);
+check('the server was recognised as Ubuntu', (await devHost()).os === 'ubuntu');
+check(
+  'the host list shows the system icon',
+  await page.eval(
+    `[...document.querySelectorAll('.host-row')].find(r => r.textContent.includes('dev-sshd'))?.querySelector('.host-icon svg')?.getAttribute('aria-hidden') === 'true'`,
+  ),
+);
+
+// ── Keyword highlighting ────────────────────────────────────────────────────
+await page.eval(`window.__uwusshDriver.term.focus()`);
+await page.type('error 10.0.0.12 active');
+await page.key('Enter');
+await page.waitFor(terminalHas('command not found'), { what: 'unknown command output' });
+await page.waitFor(`window.__uwusshDriver.highlighter.entries.size > 0`, {
+  what: 'highlight decorations',
 });
+check('keywords and addresses in the output get colours', true);
+await shot('12-highlight');
+
+// ── Ctrl + mouse wheel ──────────────────────────────────────────────────────
+const fontBefore = await page.eval(`window.__uwusshDriver.term.options.fontSize`);
+const { x: tx, y: ty } = await page.locate('.terminal-pane:not([hidden]) .terminal-host');
+for (let i = 0; i < 2; i += 1) {
+  await page.send('Input.dispatchMouseEvent', {
+    type: 'mouseWheel',
+    x: tx,
+    y: ty,
+    deltaX: 0,
+    deltaY: -100,
+    modifiers: 2,
+  });
+  await sleep(80);
+}
+await sleep(200);
+const fontAfter = await page.eval(`window.__uwusshDriver.term.options.fontSize`);
+check(
+  'Ctrl + wheel makes the terminal text bigger',
+  fontAfter === fontBefore + 2,
+  `${fontBefore} → ${fontAfter}`,
+);
+// Two notches back: each notch is one step.
+for (let i = 0; i < 2; i += 1) {
+  await page.send('Input.dispatchMouseEvent', {
+    type: 'mouseWheel',
+    x: tx,
+    y: ty,
+    deltaX: 0,
+    deltaY: 100,
+    modifiers: 2,
+  });
+  await sleep(80);
+}
+await sleep(300);
+check(
+  'Ctrl + wheel back brings the old size back',
+  (await page.eval(`window.__uwusshDriver.term.options.fontSize`)) === fontBefore,
+);
+
+// ── sudo asks: the helper types the password the login used ────────────────
+await page.eval(`window.__uwusshDriver.term.focus()`);
+await page.type('sudo whoami');
+await page.key('Enter');
+await page.waitFor(`document.querySelector('.password-helper')`, {
+  what: 'password helper',
+  timeout: 5_000,
+});
+check('a sudo prompt brings up the password helper', true);
+await shot('13-sudo');
+await page.click('.password-helper button', 'Eintippen');
+await page.waitFor(terminalHas('root access granted'), { what: 'sudo accepted' });
+check('the helper typed the right password, and only after asking', count('sudo: accepted') === 1);
+check(
+  'the helper is gone after typing',
+  await page.eval(`!document.querySelector('.password-helper')`),
+);
+
+// ── Save the password: the vault is created on the way ──────────────────────
+await page.eval(
+  `[...document.querySelectorAll('.host-row')].find(r => r.textContent.includes('dev-sshd')).querySelector('.host-actions button[aria-label$="bearbeiten"]').click()`,
+);
+await page.waitFor(
+  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'dev-sshd bearbeiten'`,
+  {
+    what: 'edit form',
+  },
+);
+await page.click('.modal input[type=password]');
+await page.type('nyu');
+await page.click('.modal-footer button', 'Speichern');
+await page.waitFor(
+  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Tresor anlegen'`,
+  {
+    what: 'vault creation for the password',
+  },
+);
+check('saving a password asks for a vault first', true);
+await page.waitFor(`document.activeElement?.type === 'password'`, {
+  what: 'the master password field has the cursor',
+});
+check('the master password field has the cursor', true);
+await page.type('e2e-master');
+await page.eval(
+  `[...document.querySelectorAll('.modal')].pop().querySelectorAll('input[type=password]')[1].focus()`,
+);
+await page.type('e2e-master');
+await shot('14-vault');
+await page.key('Enter');
+await page.waitFor(`!document.querySelector('.modal')`, {
+  what: 'form saved after the vault',
+  timeout: 20_000,
+});
+const saved = await devHost();
+check('the password is stored', saved.hasPassword === true);
+const vault = await invoke('vault_state');
+check(
+  'the vault is open and remembered on this device',
+  vault.status === 'unlocked' && vault.remembered === true,
+  JSON.stringify(vault),
+);
+check(
+  'the password is not in the page',
+  !JSON.stringify(await invoke('list_hosts')).includes('"nyu"'),
+);
+
+// ── A stored password: connecting asks nothing ──────────────────────────────
+await page.click('.host .host-name', 'dev-sshd');
+await page.waitFor(terminalHas('toy shell'), {
+  what: 'connected without a prompt',
+  timeout: 15_000,
+});
+check(
+  'a host with a stored password connects without asking',
+  await page.eval(`!document.querySelector('.modal')`),
+);
+
+// ── Workspaces and groups: drag a host into Business ───────────────────────
+await invoke('save_host', {
+  draft: {
+    id: null,
+    name: 'nas',
+    address: '10.99.0.5',
+    port: 22,
+    username: 'root',
+    auth: 'password',
+    keyPath: null,
+    groupPath: 'lokal',
+    workspace: 'private',
+    keyId: null,
+    password: { kind: 'keep' },
+  },
+});
+await page.send('Page.reload');
+await page.waitFor(
+  `[...document.querySelectorAll('.host-name')].some(e => e.textContent === 'nas')`,
+  {
+    what: 'second host',
+  },
+);
+await sleep(600);
+async function drag(fromSelector, fromText, toSelector, toText, dy = 0) {
+  const from = await page.locate(fromSelector, fromText);
+  const to = await page.locate(toSelector, toText);
+  await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: from.x, y: from.y });
+  await page.send('Input.dispatchMouseEvent', {
+    type: 'mousePressed',
+    x: from.x,
+    y: from.y,
+    button: 'left',
+    buttons: 1,
+    clickCount: 1,
+  });
+  for (let i = 1; i <= 12; i += 1) {
+    await page.send('Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      x: from.x + ((to.x - from.x) * i) / 12,
+      y: from.y + ((to.y + dy - from.y) * i) / 12,
+      button: 'left',
+      buttons: 1,
+    });
+    await sleep(25);
+  }
+  await page.send('Input.dispatchMouseEvent', {
+    type: 'mouseReleased',
+    x: to.x,
+    y: to.y + dy,
+    button: 'left',
+    buttons: 0,
+    clickCount: 1,
+  });
+  await sleep(500);
+}
+// Reorder: nas above dev-sshd.
+await drag('.host', 'nas', '.host', 'dev-sshd', -8);
+const order = await page.eval(
+  `[...document.querySelectorAll('.host-group .host-name')].map(e => e.textContent).join(',')`,
+);
+check('dragging a host between hosts reorders the group', order.startsWith('nas,dev-sshd'), order);
+check(
+  'a drag does not open a connection',
+  (await tabCount()) >= 1 && (await page.eval(`!document.querySelector('.modal')`)),
+);
+// Into the other workspace.
+await drag('.host', 'nas', '.workspace-switch button', 'Business');
+const nas = (await invoke('list_hosts')).find((h) => h.name === 'nas');
+check('dropping a host on "Business" moves it there', nas.workspace === 'business', nas.workspace);
+await page.click('.workspace-switch button', 'Business');
+await page.waitFor(
+  `[...document.querySelectorAll('.host-name')].some(e => e.textContent === 'nas')`,
+  {
+    what: 'business list',
+  },
+);
+check(
+  'the Business workspace lists it, with its group',
+  (await page.text('.host-group h3')).includes('lokal'),
+);
+await shot('15-business');
+await page.click('.workspace-switch button', 'Privat');
+await sleep(300);
+
+// ── Files: the server's side, a download and an upload by dragging ─────────
+await page.click('.host .host-name', 'dev-sshd');
+await page.waitFor(terminalHas('toy shell'), {
+  what: 'terminal for the files test',
+  timeout: 15_000,
+});
+await page.click('.toolbar button', 'Dateien');
+await page.waitFor(
+  `[...document.querySelectorAll('[data-file-pane=remote] .file-row')].some(r => r.textContent.includes('welcome.txt'))`,
+  { what: 'remote listing', timeout: 20_000 },
+);
+check('the file tab lists the home folder on the server', true);
+check(
+  'the file tab starts in the home folder',
+  (await page.text('[data-file-pane=remote] .file-path')).includes('/home/uwu'),
+);
+await page.click('[data-file-pane=local] .file-path');
+await page.key('a', 2);
+await page.type(WORK_DIR.replaceAll('\\', '/'));
+await page.key('Enter');
+await sleep(800);
+await page.click('[data-file-pane=remote] .file-row', 'welcome.txt');
+await page.click('[data-file-pane=remote] .file-actions button', 'Herunterladen');
+await page.waitFor(
+  `[...document.querySelectorAll('.transfers li')].some(l => l.dataset.state === 'done')`,
+  {
+    what: 'download done',
+  },
+);
+check('a download arrives on this computer', existsSync(`${WORK_DIR}/welcome.txt`));
+check(
+  'the download is marked as coming from elsewhere',
+  readFileSync(`${WORK_DIR}/welcome.txt:Zone.Identifier`, 'utf8').includes('ZoneId=3'),
+);
+await shot('16-files');
+
+// A new file goes up by dragging it over.
+writeFileSync(`${WORK_DIR}/nyu-upload.txt`, 'hochgeladen');
+await page.click('[data-file-pane=local] button[aria-label="Neu laden"]');
+await page.waitFor(
+  `[...document.querySelectorAll('[data-file-pane=local] .file-row')].some(r => r.textContent.includes('nyu-upload.txt'))`,
+  { what: 'local refresh' },
+);
+await drag(
+  '[data-file-pane=local] .file-row',
+  'nyu-upload.txt',
+  '[data-file-pane=remote] .file-list',
+  '',
+  60,
+);
+await page.waitFor(
+  `[...document.querySelectorAll('[data-file-pane=remote] .file-row')].some(r => r.textContent.includes('nyu-upload.txt'))`,
+  { what: 'uploaded file listed', timeout: 15_000 },
+);
+check(
+  'dragging a local file onto the server uploads it',
+  readFileSync(`${SERVER_FILES}/home/uwu/nyu-upload.txt`, 'utf8') === 'hochgeladen',
+);
+
+// A name that is taken asks first, and replaces only on yes.
+const serverWelcome = `${SERVER_FILES}/home/uwu/welcome.txt`;
+const original = readFileSync(serverWelcome, 'utf8');
+writeFileSync(`${WORK_DIR}/welcome.txt`, 'neu von Nyu');
+await drag(
+  '[data-file-pane=local] .file-row',
+  'welcome.txt',
+  '[data-file-pane=remote] .file-list',
+  '',
+  60,
+);
+await page.waitFor(
+  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Ersetzen?'`,
+  { what: 'replace question', timeout: 15_000 },
+);
+check('an upload onto a taken name asks first', readFileSync(serverWelcome, 'utf8') === original);
+await shot('16b-replace');
+await page.click('.modal-footer button', 'Ersetzen');
+await page.waitFor(`!document.querySelector('.modal')`, { what: 'replace question closed' });
+await page.waitFor(
+  `[...document.querySelectorAll('.transfers li')].every(l => l.dataset.state !== 'running')`,
+  { what: 'replacing upload done', timeout: 15_000 },
+);
+await sleep(600);
+check(
+  'replacing overwrites the file on the server',
+  readFileSync(serverWelcome, 'utf8') === 'neu von Nyu',
+);
+
+// ── Export: everything, with secrets, into a file ───────────────────────────
+await page.click('.titlebar-action[aria-label="Einstellungen"]');
+await page.waitFor(
+  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Einstellungen'`,
+  {
+    what: 'settings for export',
+  },
+);
+await page.click('.settings-nav button', 'Import & Export');
+await page.click('.settings-content button', 'Exportieren');
+await page.waitFor(
+  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Exportieren'`,
+  {
+    what: 'export dialog',
+  },
+);
+await page.click('.modal input[type=password]');
+await page.type('export-pw-123');
+await page.eval(
+  `[...document.querySelectorAll('.modal')].pop().querySelectorAll('input[type=password]')[1].focus()`,
+);
+await page.type('export-pw-123');
+await page.click('.modal-footer button', 'Speichern unter');
+await page.waitFor(
+  `[...document.querySelectorAll('.modal-title')].pop()?.textContent.startsWith('Export gespeichert')`,
+  {
+    what: 'export saved',
+    timeout: 20_000,
+  },
+);
+const exported = readdirSync(WORK_DIR).filter((name) => name.endsWith('.uwussh'));
+check('the export file exists', exported.length === 1, exported.join(','));
+const exportText = readFileSync(`${WORK_DIR}/${exported[0]}`, 'utf8');
+check(
+  'the export file is sealed: no host name, no password in it',
+  !exportText.includes('dev-sshd') && !exportText.includes('"nyu"'),
+);
+await shot('17-export');
+await page.click('.modal-footer button', 'Fertig');
+await page.key('Escape');
+await page.waitFor(`!document.querySelector('.modal')`, { what: 'settings closed after export' });
+
+// ── Import: preview first, and the vault is asked before anything is written ─
+await page.click('.sidebar-head [aria-label="Importieren"]');
+await page.waitFor(
+  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Importieren'`,
+  {
+    what: 'import dialog',
+  },
+);
 // The dialog reaches a preview (a source is present on this machine) or says
 // there is nothing to import. Either way it has not written anything.
-await page.waitFor(
-  `!!document.querySelector('.import-preview, .import-sources') ||
-   (document.querySelector('.import-note')?.textContent.includes('nichts zum Importieren') ?? false)`,
-  { what: 'preview, source picker, or nothing-to-import' },
+await page.waitFor(`!!document.querySelector('.import-sources')`, { what: 'source picker' });
+check(
+  'the import dialog always offers an UwUSSH export file',
+  (await page.text('.import-source')).includes('UwUSSH-Export'),
 );
-await shot('11-import');
-const canImport = await page.eval(`!!document.querySelector('.import-preview')`);
-if (canImport) {
-  // Confirm: with an empty vault, this must ask for a master password before
-  // it writes, not jump straight to importing.
-  await page.click('.modal-footer button', 'Importieren');
-  await page.waitFor(`document.querySelector('.vault-setup input[type=password]')`, {
-    what: 'vault step before writing',
-  });
-  check('importing asks for the vault before it writes anything', true);
-}
+await shot('18-import');
 await page.key('Escape');
 await page.waitFor(`!document.querySelector('.modal')`, { what: 'import dialog closed' });
 check('the import dialog closes without touching the host list', true);

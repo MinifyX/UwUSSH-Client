@@ -1,0 +1,28 @@
+[package]
+name = "uwussh-keygen"
+description = "Key generation for UwUSSH: RSA, Ed25519 and ECDSA keys as OpenSSH, PuTTY and PEM files"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+argon2.workspace = true
+chacha20.workspace = true
+getrandom.workspace = true
+hmac.workspace = true
+md5.workspace = true
+p256.workspace = true
+p384.workspace = true
+p521.workspace = true
+pkcs8.workspace = true
+rsa.workspace = true
+russh.workspace = true
+serde.workspace = true
+sha1.workspace = true
+thiserror.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

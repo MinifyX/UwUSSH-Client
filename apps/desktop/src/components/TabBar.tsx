@@ -1,4 +1,6 @@
 import type { Tab } from '../lib/tabs';
+import { Icon } from './Icon';
+import { OsIcon } from './OsIcon';
 
 type Props = {
   tabs: Tab[];
@@ -48,7 +50,16 @@ export function TabBar({ tabs, activeId, onSelect, onClose, onNewShell }: Props)
                 }`}
                 onClick={() => onSelect(tab.id)}
               >
-                <i className="dot" data-state={stateOf(tab)} aria-hidden />
+                <span className="tab-icon" aria-hidden>
+                  {tab.kind === 'files' ? (
+                    <Icon name="files" size={15} />
+                  ) : tab.kind === 'ssh' ? (
+                    <OsIcon os={tab.host.os} size={16} title="" />
+                  ) : (
+                    <Icon name="terminal" size={15} />
+                  )}
+                  <i className="dot" data-state={stateOf(tab)} />
+                </span>
                 <span className="tab-title">{tab.title}</span>
                 {tab.ordinal > 1 && <span className="tab-ordinal">{tab.ordinal}</span>}
               </button>

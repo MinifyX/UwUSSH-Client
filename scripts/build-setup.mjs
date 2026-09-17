@@ -1,4 +1,5 @@
-// Builds UwUSSH-Setup-<version>.exe: the app, packed into UwUSSH's own installer.
+// Builds UwUSSH-Setup-<version>.exe: the app and UwUKeygen, packed into UwUSSH's
+// own installer.
 //
 //   pnpm build:setup
 //
@@ -31,11 +32,13 @@ if (process.platform !== 'win32') {
 const { version } = JSON.parse(
   readFileSync(join(root, 'apps/desktop/src-tauri/tauri.conf.json'), 'utf8'),
 );
-const setupConf = JSON.parse(
-  readFileSync(join(root, 'apps/setup/src-tauri/tauri.conf.json'), 'utf8'),
-);
-if (setupConf.version !== version) {
-  throw new Error(`The setup says ${setupConf.version}, the app says ${version}.`);
+for (const part of ['setup', 'keygen']) {
+  const conf = JSON.parse(
+    readFileSync(join(root, `apps/${part}/src-tauri/tauri.conf.json`), 'utf8'),
+  );
+  if (conf.version !== version) {
+    throw new Error(`apps/${part} says ${conf.version}, the app says ${version}.`);
+  }
 }
 const release = join(root, 'target', 'release');
 
@@ -49,8 +52,16 @@ run('pnpm --filter @uwussh/desktop tauri build --no-bundle');
 const app = join(release, 'uwussh-desktop.exe');
 if (!existsSync(app)) throw new Error(`Missing ${app}`);
 
-console.log('\n▸ Packing it into the setup');
-run('pnpm --filter @uwussh/setup tauri build --no-bundle', { UWUSSH_SETUP_PAYLOAD: app });
+console.log(`\n▸ Building UwUKeygen ${version}`);
+run('pnpm --filter @uwussh/keygen tauri build --no-bundle');
+const keygen = join(release, 'uwukeygen.exe');
+if (!existsSync(keygen)) throw new Error(`Missing ${keygen}`);
+
+console.log('\n▸ Packing both into the setup');
+run('pnpm --filter @uwussh/setup tauri build --no-bundle', {
+  UWUSSH_SETUP_PAYLOAD: app,
+  UWUSSH_SETUP_KEYGEN_PAYLOAD: keygen,
+});
 
 const setup = join(release, `UwUSSH-Setup-${version}.exe`);
 copyFileSync(join(release, 'uwussh-setup.exe'), setup);

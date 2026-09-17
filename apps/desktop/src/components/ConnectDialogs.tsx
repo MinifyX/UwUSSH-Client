@@ -12,30 +12,53 @@ import { Modal } from './Modal';
 
 // ── Password / passphrase ───────────────────────────────────────────────────
 
+export type SecretKind = 'password' | 'passphrase' | 'sudo';
+
 type SecretPromptProps = {
   host: HostRecord;
-  secret: 'password' | 'passphrase';
+  secret: SecretKind;
   /** The previous attempt was rejected. */
   retry: boolean;
-  onSubmit: (value: string) => void;
+  /** Offer to keep a password that works in the vault. */
+  canSave?: boolean;
+  onSubmit: (value: string, save: boolean) => void;
   onCancel: () => void;
 };
 
-export function SecretPrompt({ host, secret, retry, onSubmit, onCancel }: SecretPromptProps) {
+const SECRET_TITLES: Record<SecretKind, string> = {
+  password: 'Passwort',
+  passphrase: 'Passphrase',
+  sudo: 'sudo-Passwort',
+};
+
+export function SecretPrompt({
+  host,
+  secret,
+  retry,
+  canSave = false,
+  onSubmit,
+  onCancel,
+}: SecretPromptProps) {
   const [value, setValue] = useState('');
+  const [save, setSave] = useState(true);
 
   const submit = (event?: FormEvent) => {
     event?.preventDefault();
     const entered = value;
     // Do not keep the secret in component state any longer than the submit.
     setValue('');
-    onSubmit(entered);
+    onSubmit(entered, canSave && save);
   };
 
-  const password = secret === 'password';
+  const errorText: Record<SecretKind, string> = {
+    password: 'Der Server hat das Passwort abgelehnt.',
+    passphrase: 'Die Passphrase passt nicht zu diesem Key.',
+    sudo: 'sudo hat das Passwort nicht angenommen.',
+  };
+
   return (
     <Modal
-      title={password ? 'Passwort' : 'Passphrase'}
+      title={SECRET_TITLES[secret]}
       onCancel={onCancel}
       footer={
         <>
@@ -44,28 +67,36 @@ export function SecretPrompt({ host, secret, retry, onSubmit, onCancel }: Secret
             Abbrechen
           </button>
           <button className="primary" onClick={() => submit()}>
-            Verbinden
+            {secret === 'sudo' ? 'Als root öffnen' : 'Verbinden'}
           </button>
         </>
       }
     >
       <form className="form" onSubmit={submit}>
         <p className="dialog-lead">
-          {password ? (
+          {secret === 'passphrase' ? (
+            <>
+              für den Key <code>{host.keyLabel ?? host.keyPath}</code>
+            </>
+          ) : secret === 'sudo' ? (
+            <>
+              <code>sudo</code> auf{' '}
+              <code>
+                {host.username}@{host.address}
+              </code>{' '}
+              fragt nach dem Passwort, um die Dateien als root zu öffnen.
+            </>
+          ) : (
             <>
               für{' '}
               <code>
                 {host.username}@{host.address}
               </code>
             </>
-          ) : (
-            <>
-              für den Key <code>{host.keyPath}</code>
-            </>
           )}
         </p>
         <label className="field">
-          <span className="sr-only">{password ? 'Passwort' : 'Passphrase'}</span>
+          <span className="sr-only">{SECRET_TITLES[secret]}</span>
           <input
             type="password"
             value={value}
@@ -73,79 +104,21 @@ export function SecretPrompt({ host, secret, retry, onSubmit, onCancel }: Secret
             autoComplete="off"
             aria-invalid={retry}
           />
-          {retry && (
-            <em className="field-error">
-              {password
-                ? 'Der Server hat das Passwort abgelehnt.'
-                : 'Die Passphrase passt nicht zu diesem Key.'}
-            </em>
-          )}
+          {retry && <em className="field-error">{errorText[secret]}</em>}
         </label>
-        <p className="field-hint">
-          Wird nur für diese eine Verbindung verwendet und nicht gespeichert.
-        </p>
-        <button type="submit" hidden />
-      </form>
-    </Modal>
-  );
-}
-
-// ── Vault ─────────────────────────────────────────────────────────────────
-
-type UnlockVaultProps = {
-  host: HostRecord;
-  /** The previous master password was wrong. */
-  retry: boolean;
-  onSubmit: (value: string) => void;
-  onCancel: () => void;
-};
-
-/**
- * The host logs in with a secret from the vault, and the vault is locked. Ask
- * for the master password so the connection can go on. Neutral tone, like the
- * other security dialogs.
- */
-export function UnlockVault({ host, retry, onSubmit, onCancel }: UnlockVaultProps) {
-  const [value, setValue] = useState('');
-
-  const submit = (event?: FormEvent) => {
-    event?.preventDefault();
-    const entered = value;
-    setValue('');
-    onSubmit(entered);
-  };
-
-  return (
-    <Modal
-      title="Tresor entsperren"
-      onCancel={onCancel}
-      footer={
-        <>
-          <span className="spacer" />
-          <button data-secondary onClick={onCancel}>
-            Abbrechen
-          </button>
-          <button className="primary" onClick={() => submit()}>
-            Entsperren
-          </button>
-        </>
-      }
-    >
-      <form className="form" onSubmit={submit}>
-        <p className="dialog-lead">
-          Die Anmeldedaten für <code>{host.name}</code> liegen im Tresor.
-        </p>
-        <label className="field">
-          <span className="sr-only">Master-Passwort</span>
-          <input
-            type="password"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            autoComplete="current-password"
-            aria-invalid={retry}
-          />
-          {retry && <em className="field-error">Das Master-Passwort war falsch.</em>}
-        </label>
+        {canSave ? (
+          <label className="check">
+            <input type="checkbox" checked={save} onChange={(e) => setSave(e.target.checked)} />
+            <span>
+              <b>Im Tresor speichern</b>
+              <small>
+                Beim nächsten Mal verbindet UwUSSH ohne zu fragen, und tippt es für sudo.
+              </small>
+            </span>
+          </label>
+        ) : (
+          <p className="field-hint">Wird nur für diese Verbindung verwendet.</p>
+        )}
         <button type="submit" hidden />
       </form>
     </Modal>
@@ -223,38 +196,35 @@ type ChangedProps = {
   host: HostRecord;
   trustedFingerprint: string;
   observed: ObservedHostKey;
-  onReplace: (confirmation: string) => void;
-  onCancel: () => void;
+  onAccept: () => void;
+  onReject: () => void;
 };
 
+/**
+ * Accept or reject, with two buttons. Rejecting has the focus and is where
+ * Enter and Escape lead; accepting needs a deliberate click, and the warning
+ * above it says plainly what it can mean.
+ */
 export function HostKeyChanged({
   host,
   trustedFingerprint,
   observed,
-  onReplace,
-  onCancel,
+  onAccept,
+  onReject,
 }: ChangedProps) {
-  const [typed, setTyped] = useState('');
-  const confirmed = typed.trim().toLowerCase() === host.address.trim().toLowerCase();
-
   return (
     <Modal
       title="Der Host-Key hat sich geändert"
       tone="warning"
-      onCancel={onCancel}
+      onCancel={onReject}
       footer={
         <>
-          <button
-            className="danger"
-            data-secondary
-            disabled={!confirmed}
-            onClick={() => onReplace(typed)}
-          >
-            Neuen Schlüssel übernehmen
+          <button className="danger" data-secondary onClick={onAccept}>
+            Neuen Schlüssel akzeptieren
           </button>
           <span className="spacer" />
-          <button className="primary" data-autofocus onClick={onCancel}>
-            Nicht verbinden
+          <button className="primary" data-autofocus onClick={onReject}>
+            Ablehnen
           </button>
         </>
       }
@@ -282,18 +252,10 @@ export function HostKeyChanged({
       </dl>
       <pre className="randomart">{observed.randomart}</pre>
 
-      <label className="field">
-        <span>
-          Nur wenn du weißt, dass der Server neu aufgesetzt wurde: tippe <code>{host.address}</code>{' '}
-          ein, um den neuen Schlüssel zu übernehmen.
-        </span>
-        <input
-          value={typed}
-          onChange={(e) => setTyped(e.target.value)}
-          autoComplete="off"
-          spellCheck={false}
-        />
-      </label>
+      <p className="field-hint">
+        Akzeptiere nur, wenn du weißt, dass der Server neu aufgesetzt wurde oder seinen Schlüssel
+        gewechselt hat. Im Zweifel: ablehnen und nachfragen.
+      </p>
     </Modal>
   );
 }

@@ -203,7 +203,7 @@ button.quiet {
 
 .body {
   display: grid;
-  grid-template-columns: 252px 1fr;
+  grid-template-columns: 268px 1fr;
   min-height: 0;
 }
 

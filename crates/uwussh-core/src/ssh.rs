@@ -26,6 +26,8 @@
 
 use crate::flow::FlowControl;
 use crate::metrics::{Metrics, MetricsSnapshot};
+use crate::os;
+use crate::sftp::{Elevation, SftpClient, SftpError};
 use crate::stream::{self, FrameSink};
 use crate::{CoreError, Result};
 use parking_lot::Mutex;
@@ -193,15 +195,20 @@ pub struct SshConnection {
     port: u16,
     username: String,
     opened: Instant,
+    /// What the server called itself when connecting, like `SSH-2.0-OpenSSH_9.6`.
+    banner: Arc<Mutex<Option<String>>>,
+    authenticated: bool,
 }
 
 impl SshConnection {
     /// Connect and check the host key. Nothing about the user is sent.
     pub async fn open(target: &SshTarget) -> std::result::Result<Self, SshError> {
         let verdict = Arc::new(Mutex::new(None));
+        let banner = Arc::new(Mutex::new(None));
         let handler = HostKeyCheck {
             trusted: target.trusted_fingerprint.clone(),
             verdict: Arc::clone(&verdict),
+            banner: Arc::clone(&banner),
         };
         let config = Arc::new(client::Config {
             keepalive_interval: Some(Duration::from_secs(30)),
@@ -245,6 +252,8 @@ impl SshConnection {
             port: target.port,
             username: target.username.clone(),
             opened: Instant::now(),
+            banner,
+            authenticated: false,
         })
     }
 
@@ -262,6 +271,11 @@ impl SshConnection {
     /// Log in. A missing password or passphrase is reported without
     /// contacting the server; the connection stays usable for the retry.
     pub async fn authenticate(&mut self, auth: &SshAuth) -> std::result::Result<(), SshError> {
+        // A connection kept for a second question after logging in (sudo's
+        // password for root file access) is not logged in twice.
+        if self.authenticated {
+            return Ok(());
+        }
         let credential = prepare_credential(auth)?;
         let answered = tokio::time::timeout(ANSWER_TIMEOUT, self.login(credential)).await;
         let result = answered.map_err(|_| SshError::Protocol {
@@ -272,7 +286,10 @@ impl SshConnection {
         })??;
 
         match result {
-            client::AuthResult::Success => Ok(()),
+            client::AuthResult::Success => {
+                self.authenticated = true;
+                Ok(())
+            }
             client::AuthResult::Failure {
                 remaining_methods, ..
             } => Err(SshError::AuthRejected {
@@ -348,6 +365,8 @@ impl SshConnection {
                 ),
             })??;
         let (mut reader, writer) = channel.split();
+        let handle = Arc::new(self.handle);
+        let banner = self.banner.lock().clone();
 
         let metrics = Arc::new(Metrics::new());
         let flow = Arc::new(FlowControl::new(flow_control));
@@ -384,7 +403,7 @@ impl SshConnection {
 
         // Inputs go through one queue in one task, so keystrokes reach the
         // server in the order they were typed.
-        let handle = self.handle;
+        let input_handle = Arc::clone(&handle);
         tokio::spawn(async move {
             while let Some(next) = inputs.recv().await {
                 let sent = match next {
@@ -402,7 +421,9 @@ impl SshConnection {
                 }
             }
             let _ = writer.close().await;
-            let _ = handle.disconnect(Disconnect::ByApplication, "", "en").await;
+            let _ = input_handle
+                .disconnect(Disconnect::ByApplication, "", "en")
+                .await;
         });
 
         tracing::info!(address = %self.address, port = self.port, "ssh session open");
@@ -410,7 +431,27 @@ impl SshConnection {
             input,
             metrics,
             flow,
+            handle,
+            banner,
         })
+    }
+
+    /// Open file access on this authenticated connection. The connection stays
+    /// with the caller, so a sudo that wants a password can be asked again on
+    /// it.
+    pub async fn open_files(
+        &self,
+        elevation: Elevation,
+    ) -> std::result::Result<(SftpClient, Option<String>), SftpError> {
+        SftpClient::open(&self.handle, elevation).await
+    }
+
+    /// Hand the connection over to the file session that runs on it.
+    pub fn into_files(self, client: SftpClient) -> FileSession {
+        FileSession {
+            client,
+            handle: self.handle,
+        }
     }
 
     /// Give up on this connection, telling the server rather than letting it
@@ -435,6 +476,8 @@ pub struct SshSession {
     input: mpsc::UnboundedSender<Input>,
     metrics: Arc<Metrics>,
     flow: Arc<FlowControl>,
+    handle: Arc<Handle<HostKeyCheck>>,
+    banner: Option<String>,
 }
 
 impl SshSession {
@@ -462,6 +505,83 @@ impl SshSession {
         let _ = self.input.send(Input::Close);
         self.flow.close();
     }
+
+    /// Find out what the server runs, on a channel of its own next to the
+    /// terminal. `None` when it can't tell; never an error, since this is only
+    /// for an icon.
+    pub fn os_probe(
+        &self,
+    ) -> impl std::future::Future<Output = Option<&'static str>> + Send + 'static {
+        let handle = Arc::clone(&self.handle);
+        let banner = self.banner.clone();
+        async move {
+            if let Some(found) = banner.as_deref().and_then(os::from_banner) {
+                return Some(found);
+            }
+            let mut channel = tokio::time::timeout(PROBE_TIMEOUT, handle.channel_open_session())
+                .await
+                .ok()?
+                .ok()?;
+            let output = tokio::time::timeout(PROBE_TIMEOUT, async {
+                channel.exec(true, os::PROBE_COMMAND).await.ok()?;
+                let mut output = Vec::new();
+                while let Some(message) = channel.wait().await {
+                    match message {
+                        ChannelMsg::Data { data } | ChannelMsg::ExtendedData { data, .. } => {
+                            output.extend_from_slice(&data);
+                            if output.len() > os::PROBE_LIMIT {
+                                break;
+                            }
+                        }
+                        ChannelMsg::Eof | ChannelMsg::Close => break,
+                        _ => {}
+                    }
+                }
+                Some(output)
+            })
+            .await
+            .ok()
+            .flatten();
+            // Closed on every way out, a timeout too: a dropped channel stays
+            // open on the server, and so would the command.
+            let _ = channel.close().await;
+            os::from_probe(&String::from_utf8_lossy(&output?))
+        }
+    }
+}
+
+/// How long the system probe may take before the host just keeps its old icon.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(8);
+
+// ── Files: an SFTP session on its own connection ────────────────────────────
+
+pub struct FileSession {
+    pub client: SftpClient,
+    handle: Handle<HostKeyCheck>,
+}
+
+impl FileSession {
+    pub async fn close(&self) {
+        self.client.close().await;
+        let _ = self
+            .handle
+            .disconnect(Disconnect::ByApplication, "", "en")
+            .await;
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.handle.is_closed()
+    }
+
+    /// Delete a file, link or folder. A root session hands this to the
+    /// server's own `rm` (see [`crate::sftp::remove_as_root`]).
+    pub async fn remove(&self, path: &str) -> std::result::Result<(), SftpError> {
+        if self.client.is_root() {
+            crate::sftp::remove_as_root(&self.handle, path, self.client.sudo_password()).await
+        } else {
+            self.client.remove(path).await
+        }
+    }
 }
 
 // ── Host key check ──────────────────────────────────────────────────────────
@@ -474,13 +594,25 @@ enum Verdict {
     },
 }
 
-struct HostKeyCheck {
+pub struct HostKeyCheck {
     trusted: Option<String>,
     verdict: Arc<Mutex<Option<Verdict>>>,
+    banner: Arc<Mutex<Option<String>>>,
 }
 
 impl client::Handler for HostKeyCheck {
     type Error = russh::Error;
+
+    async fn kex_done(
+        &mut self,
+        _shared_secret: Option<&[u8]>,
+        _names: &russh::Names,
+        session: &mut client::Session,
+    ) -> std::result::Result<(), Self::Error> {
+        let banner = String::from_utf8_lossy(session.remote_sshid()).into_owned();
+        *self.banner.lock() = Some(banner);
+        Ok(())
+    }
 
     async fn check_server_key(
         &mut self,
@@ -536,6 +668,9 @@ fn prepare_credential(auth: &SshAuth) -> std::result::Result<Credential, SshErro
                 key_path: key_path.clone(),
                 reason: e.to_string(),
             })?;
+            if passphrase.is_some() {
+                reasonable_costs(&contents, &key_path)?;
+            }
 
             match keys::decode_secret_key(&contents, passphrase.as_ref().map(|p| p.as_str())) {
                 Ok(key) => Ok(Credential::Key(Box::new(key))),
@@ -554,27 +689,62 @@ fn prepare_credential(auth: &SshAuth) -> std::result::Result<Credential, SshErro
         SshAuth::KeyContents {
             private_key,
             passphrase,
-        } => keys::decode_secret_key(private_key, passphrase.as_ref().map(|p| p.as_str()))
-            .map(|key| Credential::Key(Box::new(key)))
-            .map_err(|err| SshError::KeyUnreadable {
-                key_path: "<vault>".to_string(),
-                reason: match err {
-                    keys::Error::KeyIsEncrypted => {
-                        "the stored key needs a passphrase that was not saved with it".to_string()
-                    }
-                    other => other.to_string(),
-                },
-            }),
+        } => {
+            reasonable_costs(private_key, "<vault>")?;
+            keys::decode_secret_key(private_key, passphrase.as_ref().map(|p| p.as_str()))
+                .map(|key| Credential::Key(Box::new(key)))
+                .map_err(|err| SshError::KeyUnreadable {
+                    key_path: "<vault>".to_string(),
+                    reason: match err {
+                        keys::Error::KeyIsEncrypted => {
+                            "the stored key needs a passphrase that was not saved with it"
+                                .to_string()
+                        }
+                        other => other.to_string(),
+                    },
+                })
+        }
     }
 }
 
-/// `\\server\share\key` or `//server/share/key`. Opening one makes Windows
-/// authenticate to that server with the user's login hash, so a host entry
-/// (imported, or later synced) could use it to collect the hash.
+/// Whether a key file path could reach beyond this computer. Opening
+/// `\\server\share\key` makes Windows authenticate to that server with the
+/// user's login hash, so a host entry (imported, or later synced) could use one
+/// to collect the hash. Checked on the path as it will be opened, with `~`
+/// expanded (`~/\\server\share` is a network path too), and only a path on a
+/// drive letter counts as local.
 pub fn is_network_path(path: &str) -> bool {
-    let path = path.trim();
-    let bytes = path.as_bytes();
-    bytes.len() >= 2 && matches!(bytes[0], b'\\' | b'/') && matches!(bytes[1], b'\\' | b'/')
+    let expanded = expand_home(path.trim());
+    let text = expanded.as_os_str().to_string_lossy();
+    let bytes = text.as_bytes();
+    // Two leading separators of either kind: a UNC path, however it's spelled.
+    if bytes.len() >= 2 && matches!(bytes[0], b'\\' | b'/') && matches!(bytes[1], b'\\' | b'/') {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::path::{Component, Prefix};
+        // Only a path on a drive letter is local: this also turns away
+        // NT-namespace spellings like `\??\UNC\server\share`.
+        !matches!(
+            expanded.components().next(),
+            Some(Component::Prefix(prefix))
+                if matches!(prefix.kind(), Prefix::Disk(_) | Prefix::VerbatimDisk(_))
+        )
+    }
+    #[cfg(not(windows))]
+    {
+        !expanded.is_absolute()
+    }
+}
+
+/// Refuse a key file whose own key derivation settings would stall or crash
+/// the app once a passphrase is tried (see `uwussh_keygen::check_costs`).
+fn reasonable_costs(contents: &str, key_path: &str) -> std::result::Result<(), SshError> {
+    uwussh_keygen::check_costs(contents).map_err(|err| SshError::KeyUnreadable {
+        key_path: key_path.to_string(),
+        reason: err.to_string(),
+    })
 }
 
 /// `~/.ssh/id_ed25519` → the user's home directory, on Windows too.
@@ -664,6 +834,9 @@ mod tests {
             "//attacker/share/id",
             r"\\?\UNC\attacker\share\id",
             r"/\attacker\share\id",
+            r"\??\UNC\attacker\share\id",
+            r"~/\\attacker\share\id",
+            "relative\\id",
         ] {
             assert!(is_network_path(path), "{path}");
             let err = prepare_credential(&SshAuth::Key {

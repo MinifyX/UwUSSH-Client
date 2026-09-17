@@ -6,12 +6,15 @@
 //! vault at all. [`scan_import`] reports what a source holds (counts only, no
 //! secrets) and whether it needs the vault; [`run_import`] writes it.
 
+use crate::backup::BackupFailure;
 use crate::{err, AppState, CommandResult};
 use serde::Serialize;
+use std::sync::Arc;
 use tauri::State;
 use uwussh_core::public_key_fingerprint;
 use uwussh_import::termius::{self, TermiusError};
 use uwussh_import::{putty, ssh_config, ImportBundle, ImportResult, Source};
+use uwussh_store::Store;
 use uwussh_store::{
     HostInput, IdentityInput, ImportSet, KeyInput, KnownHostInput, SnippetInput, VaultStatus,
 };
@@ -24,19 +27,86 @@ pub(crate) fn vault_status(state: State<'_, AppState>) -> CommandResult<VaultSta
     state.store.vault_status().map_err(err)
 }
 
+/// The vault's status, and whether this device opens it without the master
+/// password.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct VaultState {
+    status: VaultStatus,
+    remembered: bool,
+}
+
 #[tauri::command]
-pub(crate) fn create_vault(state: State<'_, AppState>, password: String) -> CommandResult<()> {
+pub(crate) fn vault_state(state: State<'_, AppState>) -> CommandResult<VaultState> {
+    Ok(VaultState {
+        status: state.store.vault_status().map_err(err)?,
+        remembered: state.store.vault_is_remembered().map_err(err)?,
+    })
+}
+
+/// Keep the vault key for this Windows user (`true`), or stop (`false`).
+fn set_remembered(store: &Store, remember: bool) -> CommandResult<()> {
+    if remember {
+        store.remember_vault(crate::device::protect).map_err(err)
+    } else {
+        store.forget_remembered_vault().map_err(err)
+    }
+}
+
+/// Run the master password's key derivation — about a second on purpose — on
+/// a worker thread, so the window keeps drawing meanwhile.
+async fn with_store<T: Send + 'static>(
+    state: &AppState,
+    work: impl FnOnce(&Store) -> CommandResult<T> + Send + 'static,
+) -> CommandResult<T> {
+    let store = Arc::clone(&state.store);
+    tauri::async_runtime::spawn_blocking(move || work(&store))
+        .await
+        .map_err(err)?
+}
+
+#[tauri::command]
+pub(crate) async fn create_vault(
+    state: State<'_, AppState>,
+    password: String,
+    remember: bool,
+) -> CommandResult<()> {
     let password = Zeroizing::new(password);
     if password.trim().is_empty() {
         return Err("the master password cannot be empty".into());
     }
-    state.store.create_vault(password.as_bytes()).map_err(err)
+    with_store(&state, move |store| {
+        store.create_vault(password.as_bytes()).map_err(err)?;
+        set_remembered(store, remember)
+    })
+    .await
+}
+
+/// Unlock with the master password. `remember` changes whether this device
+/// keeps the key; `None` leaves that as it is.
+#[tauri::command]
+pub(crate) async fn unlock_vault(
+    state: State<'_, AppState>,
+    password: String,
+    remember: Option<bool>,
+) -> CommandResult<()> {
+    let password = Zeroizing::new(password);
+    with_store(&state, move |store| {
+        store.unlock_vault(password.as_bytes()).map_err(err)?;
+        match remember {
+            Some(remember) => set_remembered(store, remember),
+            None => Ok(()),
+        }
+    })
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn unlock_vault(state: State<'_, AppState>, password: String) -> CommandResult<()> {
-    let password = Zeroizing::new(password);
-    state.store.unlock_vault(password.as_bytes()).map_err(err)
+pub(crate) fn set_vault_remembered(
+    state: State<'_, AppState>,
+    remember: bool,
+) -> CommandResult<()> {
+    set_remembered(&state.store, remember)
 }
 
 #[tauri::command]
@@ -81,8 +151,8 @@ pub(crate) struct ImportSummary {
     pub keys: usize,
     pub known_hosts: usize,
     pub snippets: usize,
-    /// Whether writing this import has to seal secrets, so the vault must be
-    /// unlocked first. A PuTTY or KiTTY import does not.
+    /// Whether this import carries secrets, which the vault seals if their
+    /// hosts are new. A PuTTY or KiTTY import has none.
     pub needs_vault: bool,
     /// One line per thing that could not be imported, with the reason.
     pub skipped: Vec<String>,
@@ -99,6 +169,20 @@ pub(crate) struct ImportReport {
     pub known_hosts_added: usize,
     pub snippets_added: usize,
     pub skipped: Vec<String>,
+}
+
+impl ImportReport {
+    pub(crate) fn of(outcome: uwussh_store::ImportOutcome, skipped: Vec<String>) -> Self {
+        Self {
+            hosts_added: outcome.hosts_added,
+            hosts_skipped: outcome.hosts_skipped,
+            identities_added: outcome.identities_added,
+            keys_added: outcome.keys_added,
+            known_hosts_added: outcome.known_hosts_added,
+            snippets_added: outcome.snippets_added,
+            skipped,
+        }
+    }
 }
 
 #[tauri::command]
@@ -120,29 +204,21 @@ pub(crate) fn scan_import(source: String) -> Result<ImportSummary, String> {
 pub(crate) fn run_import(
     state: State<'_, AppState>,
     source: String,
-) -> Result<ImportReport, String> {
-    let (set, mut skipped) = to_import_set(read_bundle(&source)?);
+) -> Result<ImportReport, BackupFailure> {
+    let (set, mut skipped) =
+        to_import_set(read_bundle(&source).map_err(|message| BackupFailure::Error { message })?);
     skipped.sort();
 
-    if needs_vault(&set) && state.store.vault_status().map_err(err)? != VaultStatus::Unlocked {
-        return Err("unlock the vault before importing".into());
-    }
-
-    let outcome = state.store.import(set).map_err(err)?;
-    Ok(ImportReport {
-        hosts_added: outcome.hosts_added,
-        hosts_skipped: outcome.hosts_skipped,
-        identities_added: outcome.identities_added,
-        keys_added: outcome.keys_added,
-        known_hosts_added: outcome.known_hosts_added,
-        snippets_added: outcome.snippets_added,
-        skipped,
-    })
+    // A secret that has to be written fails with `vault-locked`, and the page
+    // asks for the vault and runs the import again. Hosts that are already
+    // there bring no secret, so a second import doesn't ask at all.
+    let outcome = state.store.import(set)?;
+    Ok(ImportReport::of(outcome, skipped))
 }
 
 /// Whether the set carries anything that has to be sealed.
 fn needs_vault(set: &ImportSet) -> bool {
-    !set.keys.is_empty() || set.identities.iter().any(|i| i.password.is_some())
+    set.has_secrets()
 }
 
 fn read_bundle(source: &str) -> Result<ImportBundle, String> {
@@ -233,6 +309,8 @@ fn to_import_set(bundle: ImportBundle) -> (ImportSet, Vec<String>) {
                 port: host.port,
                 group_path: host.group_path,
                 identity,
+                workspace: Default::default(),
+                position: None,
             }
         })
         .collect();
@@ -273,6 +351,7 @@ fn to_import_set(bundle: ImportBundle) -> (ImportSet, Vec<String>) {
 
     (
         ImportSet {
+            groups: Vec::new(),
             hosts,
             identities,
             keys,

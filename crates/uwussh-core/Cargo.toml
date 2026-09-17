@@ -1,6 +1,6 @@
 [package]
 name = "uwussh-core"
-description = "Session engine for UwUSSH: PTY and SSH sessions, framing, port forwarding"
+description = "Session engine for UwUSSH: PTY and SSH sessions, SFTP, framing"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,16 +9,18 @@ rust-version.workspace = true
 
 [dependencies]
 uwussh-proto.workspace = true
+uwussh-keygen.workspace = true
 
 anyhow.workspace = true
 parking_lot.workspace = true
 portable-pty.workspace = true
 serde.workspace = true
 thiserror.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["fs", "io-util"] }
 tracing.workspace = true
 uuid.workspace = true
 russh.workspace = true
+russh-sftp.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]

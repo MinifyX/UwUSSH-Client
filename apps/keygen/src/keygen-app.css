@@ -1,0 +1,37 @@
+/* UwUKeygen's own window: the app's title bar and one card with the panel. */
+
+.keygen-app {
+  height: 100%;
+  display: grid;
+  grid-template-rows: 38px 1fr;
+}
+
+.keygen-app-main {
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: 10px;
+  padding: 20px 20px 24px;
+  background:
+    radial-gradient(ellipse 70% 40% at 50% 0%, var(--uwu-pink-tint), transparent), var(--uwu-canvas);
+}
+
+.keygen-card {
+  width: min(640px, 100%);
+  display: grid;
+  gap: 14px;
+  padding: 20px 22px;
+  border-radius: 20px;
+  border: 1px solid var(--uwu-border);
+  background: var(--uwu-surface);
+  box-shadow: 0 24px 60px -30px rgba(20, 16, 22, 0.45);
+}
+
+.keygen-app-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--uwu-muted);
+  text-align: center;
+}

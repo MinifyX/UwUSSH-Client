@@ -5,6 +5,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 export interface Options {
   dir: string;
   desktopShortcut: boolean;
+  keygen: boolean;
 }
 
 export interface Info {
@@ -14,6 +15,7 @@ export interface Info {
   options: Options;
   appRunning: boolean;
   hasPayload: boolean;
+  hasKeygen: boolean;
   sandbox: boolean;
   relaunch: boolean;
 }
@@ -74,9 +76,10 @@ function previewApi(): SetupApi {
       mode: (params.get('mode') as Info['mode'] | null) ?? 'install',
       version: '0.1.0',
       installed: params.get('mode') ? { dir, version: '0.1.0-beta.1', legacy: false } : null,
-      options: { dir, desktopShortcut: true },
+      options: { dir, desktopShortcut: true, keygen: true },
       appRunning: running,
       hasPayload: true,
+      hasKeygen: true,
       sandbox: false,
       relaunch: true,
     }),

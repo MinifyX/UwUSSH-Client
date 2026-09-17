@@ -1,7 +1,7 @@
 //! Turning a master password into keys.
 
 use crate::{Result, VaultError};
-use argon2::{Algorithm, Argon2, Params, Version};
+use argon2::{Algorithm, Argon2, Block, Params, Version};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// 64 MiB. High enough to make offline guessing expensive, low enough that a
@@ -82,12 +82,15 @@ pub fn derive_master_secrets_with(
     }
     let params = Params::new(kdf.memory_kib, kdf.time_cost, kdf.parallelism, Some(64))
         .map_err(|e| VaultError::Kdf(e.to_string()))?;
-    let argon = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+    let argon = Argon2::new(Algorithm::Argon2id, Version::V0x13, params.clone());
 
+    // Argon2's working memory, owned here so it can be wiped: its last blocks
+    // are enough to recompute the key.
+    let mut memory = vec![Block::new(); params.block_count()];
     let mut out = [0u8; 64];
-    argon
-        .hash_password_into(password, salt, &mut out)
-        .map_err(|e| VaultError::Kdf(e.to_string()))?;
+    let hashed = argon.hash_password_into_with_memory(password, salt, &mut out, &mut memory);
+    memory.zeroize();
+    hashed.map_err(|e| VaultError::Kdf(e.to_string()))?;
 
     let mut master_key = [0u8; 32];
     let mut auth_secret = [0u8; 32];

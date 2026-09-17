@@ -7,13 +7,21 @@
 // 127.0.0.1, runs phase A, rebuilds the server's host key the way a
 // reinstalled server would, runs phase B, then swaps in a seeded database and a
 // key-authorizing server for phase C (logging in with a key from the vault),
-// then imports a fixture ~/.ssh/config and connects to what it brought for
-// phase D, and stops everything again.
+// then reads phase A's export back into a fresh database and imports a
+// fixture ~/.ssh/config for phase D, and stops everything again.
 //
 // Windows only: it drives WebView2 over the Chrome DevTools Protocol.
 
 import { execSync, spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,9 +34,13 @@ const hostKey = join(tmpdir(), 'uwussh-dev-sshd-host-ed25519');
 const sshdExe = join(repo, 'target', 'debug', 'examples', 'dev_sshd.exe');
 const seedExe = join(repo, 'target', 'debug', 'examples', 'seed_vault_key.exe');
 const authorizedKeys = join(runDir, 'authorized_key.pub');
+/** What dev_sshd serves over SFTP, and a folder for downloads and the export. */
+const filesDir = join(runDir, 'files');
+const workDir = join(runDir, 'work');
 
 rmSync(runDir, { recursive: true, force: true });
 mkdirSync(runDir, { recursive: true });
+mkdirSync(workDir, { recursive: true });
 mkdirSync(join(here, 'shots'), { recursive: true });
 
 const children = [];
@@ -65,7 +77,10 @@ async function until(condition, what, timeout = 600_000) {
 
 async function startSshd(name, env = {}) {
   rmSync(hostKey, { force: true });
-  const sshd = start(name, sshdExe, [], { cwd: repo, env: { ...process.env, ...env } });
+  const sshd = start(name, sshdExe, [], {
+    cwd: repo,
+    env: { ...process.env, UWUSSH_DEV_SSHD_FILES: filesDir, ...env },
+  });
   await until(
     () => existsSync(sshd.log) && readFileSync(sshd.log, 'utf8').includes('listening on'),
     'dev_sshd',
@@ -124,20 +139,20 @@ function phase(script, args) {
 }
 
 try {
-  if (!existsSync(sshdExe) || !existsSync(seedExe)) {
-    execSync('cargo build -p uwussh-core --example dev_sshd --example seed_vault_key', {
-      cwd: repo,
-      stdio: 'inherit',
-    });
-  }
+  // Always: cargo only rebuilds what changed, and a stale server tests nothing.
+  execSync('cargo build -p uwussh-core --example dev_sshd --example seed_vault_key', {
+    cwd: repo,
+    stdio: 'inherit',
+  });
 
   let sshd = await startSshd('sshd-a');
-  let app = startApp('app', join(runDir, 'e2e.db'));
+  // Debug builds read UWUSSH_E2E_SAVE_DIR instead of showing a save dialog.
+  let app = startApp('app', join(runDir, 'e2e.db'), { UWUSSH_E2E_SAVE_DIR: workDir });
 
   console.log('waiting for the app (the first build takes a while)…');
   await waitForApp();
 
-  const passedA = await phase('phase-a.mjs', [sshd.fingerprint, sshd.log]);
+  const passedA = await phase('phase-a.mjs', [sshd.fingerprint, sshd.log, filesDir, workDir]);
 
   // The server is "reinstalled": same address, new host key.
   const trusted = sshd.fingerprint;
@@ -183,8 +198,14 @@ try {
     const opensshDb = join(runDir, 'openssh.db');
     for (const suffix of ['', '-wal', '-shm']) rmSync(opensshDb + suffix, { force: true });
 
+    const exported = readdirSync(workDir).find((name) => name.endsWith('.uwussh'));
+    if (!exported) throw new Error('phase A left no export file');
     sshd = await startSshd('sshd-d');
-    app = startApp('app-d', opensshDb, { UWUSSH_SSH_CONFIG: sshConfig });
+    app = startApp('app-d', opensshDb, {
+      UWUSSH_SSH_CONFIG: sshConfig,
+      // Debug builds read UWUSSH_E2E_OPEN_FILE instead of showing an open dialog.
+      UWUSSH_E2E_OPEN_FILE: join(workDir, exported),
+    });
     await waitForApp();
     passedD = await phase('phase-d.mjs', [sshd.log]);
   }

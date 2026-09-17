@@ -17,6 +17,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 uwussh-core.workspace = true
 uwussh-import.workspace = true
+uwussh-keygen.workspace = true
 uwussh-proto.workspace = true
 uwussh-store.workspace = true
 uwussh-sync.workspace = true
@@ -29,10 +30,13 @@ semver = "1"
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-updater = "2"
 tokio.workspace = true
 tracing.workspace = true
+# Local deletes in the file browser go to the recycle bin.
+trash = "5"
 uuid.workspace = true
 zeroize.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -40,7 +44,13 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = [
   "Win32_Foundation",
+  "Win32_NetworkManagement_WNet",
+  "Win32_Security",
+  "Win32_Security_Authorization",
+  "Win32_Security_Cryptography",
+  "Win32_System_DataExchange",
   "Win32_System_Diagnostics_ToolHelp",
   "Win32_System_LibraryLoader",
+  "Win32_System_Memory",
   "Win32_System_Threading",
 ] }

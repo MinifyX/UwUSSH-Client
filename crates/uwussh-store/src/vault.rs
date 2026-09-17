@@ -7,11 +7,11 @@
 //! against that in-memory key, so the plaintext of a password or a private key
 //! never reaches SQLite.
 
-use crate::{Result, Store, StoreError};
-use rusqlite::{params, OptionalExtension};
+use crate::{tick, vault_id, Result, Store, StoreError};
+use rusqlite::{params, OptionalExtension, Transaction};
 use serde::Serialize;
 use uuid::Uuid;
-use uwussh_vault::{KdfParams, Sealed, VaultHeader};
+use uwussh_vault::{KdfParams, Sealed, UnlockedVault, VaultHeader};
 use zeroize::Zeroizing;
 
 /// What the UI needs to know before it can store or reveal a secret.
@@ -110,9 +110,59 @@ impl Store {
         Ok(vault.open(id, uwussh_proto::EntityKind::Secret, &sealed)?)
     }
 
-    fn load_header(&self) -> Result<Option<VaultHeader>> {
+    pub(crate) fn load_header(&self) -> Result<Option<VaultHeader>> {
         header_row(&self.conn.lock())
     }
+}
+
+/// Seal a secret with the unlocked vault and store it, returning its id.
+pub(crate) fn seal_secret(
+    tx: &Transaction,
+    device: u32,
+    vault: &UnlockedVault,
+    plaintext: &[u8],
+) -> Result<String> {
+    let id = Uuid::now_v7();
+    let sealed = vault.seal(id, uwussh_proto::EntityKind::Secret, plaintext)?;
+    let clock = tick(tx, device)?;
+    tx.execute(
+        "INSERT INTO secrets
+            (id, vault_id, nonce, blob, hlc_wall_ms, hlc_counter, hlc_device)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            id.to_string(),
+            vault_id(tx)?,
+            sealed.nonce,
+            sealed.blob,
+            clock.wall_ms as i64,
+            clock.counter,
+            clock.device,
+        ],
+    )?;
+    Ok(id.to_string())
+}
+
+/// Tombstone a secret and drop its ciphertext with it. A replaced password has
+/// no reason to stay around, not even encrypted: whoever learns the master
+/// password later would learn the old one too.
+pub(crate) fn forget_secret(tx: &Transaction, device: u32, id: &str) -> Result<()> {
+    let clock = tick(tx, device)?;
+    tx.execute(
+        "UPDATE secrets
+            SET deleted = 1, nonce = x'', blob = x'', rev = rev + 1,
+                hlc_wall_ms = ?2, hlc_counter = ?3, hlc_device = ?4
+          WHERE id = ?1 AND deleted = 0",
+        params![id, clock.wall_ms as i64, clock.counter, clock.device],
+    )?;
+    Ok(())
+}
+
+/// Fold the write-ahead log back into the database and empty it. After a
+/// secret is forgotten, the log still holds the page it was on; with
+/// `secure_delete` on, this is what finally overwrites it. Best effort: a
+/// reader holding the log open just means it happens next time.
+pub(crate) fn truncate_wal(conn: &rusqlite::Connection) {
+    let _ = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
 }
 
 fn store_header(conn: &rusqlite::Connection, header: &VaultHeader) -> Result<()> {

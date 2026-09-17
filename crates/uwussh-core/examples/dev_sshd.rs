@@ -5,12 +5,17 @@
 //! ```
 //!
 //! Listens on 127.0.0.1:2222, user `uwu`, password `nyu`. The shell is a toy —
-//! `help`, `colors`, `flood <MiB>`, `exit` — but the SSH underneath is real:
-//! key exchange, host key, password auth, a pty, window changes.
+//! `help`, `colors`, `flood <MiB>`, `sudo`, `exit` — but the SSH underneath is
+//! real: key exchange, host key, password auth, a pty, window changes.
 //!
 //! It also accepts public-key auth for keys listed, one OpenSSH line each, in
 //! the file named by `UWUSSH_DEV_SSHD_AUTHORIZED_KEYS` — which is how the
 //! end-to-end run logs in with a key from the vault.
+//!
+//! Files: the `sftp` subsystem serves a folder (`UWUSSH_DEV_SSHD_FILES`, or
+//! `uwussh-dev-sshd-files` in the temp directory) as the server's `/`, with a
+//! home at `/home/uwu`. And any `exec` that asks `uname` answers like an
+//! Ubuntu server, so the host list gets its icon.
 //!
 //! The host key is kept in the temp directory, so the fingerprint stays the
 //! same between runs. Delete that file (the path is printed on start) to see
@@ -20,20 +25,35 @@ use russh::keys::ssh_key::LineEnding;
 use russh::keys::{Algorithm, HashAlg, PrivateKey, PublicKey};
 use russh::server::{self, Auth, Msg, Server as _, Session};
 use russh::{Channel, ChannelId};
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
 use uwussh_core::synthetic::LogLines;
 
+#[path = "../tests/support/file_server.rs"]
+mod file_server;
+use file_server::FileServer;
+
 const USER: &str = "uwu";
 const PASSWORD: &str = "nyu";
 const PROMPT: &str = "\x1b[38;5;211muwu\x1b[0m@\x1b[38;5;117mdev-sshd\x1b[0m:~$ ";
+const SUDO_PROMPT: &str = "[sudo] password for uwu: ";
 
-#[derive(Clone, Default)]
+#[derive(Default)]
 struct DevShell {
     line: String,
+    /// `sudo` is waiting for a password, with this many tries left.
+    sudo: Option<u8>,
     /// Public keys allowed to log in as `USER`. Shared by every client.
     authorized: Arc<Vec<PublicKey>>,
+    files: Arc<PathBuf>,
+    /// Channels opened but not yet claimed by a shell, an exec or SFTP.
+    channels: HashMap<ChannelId, Channel<Msg>>,
+    /// Channels running the toy shell. Only their data is typing: an SFTP
+    /// channel's bytes go to the file server, and echoing them would break it.
+    shells: std::collections::HashSet<ChannelId>,
 }
 
 impl server::Server for DevShell {
@@ -41,8 +61,9 @@ impl server::Server for DevShell {
     fn new_client(&mut self, peer: Option<std::net::SocketAddr>) -> Self {
         println!("connection from {peer:?}");
         Self {
-            line: String::new(),
             authorized: Arc::clone(&self.authorized),
+            files: Arc::clone(&self.files),
+            ..Self::default()
         }
     }
 }
@@ -90,10 +111,11 @@ impl server::Handler for DevShell {
 
     async fn channel_open_session(
         &mut self,
-        _channel: Channel<Msg>,
+        channel: Channel<Msg>,
         reply: server::ChannelOpenHandle,
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
+        self.channels.insert(channel.id(), channel);
         reply.accept().await;
         Ok(())
     }
@@ -131,10 +153,65 @@ impl server::Handler for DevShell {
         channel: ChannelId,
         session: &mut Session,
     ) -> Result<(), Self::Error> {
+        // The toy shell answers through `data`, not through the channel.
+        self.channels.remove(&channel);
+        self.shells.insert(channel);
         let banner = format!(
             "\r\n  \x1b[1mdev-sshd\x1b[0m — a toy shell for trying UwUSSH\r\n  type \x1b[1mhelp\x1b[0m\r\n\r\n{PROMPT}"
         );
         session.data(channel, banner.into_bytes())?;
+        Ok(())
+    }
+
+    async fn exec_request(
+        &mut self,
+        channel: ChannelId,
+        data: &[u8],
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        self.channels.remove(&channel);
+        let command = String::from_utf8_lossy(data);
+        println!("exec {command}");
+        session.channel_success(channel)?;
+        let (reply, status) = if command.contains("uname") {
+            (
+                "Linux\nPRETTY_NAME=\"Ubuntu 24.04 LTS\"\nNAME=\"Ubuntu\"\nID=ubuntu\nID_LIKE=debian\n\n",
+                0,
+            )
+        } else {
+            ("sh: command not found\n", 127)
+        };
+        session.data(channel, reply.as_bytes().to_vec())?;
+        session.exit_status_request(channel, status)?;
+        session.eof(channel)?;
+        session.close(channel)?;
+        Ok(())
+    }
+
+    async fn subsystem_request(
+        &mut self,
+        channel: ChannelId,
+        name: &str,
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        println!("subsystem {name}");
+        match (name, self.channels.remove(&channel)) {
+            ("sftp", Some(open)) => {
+                session.channel_success(channel)?;
+                let files = FileServer::new(PathBuf::clone(&self.files));
+                russh_sftp::server::run(open.into_stream(), files).await;
+            }
+            _ => session.channel_failure(channel)?,
+        }
+        Ok(())
+    }
+
+    async fn channel_eof(
+        &mut self,
+        channel: ChannelId,
+        session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        session.close(channel)?;
         Ok(())
     }
 
@@ -144,29 +221,62 @@ impl server::Handler for DevShell {
         data: &[u8],
         session: &mut Session,
     ) -> Result<(), Self::Error> {
+        if !self.shells.contains(&channel) {
+            return Ok(());
+        }
         let mut echo = Vec::new();
         for &byte in data {
             match byte {
+                b'\r' if self.sudo.is_some() => {
+                    let tries = self.sudo.take().unwrap_or(0);
+                    let typed = std::mem::take(&mut self.line);
+                    echo.extend_from_slice(b"\r\n");
+                    if typed == PASSWORD {
+                        println!("sudo: accepted");
+                        echo.extend_from_slice(
+                            format!("root access granted \u{2727}\r\n{PROMPT}").as_bytes(),
+                        );
+                    } else if tries > 1 {
+                        println!("sudo: rejected");
+                        echo.extend_from_slice(
+                            format!("Sorry, try again.\r\n{SUDO_PROMPT}").as_bytes(),
+                        );
+                        self.sudo = Some(tries - 1);
+                    } else {
+                        echo.extend_from_slice(
+                            format!("sudo: 3 incorrect password attempts\r\n{PROMPT}").as_bytes(),
+                        );
+                    }
+                }
                 b'\r' => {
                     echo.extend_from_slice(b"\r\n");
                     session.data(channel, std::mem::take(&mut echo))?;
                     let line = std::mem::take(&mut self.line);
+                    if line.trim().starts_with("sudo") {
+                        self.sudo = Some(3);
+                        echo.extend_from_slice(SUDO_PROMPT.as_bytes());
+                        continue;
+                    }
                     if !run(line.trim(), channel, session)? {
                         return Ok(());
                     }
                 }
                 0x7f | 0x08 => {
-                    if self.line.pop().is_some() {
+                    if self.line.pop().is_some() && self.sudo.is_none() {
                         echo.extend_from_slice(b"\x08 \x08");
                     }
                 }
                 0x03 => {
                     self.line.clear();
+                    self.sudo = None;
                     echo.extend_from_slice(format!("^C\r\n{PROMPT}").as_bytes());
                 }
                 byte if byte >= 0x20 => {
                     self.line.push(byte as char);
-                    echo.push(byte);
+                    // A password prompt doesn't echo.
+                    if self.sudo.is_none() {
+                        echo.push(byte);
+                    }
                 }
                 _ => {}
             }
@@ -183,7 +293,7 @@ fn run(line: &str, channel: ChannelId, session: &mut Session) -> Result<bool, ru
     let mut words = line.split_whitespace();
     let reply = match words.next() {
         None => String::new(),
-        Some("help") => "  colors        a colour test\r\n  flood <MiB>   a lot of coloured log output (default 16)\r\n  whoami        who you are\r\n  exit          end the session\r\n".into(),
+        Some("help") => "  colors        a colour test\r\n  flood <MiB>   a lot of coloured log output (default 16)\r\n  sudo          asks for the password (nyu)\r\n  whoami        who you are\r\n  exit          end the session\r\n".into(),
         Some("whoami") => format!("{USER}\r\n"),
         Some("colors") => {
             let mut out = String::new();
@@ -269,6 +379,21 @@ fn authorized_keys() -> Vec<PublicKey> {
         .collect()
 }
 
+/// The folder served over SFTP, with a home folder and a file to find.
+fn files_root() -> PathBuf {
+    let root = std::env::var_os("UWUSSH_DEV_SSHD_FILES")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| std::env::temp_dir().join("uwussh-dev-sshd-files"));
+    let home = root.join("home").join("uwu");
+    std::fs::create_dir_all(&home).expect("create the files folder");
+    let welcome = home.join("welcome.txt");
+    if !welcome.exists() {
+        std::fs::write(&welcome, "hello from dev-sshd \u{2727}\n").expect("write welcome.txt");
+    }
+    std::fs::create_dir_all(root.join("etc")).expect("create etc");
+    root
+}
+
 #[tokio::main]
 async fn main() {
     let key = host_key();
@@ -279,6 +404,8 @@ async fn main() {
 
     let authorized = authorized_keys();
     println!("authorized keys: {}", authorized.len());
+    let files = files_root();
+    println!("files: {}", files.display());
 
     let config = Arc::new(server::Config {
         auth_rejection_time: Duration::from_millis(300),
@@ -293,8 +420,9 @@ async fn main() {
     println!("listening on 127.0.0.1:2222 — user {USER}, password {PASSWORD}");
 
     DevShell {
-        line: String::new(),
         authorized: Arc::new(authorized),
+        files: Arc::new(files),
+        ..DevShell::default()
     }
     .run_on_socket(config, &listener)
     .await

@@ -101,6 +101,9 @@ export function sessionMetrics(id: SessionId): Promise<MetricsSnapshot> {
 
 export type AuthMethod = 'password' | 'key';
 
+/** Private or business, like UwUMail's workspaces. */
+export type Workspace = 'private' | 'business';
+
 export type HostRecord = {
   id: string;
   name: string;
@@ -111,7 +114,17 @@ export type HostRecord = {
   keyPath: string | null;
   groupPath: string | null;
   lastConnectedMs: number | null;
+  workspace: Workspace;
+  position: number;
+  /** What the last connection found the server to run, like `ubuntu`. */
+  os: string | null;
+  /** A password is stored in the vault: for logging in, or for sudo. */
+  hasPassword: boolean;
+  keyId: string | null;
+  keyLabel: string | null;
 };
+
+export type PasswordChange = { kind: 'keep' } | { kind: 'set'; value: string } | { kind: 'forget' };
 
 export type HostDraft = {
   id: string | null;
@@ -122,10 +135,15 @@ export type HostDraft = {
   auth: AuthMethod;
   keyPath: string | null;
   groupPath: string | null;
+  workspace: Workspace | null;
+  keyId: string | null;
+  password: PasswordChange;
 };
 
 export type SaveFailure =
-  { kind: 'invalid'; field: string; problem: string } | { kind: 'error'; message: string };
+  | { kind: 'invalid'; field: string; problem: string }
+  | { kind: 'vault-locked' }
+  | { kind: 'error'; message: string };
 
 export function listHosts(): Promise<HostRecord[]> {
   return invoke<HostRecord[]>('list_hosts');
@@ -137,6 +155,44 @@ export function saveHost(draft: HostDraft): Promise<HostRecord> {
 
 export function deleteHost(id: string): Promise<void> {
   return invoke('delete_host', { id });
+}
+
+// ── Groups and order ────────────────────────────────────────────────────────
+
+export type GroupRecord = { workspace: Workspace; name: string; position: number };
+
+export function listGroups(): Promise<GroupRecord[]> {
+  return invoke<GroupRecord[]>('list_groups');
+}
+
+export function createGroup(workspace: Workspace, name: string): Promise<GroupRecord> {
+  return invoke<GroupRecord>('create_group', { workspace, name });
+}
+
+export function renameGroup(workspace: Workspace, from: string, to: string): Promise<void> {
+  return invoke('rename_group', { workspace, from, to });
+}
+
+export function deleteGroup(workspace: Workspace, name: string): Promise<void> {
+  return invoke('delete_group', { workspace, name });
+}
+
+export function moveGroup(
+  workspace: Workspace,
+  name: string,
+  to: Workspace,
+  before: string | null,
+): Promise<void> {
+  return invoke('move_group', { workspace, name, to, before });
+}
+
+export function moveHost(
+  id: string,
+  to: Workspace,
+  group: string | null,
+  before: string | null,
+): Promise<HostRecord> {
+  return invoke<HostRecord>('move_host', { id, to, group, before });
 }
 
 // ── Connecting ──────────────────────────────────────────────────────────────
@@ -161,7 +217,13 @@ export type ConnectFailure =
   | { kind: 'session-refused'; reason: string }
   | { kind: 'protocol'; reason: string }
   | { kind: 'vault-locked' }
-  | { kind: 'internal'; message: string };
+  | { kind: 'internal'; message: string }
+  // File access (SFTP and sudo)
+  | { kind: 'refused'; reason: string }
+  | { kind: 'sudo-password-required' }
+  | { kind: 'sudo-password-rejected' }
+  | { kind: 'sudo-refused'; message: string }
+  | { kind: 'no-sftp-server' };
 
 export function asConnectFailure(error: unknown): ConnectFailure {
   if (typeof error === 'object' && error !== null && 'kind' in error) {
@@ -202,16 +264,33 @@ export function cancelConnect(attempt: string): Promise<void> {
 
 /**
  * Trust the key the server just presented. Replacing a key that was already
- * trusted needs `confirmation` to be the address, typed out.
+ * trusted needs `replace`: the user's explicit yes in the warning.
  */
 export function trustHostKey(
   address: string,
   port: number,
   fingerprint: string,
-  confirmation: string | null = null,
+  replace = false,
 ): Promise<void> {
-  return invoke('trust_host_key', { address, port, fingerprint, confirmation });
+  return invoke('trust_host_key', { address, port, fingerprint, replace });
 }
+
+/** Whether the terminal has a password it can type (for sudo and friends). */
+export function sessionCanTypePassword(id: SessionId): Promise<boolean> {
+  return invoke<boolean>('session_can_type_password', { id });
+}
+
+/** Types the terminal's password and Enter. The password never reaches the page. */
+export function typeSessionPassword(id: SessionId): Promise<void> {
+  return invoke('type_session_password', { id });
+}
+
+/** Store (or forget, with `null`) a host's password in the vault. */
+export function setHostPassword(id: string, password: string | null): Promise<HostRecord> {
+  return invoke<HostRecord>('set_host_password', { id, password });
+}
+
+export type HostOsEvent = { id: string; os: string };
 
 // ── Vault ─────────────────────────────────────────────────────────────────
 
@@ -221,12 +300,24 @@ export function vaultStatus(): Promise<VaultStatus> {
   return invoke<VaultStatus>('vault_status');
 }
 
-export function createVault(password: string): Promise<void> {
-  return invoke('create_vault', { password });
+export type VaultState = { status: VaultStatus; remembered: boolean };
+
+export function vaultState(): Promise<VaultState> {
+  return invoke<VaultState>('vault_state');
 }
 
-export function unlockVault(password: string): Promise<void> {
-  return invoke('unlock_vault', { password });
+/** `remember`: this Windows user opens the vault without the master password. */
+export function createVault(password: string, remember: boolean): Promise<void> {
+  return invoke('create_vault', { password, remember });
+}
+
+/** `remember` changes whether this device keeps the key; `null` leaves it. */
+export function unlockVault(password: string, remember: boolean | null = null): Promise<void> {
+  return invoke('unlock_vault', { password, remember });
+}
+
+export function setVaultRemembered(remember: boolean): Promise<void> {
+  return invoke('set_vault_remembered', { remember });
 }
 
 export function lockVault(): Promise<void> {

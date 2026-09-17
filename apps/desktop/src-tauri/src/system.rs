@@ -8,10 +8,15 @@ use tauri_plugin_opener::OpenerExt;
 
 /// A page just started. Whatever an earlier page left open can't be reached
 /// from here any more, so it goes.
+// Async on purpose: closing spawns a task on the runtime, and sync commands
+// run on the main thread, outside it.
 #[tauri::command]
-pub(crate) fn close_all_sessions(state: State<'_, AppState>) -> usize {
+pub(crate) async fn close_all_sessions(state: State<'_, AppState>) -> Result<usize, ()> {
     state.presented_keys.lock().clear();
-    state.sessions.close_all()
+    state.transfers.cancel_all();
+    state.session_passwords.lock().clear();
+    state.session_hosts.lock().clear();
+    Ok(state.sessions.close_all())
 }
 
 #[tauri::command]

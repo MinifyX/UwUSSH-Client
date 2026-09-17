@@ -143,6 +143,8 @@ type FigureProps = {
   /** Extra parts in Nyu's own coordinates. */
   behind?: ReactNode;
   front?: ReactNode;
+  /** Replaces the mood's eyes, e.g. pupils that follow something. The mouth stays the mood's. */
+  eyes?: ReactNode;
   /** The white die-cut edge, in Nyu's own coordinates. */
   edge?: number;
 };
@@ -156,6 +158,7 @@ export function NyuFigure({
   tilt = 0,
   behind,
   front,
+  eyes,
   edge = 20,
 }: FigureProps) {
   return (
@@ -210,7 +213,7 @@ export function NyuFigure({
             <ellipse cx={182} cy={168} rx={12} ry={7.5} />
           </g>
         )}
-        <g className={mood === 'sleepy' ? undefined : 'nyu-eyes'}>{EYES[mood]}</g>
+        <g className={mood === 'sleepy' ? undefined : 'nyu-eyes'}>{eyes ?? EYES[mood]}</g>
         {MOUTHS[mood]}
         {front}
       </Sticker>

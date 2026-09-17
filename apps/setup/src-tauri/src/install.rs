@@ -3,7 +3,8 @@
 //! Everything lives under the user's profile: the app in
 //! `%LOCALAPPDATA%\Programs\UwUSSH`, shortcuts in the Start menu (and on the
 //! desktop if wanted), and registry entries under `HKEY_CURRENT_USER`. No
-//! administrator rights are needed.
+//! administrator rights are needed. UwUKeygen, the key generator, goes into
+//! the same folder with a Start menu shortcut of its own, if chosen.
 //!
 //! `UWUSSH_SETUP_SANDBOX=<folder>` redirects all of it (files, shortcuts,
 //! registry under `HKCU\Software\UwUSSH-Setup-Sandbox`) for testing.
@@ -22,6 +23,9 @@ pub const APP_EXE: &str = "UwUSSH.exe";
 pub const UNINSTALL_EXE: &str = "uninstall.exe";
 pub const APP_ID: &str = "app.uwussh.desktop";
 const SHORTCUT: &str = "UwUSSH.lnk";
+pub const KEYGEN_EXE: &str = "UwUKeygen.exe";
+const KEYGEN_APP_ID: &str = "app.uwussh.keygen";
+const KEYGEN_SHORTCUT: &str = "UwUKeygen.lnk";
 const HOMEPAGE: &str = "https://github.com/MinifyX/UwUSSH-Client";
 const UNINSTALL_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\UwUSSH";
 const SETUP_KEY: &str = r"Software\UwUSSH\Setup";
@@ -32,9 +36,15 @@ const LEGACY_PRODUCT_KEY: &str = r"Software\uwussh\UwUSSH";
 
 static PAYLOAD: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/payload.zst"));
 const PAYLOAD_SIZE: &str = env!("UWUSSH_SETUP_PAYLOAD_SIZE");
+static KEYGEN_PAYLOAD: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/keygen.zst"));
+const KEYGEN_SIZE: &str = env!("UWUSSH_SETUP_KEYGEN_SIZE");
 
 pub fn has_payload() -> bool {
     !PAYLOAD.is_empty()
+}
+
+pub fn has_keygen() -> bool {
+    !KEYGEN_PAYLOAD.is_empty()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,6 +52,13 @@ pub fn has_payload() -> bool {
 pub struct Options {
     pub dir: String,
     pub desktop_shortcut: bool,
+    /// UwUKeygen too. Missing from older setups' pages: then yes.
+    #[serde(default = "yes")]
+    pub keygen: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -179,6 +196,7 @@ impl Layout {
         Options {
             dir,
             desktop_shortcut: flag("DesktopShortcut", true),
+            keygen: flag("Keygen", true),
         }
     }
 }
@@ -210,13 +228,21 @@ fn replace_file(from: &Path, to: &Path) -> Result<(), String> {
     }
 }
 
-fn extract(target: &Path, progress: Progress) -> Result<(), String> {
-    if PAYLOAD.is_empty() {
+/// Unpack one packed program to `target`, reporting progress from `from` to
+/// `to` of the copy step.
+fn extract(
+    payload: &[u8],
+    size: &str,
+    target: &Path,
+    progress: Progress,
+    (from, to): (f64, f64),
+) -> Result<(), String> {
+    if payload.is_empty() {
         return Err("This setup was built without UwUSSH inside (a development build).".into());
     }
-    let total: u64 = PAYLOAD_SIZE.parse().unwrap_or(1).max(1);
+    let total: u64 = size.parse().unwrap_or(1).max(1);
     let mut decoder =
-        zstd::Decoder::new(PAYLOAD).map_err(|e| format!("The packed app is damaged: {e}"))?;
+        zstd::Decoder::new(payload).map_err(|e| format!("The packed app is damaged: {e}"))?;
     let mut file = std::fs::File::create(target)
         .map_err(|e| format!("Couldn't write {}: {e}", target.display()))?;
     let mut buffer = vec![0u8; 256 * 1024];
@@ -231,7 +257,10 @@ fn extract(target: &Path, progress: Progress) -> Result<(), String> {
         std::io::Write::write_all(&mut file, &buffer[..read])
             .map_err(|e| format!("Couldn't write {}: {e}", target.display()))?;
         written += read as u64;
-        progress(Step::Copy, written as f64 / total as f64);
+        progress(
+            Step::Copy,
+            from + (to - from) * written as f64 / total as f64,
+        );
     }
     file.sync_all()
         .map_err(|e| format!("Couldn't write {}: {e}", target.display()))?;
@@ -264,13 +293,17 @@ pub fn stop_app(layout: &Layout, dir: &Path) -> Result<(), String> {
         return Ok(());
     }
     system::stop_processes(&dir.join(APP_EXE))?;
+    system::stop_processes(&dir.join(KEYGEN_EXE))?;
     system::stop_processes(&dir.join(LEGACY_EXE))
 }
 
+/// UwUSSH or UwUKeygen is open. Closing either loses something — open
+/// connections, a generated key not saved yet — so the setup asks first.
 pub fn app_running(layout: &Layout, dir: &Path) -> bool {
     !layout.sandbox
-        && (!system::processes_of(&dir.join(APP_EXE)).is_empty()
-            || !system::processes_of(&dir.join(LEGACY_EXE)).is_empty())
+        && [APP_EXE, LEGACY_EXE, KEYGEN_EXE]
+            .iter()
+            .any(|exe| !system::processes_of(&dir.join(exe)).is_empty())
 }
 
 /// Removes the files and the registry entry of the old standard installer.
@@ -325,8 +358,25 @@ pub fn install(
 
     let app = dir.join(APP_EXE);
     let incoming = dir.join("UwUSSH.exe.new");
-    extract(&incoming, progress)?;
+    let with_keygen = options.keygen && has_keygen();
+    let app_share = if with_keygen { 0.8 } else { 1.0 };
+    extract(PAYLOAD, PAYLOAD_SIZE, &incoming, progress, (0.0, app_share))?;
     replace_file(&incoming, &app)?;
+
+    let keygen = dir.join(KEYGEN_EXE);
+    if with_keygen {
+        let incoming = dir.join("UwUKeygen.exe.new");
+        extract(
+            KEYGEN_PAYLOAD,
+            KEYGEN_SIZE,
+            &incoming,
+            progress,
+            (app_share, 1.0),
+        )?;
+        replace_file(&incoming, &keygen)?;
+    } else if !options.keygen {
+        let _ = std::fs::remove_file(&keygen);
+    }
 
     let uninstaller = dir.join(UNINSTALL_EXE);
     let me =
@@ -350,6 +400,20 @@ pub fn install(
         system::create_shortcut(&on_desktop, &shortcut)?;
     } else {
         let _ = std::fs::remove_file(&on_desktop);
+    }
+    let keygen_shortcut = layout.start_menu.join(KEYGEN_SHORTCUT);
+    if keygen.exists() && options.keygen {
+        system::create_shortcut(
+            &keygen_shortcut,
+            &system::Shortcut {
+                target: &keygen,
+                arguments: "",
+                description: "UwUKeygen – SSH-Schlüssel erzeugen",
+                app_id: KEYGEN_APP_ID,
+            },
+        )?;
+    } else {
+        let _ = std::fs::remove_file(&keygen_shortcut);
     }
     progress(Step::Shortcuts, 1.0);
 
@@ -395,6 +459,7 @@ fn register(layout: &Layout, dir: &Path, options: &Options, version: &str) -> Re
     write(&setup, "InstallDir", &dir.display().to_string())?;
     write(&setup, "Version", version)?;
     write_dword(&setup, "DesktopShortcut", options.desktop_shortcut.into())?;
+    write_dword(&setup, "Keygen", options.keygen.into())?;
     Ok(())
 }
 
@@ -410,6 +475,7 @@ pub fn uninstall(
 
     progress(Step::Shortcuts, 0.0);
     let _ = std::fs::remove_file(layout.start_menu.join(SHORTCUT));
+    let _ = std::fs::remove_file(layout.start_menu.join(KEYGEN_SHORTCUT));
     let _ = std::fs::remove_file(layout.desktop.join(SHORTCUT));
     progress(Step::Shortcuts, 1.0);
 
@@ -423,9 +489,11 @@ pub fn uninstall(
     progress(Step::Copy, 0.0);
     for file in [
         APP_EXE,
+        KEYGEN_EXE,
         UNINSTALL_EXE,
         LEGACY_EXE,
         "UwUSSH.exe.new",
+        "UwUKeygen.exe.new",
         "uninstall.exe.new",
     ] {
         let path = dir.join(file);
@@ -501,6 +569,7 @@ mod tests {
         let options = sandbox.layout.remembered_options();
         assert!(options.dir.ends_with(r"Programs\UwUSSH"));
         assert!(options.desktop_shortcut);
+        assert!(options.keygen, "UwUKeygen comes along unless unticked");
     }
 
     #[test]
@@ -531,10 +600,12 @@ mod tests {
         let dir = layout.default_dir.clone();
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join(APP_EXE), b"app").unwrap();
+        std::fs::write(dir.join(KEYGEN_EXE), b"keygen").unwrap();
         std::fs::write(dir.join(UNINSTALL_EXE), b"setup").unwrap();
         let options = Options {
             dir: dir.display().to_string(),
             desktop_shortcut: false,
+            keygen: false,
         };
         register(layout, &dir, &options, "0.1.0").unwrap();
 
@@ -544,6 +615,7 @@ mod tests {
             (Some("0.1.0"), false)
         );
         assert!(!layout.remembered_options().desktop_shortcut);
+        assert!(!layout.remembered_options().keygen);
         let command: String = layout
             .open(UNINSTALL_KEY)
             .unwrap()

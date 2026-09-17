@@ -102,6 +102,20 @@ impl UnlockedVault {
     pub fn open(&self, id: Uuid, kind: EntityKind, sealed: &Sealed) -> Result<Zeroizing<Vec<u8>>> {
         decrypt_record(&self.key, id, kind, self.vault_id, sealed).map(Zeroizing::new)
     }
+
+    /// The vault key itself, for the one place that keeps it without the
+    /// master password: storage the operating system protects for this user
+    /// on this device, so the vault can open on its own.
+    pub fn export_key(&self) -> Zeroizing<[u8; 32]> {
+        Zeroizing::new(*self.key)
+    }
+
+    /// A vault from a key exported earlier. Nothing is checked here: a wrong
+    /// key only shows when it fails to open something the real key sealed, so
+    /// callers verify it against such a record before trusting it.
+    pub fn from_key(vault_id: Uuid, key: Zeroizing<[u8; 32]>) -> Self {
+        Self { vault_id, key }
+    }
 }
 
 fn wrap_aad(vault_id: Uuid) -> Vec<u8> {

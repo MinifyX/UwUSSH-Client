@@ -228,7 +228,12 @@ pub fn stop_processes(exe: &Path) -> Result<(), String> {
     if processes_of(exe).is_empty() {
         Ok(())
     } else {
-        Err("UwUSSH is still running and couldn't be closed.".into())
+        Err(format!(
+            "{} is still running and couldn't be closed.",
+            exe.file_stem()
+                .map(|stem| stem.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "UwUSSH".into())
+        ))
     }
 }
 

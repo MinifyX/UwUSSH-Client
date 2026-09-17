@@ -6,24 +6,35 @@
 //! M2. Adding those columns later would mean migrating every user's data;
 //! carrying them from the first row costs nothing.
 //!
-//! **No secrets live here.** Until the vault exists, passwords are asked for on
-//! every connect and never written anywhere, and keys are referenced by file
-//! path rather than copied in.
+//! **No secret lives here in the clear.** Passwords and keys are sealed with the
+//! vault before they reach SQLite (see [`vault`]); a host without a stored
+//! password asks on every connect, and key files stay where they are, referenced
+//! by path.
 
+pub mod backup;
 pub mod credentials;
+pub mod device;
+pub mod groups;
 pub mod hosts;
 pub mod import;
+pub mod keys;
 pub mod known_hosts;
 mod schema;
+pub mod secret;
 pub mod vault;
 
+pub use backup::{decode_export, encode_export, export_is_sealed, Backup, BackupSummary};
 pub use credentials::{CredentialSource, RevealedKey};
-pub use hosts::{AuthMethod, HostDraft, HostRecord};
+pub use groups::GroupRecord;
+pub use hosts::{AuthMethod, HostDraft, HostRecord, PasswordChange, Workspace};
 pub use import::{
-    HostInput, IdentityInput, ImportOutcome, ImportSet, KeyInput, KnownHostInput, SnippetInput,
+    GroupInput, HostInput, IdentityInput, ImportOutcome, ImportSet, KeyInput, KnownHostInput,
+    SnippetInput,
 };
+pub use keys::{KeyDraft, KeyRecord};
 pub use known_hosts::KnownHostRecord;
 pub use schema::SCHEMA_VERSION;
+pub use secret::SecretText;
 pub use vault::{Revealed, VaultStatus};
 
 use parking_lot::Mutex;
@@ -61,6 +72,18 @@ pub enum StoreError {
     NoVault,
     #[error(transparent)]
     Vault(#[from] uwussh_vault::VaultError),
+    #[error("no key with id {0}")]
+    UnknownKey(Uuid),
+    #[error("the key is still used by {hosts} host(s)")]
+    KeyInUse { hosts: usize },
+    #[error("the operating system could not protect the vault key: {0}")]
+    Device(String),
+    #[error("this export is protected by a password")]
+    ExportPasswordRequired,
+    #[error("the export password is wrong")]
+    ExportPasswordWrong,
+    #[error("export file: {0}")]
+    Export(String),
 }
 
 pub type Result<T> = std::result::Result<T, StoreError>;
@@ -93,6 +116,9 @@ impl Store {
 
     fn init(mut conn: Connection) -> Result<Self> {
         conn.pragma_update(None, "foreign_keys", "ON")?;
+        // Freed pages are overwritten with zeros: a forgotten password's
+        // ciphertext must not linger in free space (see `truncate_wal`).
+        conn.pragma_update(None, "secure_delete", "ON")?;
         conn.busy_timeout(Duration::from_secs(5))?;
         schema::migrate(&mut conn)?;
         let device = conn.query_row("SELECT device_id FROM meta WHERE id = 1", [], |row| {

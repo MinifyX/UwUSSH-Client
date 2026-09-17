@@ -56,6 +56,7 @@ pub(crate) async fn ack_session(
 
 #[tauri::command]
 pub(crate) async fn close_session(state: State<'_, AppState>, id: SessionId) -> CommandResult<()> {
+    crate::hosts::forget_session(&state, id);
     state.sessions.close(id).map_err(err)
 }
 

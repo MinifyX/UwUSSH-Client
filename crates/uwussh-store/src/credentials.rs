@@ -93,26 +93,7 @@ impl Store {
             .key_id
             .and_then(|s| Uuid::parse_str(&s).ok())
             .ok_or(StoreError::UnknownHost(host_id))?;
-
-        let (private, passphrase): (String, Option<String>) = self
-            .conn
-            .lock()
-            .query_row(
-                "SELECT private_secret_id, passphrase_secret_id
-                   FROM keys WHERE id = ?1 AND deleted = 0",
-                [key_id.to_string()],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .optional()?
-            .ok_or(StoreError::UnknownHost(host_id))?;
-
-        let private_id = Uuid::parse_str(&private).map_err(|_| StoreError::UnknownHost(host_id))?;
-        let passphrase_id = passphrase.and_then(|s| Uuid::parse_str(&s).ok());
-
-        Ok(RevealedKey {
-            private_key: self.reveal_secret(private_id)?,
-            passphrase: passphrase_id.map(|id| self.reveal_secret(id)).transpose()?,
-        })
+        self.reveal_key(key_id)
     }
 }
 
@@ -166,6 +147,8 @@ mod tests {
                         port: 22,
                         group_path: None,
                         identity: Some(0),
+                        workspace: Default::default(),
+                        position: None,
                     },
                     HostInput {
                         name: "key-host".into(),
@@ -173,6 +156,8 @@ mod tests {
                         port: 22,
                         group_path: None,
                         identity: Some(1),
+                        workspace: Default::default(),
+                        position: None,
                     },
                 ],
                 ..Default::default()

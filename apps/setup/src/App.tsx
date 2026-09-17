@@ -137,7 +137,7 @@ function Window({
           data-tauri-drag-region
           className="mr-auto pl-3 text-[14px] font-extrabold tracking-tight"
         >
-          UwU<span className="text-pink">SSH</span>
+          <span className="text-pink">UwU</span>SSH
         </span>
         <button
           type="button"
@@ -376,6 +376,13 @@ export function App() {
               onChange={(desktopShortcut) => setOptions({ ...options, desktopShortcut })}
               label={t.desktopShortcut}
             />
+            {info.hasKeygen && (
+              <Switch
+                checked={options.keygen}
+                onChange={(keygen) => setOptions({ ...options, keygen })}
+                label={t.keygen}
+              />
+            )}
           </div>
         )}
         <p className="text-plum-soft mt-auto pt-3 text-center text-[11.5px]">

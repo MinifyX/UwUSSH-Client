@@ -9,11 +9,18 @@
 //! password or a private key is ciphertext by the time it reaches SQLite. The
 //! whole set is one transaction: a failure halfway leaves the store as it was,
 //! not half-imported.
+//!
+//! Importing the same source twice adds nothing twice. A host that is already
+//! there — same address, port and user — is skipped, and so is the login that
+//! only it needed; a key is only written for a login that is written, or, when
+//! no login uses it, once per label and type.
 
+use crate::hosts::{ensure_group, next_position, Workspace};
+use crate::vault::seal_secret;
 use crate::{now_ms, tick, vault_id, Result, Store, StoreError};
-use rusqlite::{params, Transaction};
+use rusqlite::{params, OptionalExtension, Transaction};
+use std::collections::HashMap;
 use uuid::Uuid;
-use uwussh_proto::{EntityKind, Hlc};
 use uwussh_vault::UnlockedVault;
 use zeroize::Zeroizing;
 
@@ -51,6 +58,16 @@ pub struct HostInput {
     pub group_path: Option<String>,
     /// Index into [`ImportSet::identities`].
     pub identity: Option<usize>,
+    pub workspace: Workspace,
+    /// The place within its group, when the source has one (an UwUSSH export
+    /// does); otherwise the host goes to the end.
+    pub position: Option<i64>,
+}
+
+/// A group of its own, possibly empty, as an UwUSSH export carries it.
+pub struct GroupInput {
+    pub workspace: Workspace,
+    pub name: String,
 }
 
 pub struct KnownHostInput {
@@ -72,6 +89,7 @@ pub struct SnippetInput {
 /// a key used by forty hosts is written once.
 #[derive(Default)]
 pub struct ImportSet {
+    pub groups: Vec<GroupInput>,
     pub hosts: Vec<HostInput>,
     pub identities: Vec<IdentityInput>,
     pub keys: Vec<KeyInput>,
@@ -79,8 +97,8 @@ pub struct ImportSet {
     pub snippets: Vec<SnippetInput>,
 }
 
-/// What an import changed. Duplicates are hosts whose `address:port` was
-/// already present; they are left untouched.
+/// What an import changed. Duplicates are hosts whose address, port and user
+/// were already present; they are left untouched.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ImportOutcome {
     pub hosts_added: usize,
@@ -94,24 +112,35 @@ pub struct ImportOutcome {
 impl ImportSet {
     /// Whether writing this set has to seal anything. A PuTTY import — key
     /// files and typed passwords — has no secrets and so needs no vault.
-    fn has_secrets(&self) -> bool {
+    pub fn has_secrets(&self) -> bool {
         !self.keys.is_empty() || self.identities.iter().any(|i| i.password.is_some())
     }
 }
 
 impl Store {
-    /// Write an import into the store. When the set carries secrets — a stored
-    /// password or a key kept in the vault — the vault must be unlocked, since
-    /// that is the only place a secret may go. A set with none (key files and
-    /// typed passwords) imports with no vault at all.
+    /// Write an import into the store. A secret it actually writes — a stored
+    /// password or a key for the vault — needs the vault unlocked, since that
+    /// is the only place a secret may go; otherwise the import fails with
+    /// [`StoreError::VaultLocked`] and writes nothing. Secrets of hosts that
+    /// are already there are never written, so importing the same setup again,
+    /// or a set with no secrets at all, needs no vault.
     pub fn import(&self, set: ImportSet) -> Result<ImportOutcome> {
+        // Far beyond any real setup; an import runs in one transaction that
+        // holds the database, so there has to be an end.
+        if set.hosts.len() > MAX_ITEMS
+            || set.identities.len() > MAX_ITEMS
+            || set.keys.len() > MAX_ITEMS
+            || set.known_hosts.len() > MAX_ITEMS
+            || set.snippets.len() > MAX_ITEMS
+            || set.groups.len() > MAX_ITEMS
+        {
+            return Err(StoreError::Export(format!(
+                "more than {MAX_ITEMS} entries of one kind is not something to import"
+            )));
+        }
         let mut conn = self.conn.lock();
         let vault_guard = self.vault.lock();
-        let vault = match vault_guard.as_ref() {
-            Some(vault) => Some(vault),
-            None if set.has_secrets() => return Err(StoreError::VaultLocked),
-            None => None,
-        };
+        let vault = vault_guard.as_ref();
 
         let tx = conn.transaction()?;
         let vault_uuid = vault_id(&tx)?;
@@ -120,6 +149,8 @@ impl Store {
             device: self.device,
             vault,
             vault_uuid,
+            key_ids: HashMap::new(),
+            identity_ids: HashMap::new(),
         };
         let outcome = writer.write(&set)?;
         tx.commit()?;
@@ -134,41 +165,74 @@ struct Writer<'a> {
     /// `None` when the set has no secrets to seal.
     vault: Option<&'a UnlockedVault>,
     vault_uuid: String,
+    /// Keys and identities written so far, by their index in the set.
+    key_ids: HashMap<usize, String>,
+    identity_ids: HashMap<usize, String>,
+}
+
+/// The most entries of one kind a single import takes.
+const MAX_ITEMS: usize = 50_000;
+
+/// Whether an imported host is one the host form would have let through:
+/// an address and user without spaces or control characters, a name without
+/// control characters. What isn't is skipped, not written.
+fn plausible(host: &HostInput, username: &str) -> bool {
+    let clean = |text: &str| !text.chars().any(|c| c.is_control());
+    let address = host.address.trim();
+    !address.is_empty()
+        && address.len() <= 253
+        && !address.chars().any(|c| c.is_whitespace() || c.is_control())
+        && !username
+            .chars()
+            .any(|c| c.is_whitespace() || c.is_control())
+        && username.len() <= 256
+        && clean(&host.name)
+        && host.name.len() <= 256
+        && host.port > 0
 }
 
 impl Writer<'_> {
     fn write(&mut self, set: &ImportSet) -> Result<ImportOutcome> {
         let mut outcome = ImportOutcome::default();
 
-        // Keys, then identities that point at them, then hosts that point at
-        // identities — the same order the importer built them in.
-        let mut key_ids = Vec::with_capacity(set.keys.len());
-        for key in &set.keys {
-            key_ids.push(self.write_key(key)?);
-            outcome.keys_added += 1;
+        for group in &set.groups {
+            if let Some(name) = crate::hosts::group_name(Some(group.name.clone()))? {
+                ensure_group(
+                    self.tx,
+                    self.device,
+                    &self.vault_uuid,
+                    group.workspace,
+                    &name,
+                )?;
+            }
         }
 
-        let mut identity_ids = Vec::with_capacity(set.identities.len());
-        for identity in &set.identities {
-            let key_id = identity
-                .key
-                .and_then(|i| key_ids.get(i))
-                .map(String::as_str);
-            identity_ids.push(self.write_identity(identity, key_id)?);
-            outcome.identities_added += 1;
-        }
-
+        // Hosts pull in the identity they need, which pulls in its key: what
+        // a skipped host alone needed is never written.
         for host in &set.hosts {
-            if self.host_exists(&host.address, host.port)? {
+            let identity = host.identity.and_then(|i| set.identities.get(i));
+            let username = identity
+                .and_then(|i| i.username.as_deref())
+                .unwrap_or_default();
+            if !plausible(host, username) || self.host_exists(&host.address, host.port, username)? {
                 outcome.hosts_skipped += 1;
                 continue;
             }
-            let identity_id = host
-                .identity
-                .and_then(|i| identity_ids.get(i))
-                .map(String::as_str);
-            self.write_host(host, identity_id)?;
+            let identity_id = match host.identity.filter(|i| *i < set.identities.len()) {
+                Some(index) => Some(self.identity(set, index, &mut outcome)?),
+                None => None,
+            };
+            self.write_host(host, identity_id.as_deref())?;
             outcome.hosts_added += 1;
+        }
+
+        // Keys no login points at still belong in the vault, once.
+        let used: Vec<usize> = set.identities.iter().filter_map(|i| i.key).collect();
+        for (index, key) in set.keys.iter().enumerate() {
+            if used.contains(&index) || self.key_exists(key)? {
+                continue;
+            }
+            self.key(set, index, &mut outcome)?;
         }
 
         for known in &set.known_hosts {
@@ -178,38 +242,66 @@ impl Writer<'_> {
         }
 
         for snippet in &set.snippets {
-            self.write_snippet(snippet)?;
-            outcome.snippets_added += 1;
+            if self.write_snippet(snippet)? {
+                outcome.snippets_added += 1;
+            }
         }
 
         Ok(outcome)
     }
 
-    fn clock(&self) -> Result<Hlc> {
+    fn clock(&self) -> Result<uwussh_proto::Hlc> {
         tick(self.tx, self.device)
     }
 
     /// Seal a secret and store it, returning its id.
     fn write_secret(&self, plaintext: &[u8]) -> Result<String> {
         let vault = self.vault.ok_or(StoreError::VaultLocked)?;
-        let id = Uuid::now_v7();
-        let sealed = vault.seal(id, EntityKind::Secret, plaintext)?;
-        let clock = self.clock()?;
-        self.tx.execute(
-            "INSERT INTO secrets
-                (id, vault_id, nonce, blob, hlc_wall_ms, hlc_counter, hlc_device)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![
-                id.to_string(),
-                self.vault_uuid,
-                sealed.nonce,
-                sealed.blob,
-                clock.wall_ms as i64,
-                clock.counter,
-                clock.device,
-            ],
+        seal_secret(self.tx, self.device, vault, plaintext)
+    }
+
+    fn key(
+        &mut self,
+        set: &ImportSet,
+        index: usize,
+        outcome: &mut ImportOutcome,
+    ) -> Result<String> {
+        if let Some(id) = self.key_ids.get(&index) {
+            return Ok(id.clone());
+        }
+        let id = self.write_key(&set.keys[index])?;
+        outcome.keys_added += 1;
+        self.key_ids.insert(index, id.clone());
+        Ok(id)
+    }
+
+    fn identity(
+        &mut self,
+        set: &ImportSet,
+        index: usize,
+        outcome: &mut ImportOutcome,
+    ) -> Result<String> {
+        if let Some(id) = self.identity_ids.get(&index) {
+            return Ok(id.clone());
+        }
+        let identity = &set.identities[index];
+        let key_id = match identity.key.filter(|k| *k < set.keys.len()) {
+            Some(key) => Some(self.key(set, key, outcome)?),
+            None => None,
+        };
+        let id = self.write_identity(identity, key_id.as_deref())?;
+        outcome.identities_added += 1;
+        self.identity_ids.insert(index, id.clone());
+        Ok(id)
+    }
+
+    fn key_exists(&self, key: &KeyInput) -> Result<bool> {
+        let count: i64 = self.tx.query_row(
+            "SELECT count(*) FROM keys WHERE deleted = 0 AND label = ?1 AND key_type = ?2",
+            params![key.label, key.key_type],
+            |row| row.get(0),
         )?;
-        Ok(id.to_string())
+        Ok(count > 0)
     }
 
     fn write_key(&self, key: &KeyInput) -> Result<String> {
@@ -251,8 +343,7 @@ impl Writer<'_> {
             .map(|p| self.write_secret(p.as_bytes()))
             .transpose()?;
 
-        // A file key is only used when there is no vault key. A stored password
-        // and a key never coincide within one imported identity.
+        // A file key is only used when there is no vault key.
         let key_path = key_id
             .is_none()
             .then(|| identity.key_path.clone())
@@ -295,23 +386,39 @@ impl Writer<'_> {
         Ok(id)
     }
 
-    fn host_exists(&self, address: &str, port: u16) -> Result<bool> {
+    fn host_exists(&self, address: &str, port: u16, username: &str) -> Result<bool> {
         let count: i64 = self.tx.query_row(
-            "SELECT count(*) FROM hosts
-              WHERE deleted = 0 AND lower(address) = lower(?1) AND port = ?2",
-            params![address, port],
+            "SELECT count(*) FROM hosts h
+               LEFT JOIN identities i ON i.id = h.identity_id AND i.deleted = 0
+              WHERE h.deleted = 0 AND lower(h.address) = lower(?1) AND h.port = ?2
+                AND coalesce(i.username, '') = ?3",
+            params![address.trim(), port, username.trim()],
             |row| row.get(0),
         )?;
         Ok(count > 0)
     }
 
     fn write_host(&self, host: &HostInput, identity_id: Option<&str>) -> Result<()> {
+        let group = crate::hosts::group_name(host.group_path.clone())?;
+        if let Some(group) = &group {
+            ensure_group(
+                self.tx,
+                self.device,
+                &self.vault_uuid,
+                host.workspace,
+                group,
+            )?;
+        }
+        let position = match host.position {
+            Some(position) => position,
+            None => next_position(self.tx, host.workspace, group.as_deref())?,
+        };
         let clock = self.clock()?;
         self.tx.execute(
             "INSERT INTO hosts
-                (id, vault_id, name, address, port, identity_id, group_path,
+                (id, vault_id, name, address, port, identity_id, group_path, workspace, position,
                  hlc_wall_ms, hlc_counter, hlc_device)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 Uuid::now_v7().to_string(),
                 self.vault_uuid,
@@ -319,7 +426,9 @@ impl Writer<'_> {
                 host.address,
                 host.port,
                 identity_id,
-                host.group_path,
+                group,
+                host.workspace.as_str(),
+                position,
                 clock.wall_ms as i64,
                 clock.counter,
                 clock.device,
@@ -329,11 +438,12 @@ impl Writer<'_> {
     }
 
     /// Trust an imported host key, unless that address already has one — an
-    /// import must never quietly replace a key the user is relying on.
+    /// import must never quietly replace a key the user is relying on, nor
+    /// bring back one the user removed.
     fn write_known_host(&self, known: &KnownHostInput) -> Result<bool> {
         let address = known.address.trim().to_ascii_lowercase();
         let taken: i64 = self.tx.query_row(
-            "SELECT count(*) FROM known_hosts WHERE address = ?1 AND port = ?2 AND deleted = 0",
+            "SELECT count(*) FROM known_hosts WHERE address = ?1 AND port = ?2",
             params![address, known.port],
             |row| row.get(0),
         )?;
@@ -346,12 +456,7 @@ impl Writer<'_> {
                 (id, vault_id, address, port, algorithm, fingerprint_sha256, public_key,
                  first_seen_ms, hlc_wall_ms, hlc_counter, hlc_device)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
-             ON CONFLICT (address, port) DO UPDATE SET
-                algorithm = excluded.algorithm,
-                fingerprint_sha256 = excluded.fingerprint_sha256,
-                public_key = excluded.public_key,
-                rev = rev + 1,
-                deleted = 0",
+             ON CONFLICT (address, port) DO NOTHING",
             params![
                 Uuid::now_v7().to_string(),
                 self.vault_uuid,
@@ -369,7 +474,20 @@ impl Writer<'_> {
         Ok(true)
     }
 
-    fn write_snippet(&self, snippet: &SnippetInput) -> Result<()> {
+    /// A snippet with the same label and body is already there: skip it.
+    fn write_snippet(&self, snippet: &SnippetInput) -> Result<bool> {
+        let exists = self
+            .tx
+            .query_row(
+                "SELECT 1 FROM snippets WHERE deleted = 0 AND label = ?1 AND body = ?2",
+                params![snippet.label, snippet.body],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if exists {
+            return Ok(false);
+        }
         let clock = self.clock()?;
         self.tx.execute(
             "INSERT INTO snippets
@@ -386,7 +504,7 @@ impl Writer<'_> {
                 clock.device,
             ],
         )?;
-        Ok(())
+        Ok(true)
     }
 }
 
@@ -420,6 +538,7 @@ mod tests {
 
     fn sample() -> ImportSet {
         ImportSet {
+            groups: Vec::new(),
             keys: vec![KeyInput {
                 label: "nyu-key".into(),
                 key_type: "ed25519".into(),
@@ -450,6 +569,8 @@ mod tests {
                     port: 22,
                     group_path: Some("Homelab".into()),
                     identity: Some(1),
+                    workspace: Workspace::Private,
+                    position: None,
                 },
                 HostInput {
                     name: "pve".into(),
@@ -457,6 +578,8 @@ mod tests {
                     port: 2222,
                     group_path: Some("Homelab/Proxmox".into()),
                     identity: Some(0),
+                    workspace: Workspace::Private,
+                    position: None,
                 },
             ],
             known_hosts: vec![KnownHostInput {
@@ -564,6 +687,100 @@ mod tests {
     }
 
     #[test]
+    fn importing_the_same_set_twice_writes_no_second_login_key_or_secret() {
+        let store = unlocked_store();
+        store.import(sample()).unwrap();
+        let count = |table: &str| -> i64 {
+            store
+                .conn
+                .lock()
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
+                .unwrap()
+        };
+        let before = (count("identities"), count("keys"), count("secrets"));
+        let again = store.import(sample()).unwrap();
+        assert_eq!(
+            again,
+            ImportOutcome {
+                hosts_skipped: 2,
+                ..Default::default()
+            }
+        );
+        assert_eq!(
+            (count("identities"), count("keys"), count("secrets")),
+            before
+        );
+    }
+
+    #[test]
+    fn two_logins_to_the_same_server_are_two_hosts() {
+        let store = unlocked_store();
+        let mut set = sample();
+        set.hosts.push(HostInput {
+            name: "web as root".into(),
+            address: "10.0.0.5".into(),
+            port: 22,
+            group_path: None,
+            identity: Some(0),
+            workspace: Workspace::Business,
+            position: None,
+        });
+        assert_eq!(store.import(set).unwrap().hosts_added, 3);
+        let business = host_id(&store, "web as root");
+        assert_eq!(
+            store.get_host(business).unwrap().unwrap().workspace,
+            Workspace::Business
+        );
+    }
+
+    #[test]
+    fn a_key_no_login_uses_is_kept_once() {
+        let store = unlocked_store();
+        let mut set = sample();
+        set.keys.push(KeyInput {
+            label: "spare".into(),
+            key_type: "ed25519".into(),
+            public_key: None,
+            private_key: secret(
+                "-----BEGIN OPENSSH PRIVATE KEY-----
+",
+            ),
+            passphrase: None,
+        });
+        assert_eq!(store.import(set).unwrap().keys_added, 2);
+        let mut again = sample();
+        again.keys.push(KeyInput {
+            label: "spare".into(),
+            key_type: "ed25519".into(),
+            public_key: None,
+            private_key: secret(
+                "-----BEGIN OPENSSH PRIVATE KEY-----
+",
+            ),
+            passphrase: None,
+        });
+        assert_eq!(store.import(again).unwrap().keys_added, 0);
+        assert_eq!(store.list_keys().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn groups_arrive_as_records_even_when_empty() {
+        let store = Store::open_in_memory().unwrap();
+        store
+            .import(ImportSet {
+                groups: vec![GroupInput {
+                    workspace: Workspace::Business,
+                    name: "Clients".into(),
+                }],
+                ..Default::default()
+            })
+            .unwrap();
+        let groups = store.list_groups().unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].workspace, Workspace::Business);
+    }
+
+    #[test]
     fn an_import_never_overwrites_a_trusted_host_key() {
         let store = unlocked_store();
         store
@@ -603,6 +820,18 @@ mod tests {
     }
 
     #[test]
+    fn importing_the_same_setup_again_needs_no_vault() {
+        let store = unlocked_store();
+        store.import(sample()).unwrap();
+        let hosts = store.list_hosts().unwrap().len();
+
+        store.lock_vault();
+        let again = store.import(sample()).unwrap();
+        assert_eq!(again.hosts_added, 0);
+        assert_eq!(store.list_hosts().unwrap().len(), hosts);
+    }
+
+    #[test]
     fn a_secretless_import_needs_no_vault() {
         // What a PuTTY import looks like: a key-file host and an ask-password
         // host, no vault key, no stored password.
@@ -628,6 +857,8 @@ mod tests {
                     port: 22,
                     group_path: None,
                     identity: Some(0),
+                    workspace: Workspace::Private,
+                    position: None,
                 },
                 HostInput {
                     name: "asked".into(),
@@ -635,6 +866,8 @@ mod tests {
                     port: 22,
                     group_path: None,
                     identity: Some(1),
+                    workspace: Workspace::Private,
+                    position: None,
                 },
             ],
             ..Default::default()
@@ -659,12 +892,45 @@ mod tests {
     }
 
     #[test]
+    fn a_host_key_the_user_removed_is_not_brought_back() {
+        let store = unlocked_store();
+        store.import(sample()).unwrap();
+        store
+            .conn
+            .lock()
+            .execute("UPDATE known_hosts SET deleted = 1", [])
+            .unwrap();
+        store.import(sample()).unwrap();
+        let live: i64 = store
+            .conn
+            .lock()
+            .query_row(
+                "SELECT count(*) FROM known_hosts WHERE deleted = 0",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(live, 0);
+    }
+
+    #[test]
+    fn hosts_the_form_would_refuse_are_skipped() {
+        let store = unlocked_store();
+        let mut set = sample();
+        set.hosts[0].address = "evil host".into();
+        set.hosts[1].name = "bell\u{7}".into();
+        let outcome = store.import(set).unwrap();
+        assert_eq!(outcome.hosts_added, 0);
+        assert_eq!(outcome.hosts_skipped, 2);
+    }
+
+    #[test]
     fn a_failure_partway_rolls_the_whole_import_back() {
         let store = unlocked_store();
         let mut set = sample();
-        // An impossible port for the second host makes its INSERT fail the
-        // CHECK constraint, after the first host and all secrets were written.
-        set.hosts[1].port = 0;
+        // A group name no group may have fails the second host, after the
+        // first host and all secrets were written.
+        set.hosts[1].group_path = Some("bad\u{7}group".into());
         assert!(store.import(set).is_err());
         assert!(store.list_hosts().unwrap().is_empty(), "nothing sticks");
         let secrets: i64 = store
