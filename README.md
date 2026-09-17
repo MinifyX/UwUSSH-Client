@@ -171,6 +171,7 @@ has the steps.
 - [M0 spike](docs/m0-spike.md) — the throughput measurement everything else waits on
 - [Design](docs/design.md) — colors, type, Nyu, tone of voice
 - [Roadmap](docs/roadmap.md) — my wish list, without dates
+- [Security review](docs/security-review-2026-09.md) — what was checked before the first beta, and fixed
 
 ## License
 

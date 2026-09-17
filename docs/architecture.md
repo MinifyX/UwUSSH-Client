@@ -30,9 +30,13 @@ long version.
         ↑ PTY bytes (raw channel, batched every 8 ms)
 ```
 
-Private keys and passwords never cross that line. Authentication happens
-entirely in Rust. The WebView gets terminal bytes and metadata, which means an
-XSS hole in the frontend costs you disrupted sessions, not your key material.
+Private keys and passwords from the vault never cross that line. Authentication
+happens entirely in Rust, and the WebView gets terminal bytes and metadata.
+That boundary keeps secrets out of the page's memory; it does not make the page
+untrusted. The page can open a local shell and type into it, so it sits inside
+the trust boundary, and what protects it is that it only ever runs UwUSSH's own
+code under a strict content security policy. See the
+[security review](security-review-2026-09.md#the-trust-boundary).
 
 ## Terminal throughput — measured, settled
 
@@ -311,9 +315,12 @@ Updates come in two channels, Stable and Beta, as Tauri updater feeds on the
 `updates` branch of this repository. The app checks 20 seconds after start and
 every six hours, downloads a newer setup quietly and offers a restart. Only the
 setup is signed (minisign, key in `tauri.conf.json`), so the signature is
-checked on download and again on the file on disk right before it runs, the
-waiting update must sit exactly where the app put it, and the setup refuses to
-replace a newer version with an older one. While another UwUSSH window is
+checked on download and again on the file on disk right before it runs, with
+the file locked against changes from that check until the setup has started.
+The signature must also name `UwUSSH-Setup-<version>.exe` for exactly the
+version the feed offers, the waiting update must sit exactly where the app put
+it, and the setup refuses to replace a newer version with an older one — or to
+update at all when it can't tell which version is installed. While another UwUSSH window is
 running from the same file, nothing hands over, so its connections aren't cut
 off. `pnpm release` builds, signs, verifies and publishes; see
 [release-notes/README.md](../release-notes/README.md).
