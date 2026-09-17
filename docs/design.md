@@ -69,8 +69,14 @@ that fights the program's own colors is a broken terminal.
 └────────────┴──────────────────────────────────┴──────────┘
 ```
 
-- Custom title bar, no OS chrome edge. The inspector folds away, because
-  full-screen terminal has to be one keystroke out.
+- Custom title bar, no OS chrome edge. It carries its own minimize,
+  maximize/restore and close buttons at Windows' own size (46 px wide, the full
+  bar high); close turns brand pink on hover, as in the installer. The inspector
+  folds away, because full-screen terminal has to be one keystroke out.
+- Tabs sit above the terminal, one per session. The active tab has a pink top
+  edge and the terminal's background, a status dot says connecting (pulsing
+  pink), online (mint) or ended (grey), and a second tab to the same host gets a
+  small number.
 - A status dot and "last connected" sit in the host row itself.
 - **Reconnect is a banner, never a modal.** A modal over a running terminal is
   a UX bug, not a safety feature.
@@ -93,6 +99,12 @@ screen is the face: UwU eyes, `w` mouth, blush.
   `pnpm tauri icon ../../brand/uwussh-app-icon.svg` in `apps/desktop`.
 - **Sources** in `brand/` (icon, symbol, mono symbol) and
   `apps/desktop/src/components/nyu/` (React).
+
+**The installer** (`apps/setup`) is UwUMail's setup with the terminal cat: the
+same pink gradient window, Nyu waving hello, hopping while she tosses little
+terminal windows into a box with the key, cheering when it's done, and waving
+goodbye with a tear on uninstall. Its scenes share `components/nyu/` with the
+app.
 
 **Scenes** (`NyuScene`, 320 × 220), for the empty states an SSH client actually
 has:

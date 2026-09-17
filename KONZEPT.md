@@ -424,11 +424,11 @@ Die ehrliche Zeile ist die vierte: Gegen ein entsperrtes, entwendetes Gerät hil
 
 Gleiche Aufteilung wie bei UwUMail — drei Repos, GPL-3.0:
 
-| Repo                | Inhalt                                      | Status       |
-| ------------------- | ------------------------------------------- | ------------ |
-| **UwUSSH-Client**   | Die App: React-UI, Rust-Engine, Brand, Docs | angelegt     |
-| **UwUSSH-Server**   | Der Sync-Server (Axum, Docker)              | kommt mit M2 |
-| **UwUSSH-Releases** | Downloads und Update-Feed                   | kommt mit M4 |
+| Repo                | Inhalt                                      | Status                                                                                            |
+| ------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| **UwUSSH-Client**   | Die App: React-UI, Rust-Engine, Brand, Docs | angelegt                                                                                          |
+| **UwUSSH-Server**   | Der Sync-Server (Axum, Docker)              | kommt mit M2                                                                                      |
+| ~~UwUSSH-Releases~~ | Downloads und Update-Feed                   | entfällt: Releases und Feeds (Branch `updates`) liegen im Client-Repo, wie inzwischen bei UwUMail |
 
 ```
 UwUSSH-Client/
@@ -483,4 +483,6 @@ Ein Ende-zu-Ende-Lauf (`node apps/desktop/e2e/run.mjs`) klickt die echte App geg
 
 ~~Import aus PuTTY, KiTTY und `ssh_config`~~ — **erledigt.** PuTTY/KiTTY-Sessions kommen direkt aus der Registry (`.ppk`-Pfade, gefakte Ordner als Gruppen); `~/.ssh/config` wird mitsamt `Include`-Direktiven gelesen. Alle drei nutzen Datei-Keys und tippen Passwörter — kein Vault nötig. Der Import ist quellenunabhängig: Quelle wählen, Vorschau, schreiben.
 
-Als Nächstes im Rest von **M1**: Tabs und Splits, Agent-Login, ProxyJump-Ketten (der Import merkt sich den Jump-Host, verknüpft die Kette aber noch nicht). Offen: die von PuTTY schon vertrauten Host-Keys (eigenes Registry-Format, braucht einen echten Dump zum Verifizieren).
+~~Tabs, Einstellungen, Installer und Updates — die erste Beta~~ — **erledigt, als 0.1.0-beta.1.** Jede Verbindung bekommt ihren eigenen Tab, auch mehrere zum selben Server; jeder Tab hat sein eigenes Terminal und seinen eigenen Login-Versuch, Rückfragen kommen der Reihe nach. Das Fenster hat eigene Knöpfe zum Minimieren, Maximieren und Schließen (vorher fehlten sie, weil das Fenster ohne Systemrahmen läuft), und fragt vor dem Schließen nach, wenn noch Verbindungen offen sind. Die Einstellungen decken Darstellung, Terminal, Tresor und Updates ab. Windows bekommt den eigenen Nyu-Installer wie UwUMail (pro Benutzer, ohne Adminrechte, ersetzt die alte NSIS-Installation) und signierte automatische Updates mit Kanal Stabil oder Beta. Dazu eine Sicherheitsrunde: DLLs nur aus System32, strengere CSP, M0-Befehle begrenzt, alte Sessions werden beim Neuladen der Seite geschlossen.
+
+Als Nächstes im Rest von **M1**: Splits, Agent-Login, ProxyJump-Ketten (der Import merkt sich den Jump-Host, verknüpft die Kette aber noch nicht). Offen: die von PuTTY schon vertrauten Host-Keys (eigenes Registry-Format, braucht einen echten Dump zum Verifizieren).

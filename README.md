@@ -58,7 +58,14 @@ can remember and more than one machine to reach them from.
   Settings → Tone → Neutral. Security warnings are never playful, in either
   tone.
 
-> **Status:** milestone 0 is done, and the Termius import works. UwUSSH connects
+> **Status: first beta.** [UwUSSH 0.1.0-beta.1](https://github.com/MinifyX/UwUSSH-Client/releases)
+> is out for Windows, with its own installer (the same Nyu setup as UwUMail's)
+> and signed automatic updates in a Stable and a Beta channel. Every connection
+> gets its own tab, several to the same server too, and there is a settings page
+> for the look, the terminal, the vault and updates. It is a beta: expect rough
+> edges.
+>
+> Milestone 0 is done, and the Termius import works. UwUSSH connects
 > to SSH hosts — password or key file, PuTTY `.ppk` included — keeps a host
 > list, and checks host keys on first contact and every time after. The terminal
 > path is measured: 41–46 MiB/s without a stuttering frame, as long as the
@@ -69,8 +76,15 @@ can remember and more than one machine to reach them from.
 > logins, keys with their passphrases, trusted host keys and snippets — and puts
 > the secrets in an encrypted vault ([how](docs/architecture.md#termius-which-has-no-export)).
 > PuTTY and KiTTY sessions come straight out of the registry, and `~/.ssh/config`
-> is read with its `Include` directives followed. Tabs, agent login and
+> is read with its `Include` directives followed. Splits, agent login and
 > ProxyJump come next; the [roadmap](docs/roadmap.md) has the order.
+
+## Install
+
+Download `UwUSSH-Setup-<version>.exe` from the
+[releases](https://github.com/MinifyX/UwUSSH-Client/releases) and run it. It
+installs for your Windows user only, so no admin prompt, and keeps itself up to
+date. Beta or stable: Settings → Updates.
 
 ## The sync server
 
@@ -97,6 +111,7 @@ downgrade.
 | Path                   | What lives there                                |
 | ---------------------- | ----------------------------------------------- |
 | `apps/desktop`         | The Tauri 2 app (React UI + Rust shell)         |
+| `apps/setup`           | The Windows installer, updater and uninstaller  |
 | `apps/desktop/e2e`     | End-to-end run against a real SSH server        |
 | `crates/uwussh-core`   | Session engine: SSH, local shells, flow control |
 | `crates/uwussh-store`  | SQLite: hosts, identities, trusted host keys    |
@@ -106,6 +121,8 @@ downgrade.
 | `crates/uwussh-proto`  | Shared types between client and server          |
 | `brand/`               | Nyu: app icon, symbol, mono symbol              |
 | `docs/`                | Vision, architecture, design, roadmap           |
+| `release-notes/`       | What's new, per version                         |
+| `scripts/`             | Building the setup, releasing                   |
 
 ## Development
 
@@ -136,6 +153,15 @@ pnpm typecheck && pnpm lint
 cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 node apps/desktop/e2e/run.mjs     # end to end, Windows
 ```
+
+The installer, with the app packed inside:
+
+```bash
+pnpm build:setup                  # target/release/UwUSSH-Setup-<version>.exe
+```
+
+Releasing is `pnpm release`; [release-notes/README.md](release-notes/README.md)
+has the steps.
 
 ## Documentation
 

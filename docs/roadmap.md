@@ -42,7 +42,13 @@ The point where I can stop using anything else.
   PuTTY's own and wants a real dump to verify before it is promised. And
   ProxyJump: `ssh_config` records the jump host, but linking the chain is the
   ProxyJump feature below, not the import.
-- Tabs and splits, agent auth (Pageant, `\\.\pipe\openssh-ssh-agent`,
+- **Tabs are done.** Every connection gets its own tab, several to the same
+  server too, each with its own terminal and its own login; closing one leaves
+  the others alone. Keyboard: Ctrl+Shift+T/W/D, Ctrl+Tab, Ctrl+Shift+1…9. See
+  [architecture](architecture.md#tabs).
+- **Settings are done**: theme and animations, terminal font size, cursor,
+  scrollback, copy and paste keys, locking the vault, the update channel.
+- Still to do: splits, agent auth (Pageant, `\\.\pipe\openssh-ssh-agent`,
   1Password), ProxyJump chains
 - Snippets, broadcast input, themes, the command palette
 - **Connecting with vault credentials is done.** An imported host logs in with
@@ -69,7 +75,12 @@ The point where I can stop using anything else.
 
 ## M4 · Polish
 
-- Updater and `UwUSSH-Releases`, portable build
+- **The installer and the updater are done, early**, for the first beta
+  (0.1.0-beta.1): UwUSSH's own Windows setup, the same as UwUMail's, and
+  signed automatic updates in a Stable and a Beta channel. Releases and feeds
+  live in this repository, so there is no `UwUSSH-Releases`. See
+  [architecture](architecture.md#installer-and-updates).
+- Portable build
 - Linux and macOS builds
 - Onboarding, accessibility pass, the full Nyu scene set
 

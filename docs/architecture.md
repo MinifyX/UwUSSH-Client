@@ -260,6 +260,64 @@ file path. If the host needs a vault secret and the vault is locked, connecting
 stops with `vault-locked`, and the app asks for the master password and
 reconnects.
 
+## Tabs
+
+Every session has its own tab, and every tab its own xterm.js terminal and
+`TerminalDriver`. Clicking a host always opens a new tab, so several
+connections to the same server run side by side; a small number tells them
+apart. Background tabs stay mounted with `display: none` and keep streaming, so
+switching is instant and nothing scrolls out of view while you look elsewhere;
+the resize observer refits a tab once it shows again.
+
+A connection attempt is named after its tab, not its host. A verified
+connection that waits for a password is keyed by that name in the
+`SessionManager`, so two tabs asking for the same host's password never answer
+each other's question. Questions are queued: one dialog at a time, and the tab
+that asks is brought to the front. Closing a tab cancels its questions, drops a
+waiting connection and closes its session.
+
+A page that loads — first start or a reload — calls `close_all_sessions`
+first: sessions of an earlier page can't be reached from the new one, and a
+flow-controlled session nobody acknowledges would otherwise hang with its SSH
+connection open.
+
+The app's shortcuts all need Ctrl and never Alt (AltGr is Ctrl+Alt on German
+keyboards), and tab shortcuts add Shift, because plain Ctrl+W belongs to bash.
+Paste keys are passed to the webview instead of xterm.js, so pasting uses the
+browser's own paste event — no clipboard permission, bracketed paste intact.
+
+## Window
+
+The window has no system frame (`decorations: false`), so the title bar draws
+minimize, maximize/restore and close itself, sized like Windows' own caption
+buttons, and double-clicking the bar maximizes. The page may do exactly that
+and no more: `capabilities/default.json` adds dragging, minimize, toggle
+maximize, close and destroy to `core:default`. Closing with open SSH
+connections asks first (Settings → Terminal can turn that off).
+
+## Installer and updates
+
+Windows gets UwUSSH's own setup, the same one UwUMail uses: a small Tauri app in
+`apps/setup` with the release build of the app packed inside (zstd). It installs
+per user into `%LOCALAPPDATA%\Programs\UwUSSH` without an admin prompt, adds
+Start menu and desktop shortcuts, registers with "Installed apps", replaces the
+standard NSIS install of 0.0.1 if it finds one, and fetches WebView2 where it is
+missing. The same executable updates (`--update`) and uninstalls
+(`--uninstall`, optionally keeping hosts and the vault). Both the setup and the
+app only load linked DLLs from System32, since they run from folders the user
+can write to.
+
+Updates come in two channels, Stable and Beta, as Tauri updater feeds on the
+`updates` branch of this repository. The app checks 20 seconds after start and
+every six hours, downloads a newer setup quietly and offers a restart. Only the
+setup is signed (minisign, key in `tauri.conf.json`), so the signature is
+checked on download and again on the file on disk right before it runs, the
+waiting update must sit exactly where the app put it, and the setup refuses to
+replace a newer version with an older one. While another UwUSSH window is
+running from the same file, nothing hands over, so its connections aren't cut
+off. `pnpm release` builds, signs, verifies and publishes; see
+[release-notes/README.md](../release-notes/README.md).
+
 ## Storage
 
 `crates/uwussh-store` keeps hosts, identities and trusted host keys in one
@@ -281,14 +339,22 @@ vault is unlocked.
   server in-process — russh's server half — and check on every commit what
   matters most: no login attempt against an untrusted or changed key, the
   password asked for only after the key checked out and sent over that same
-  connection, keystroke order, resize, remote exit, and an 8 MiB flood that
-  arrives complete under a deliberately slow renderer.
+  connection, keystroke order, resize, remote exit, an 8 MiB flood that
+  arrives complete under a deliberately slow renderer, two tabs logging in to
+  the same server side by side, and a reloaded page closing what the old one
+  left open.
+- **The setup** is tested against a sandbox (`UWUSSH_SETUP_SANDBOX`): files,
+  shortcuts and registry entries land in a throwaway folder and key, including
+  replacing the old NSIS install and uninstalling with and without the data.
 - **End to end**, `node apps/desktop/e2e/run.mjs`, drives the real app against
   `crates/uwussh-core/examples/dev_sshd.rs` over WebView2's DevTools protocol:
   adding a host, trusting its key, a wrong and a right password, a 32 MiB
   flood, the session ending, a reconnect, the server's key changing, deleting
   the host, and opening the import dialog — counting connections and password
-  attempts in the server's log. A third phase runs a separate app on a
+  attempts in the server's log. It also opens a second tab to the same server,
+  types into both, closes one while the other keeps working, maximizes and
+  restores the window, checks that closing with an open connection asks first,
+  and changes a terminal setting in the settings dialog. A third phase runs a separate app on a
   database seeded with a vault-key host (via the `seed_vault_key` example) and
   a `dev_sshd` that authorizes the key: connecting unlocks the vault, trusts
   the key and logs in with the vault key, and the server's log confirms an
