@@ -8,6 +8,7 @@ import {
   type KeyRecord,
   type PickedKey,
 } from '../../lib/keys';
+import { useCloseGuard } from '../CloseGuard';
 import { Modal } from '../Modal';
 import { VaultDialog } from '../VaultDialog';
 import { KeygenPanel, type Step } from './KeygenPanel';
@@ -29,6 +30,13 @@ export function KeygenDialog({
 }) {
   const [step, setStep] = useState<Step>('settings');
   const [vault, setVault] = useState<{ resolve: (open: boolean) => void } | null>(null);
+  const guard = useCloseGuard(
+    step !== 'settings',
+    onClose,
+    step === 'done'
+      ? 'Der neue Schlüssel ist noch nicht gespeichert und geht dabei verloren.'
+      : 'Der gesammelte Zufall geht dabei verloren.',
+  );
 
   const store = async (token: string, label: string, passphrase: string | null) => {
     for (;;) {
@@ -54,7 +62,7 @@ export function KeygenDialog({
               : 'Zufall sammeln'
         }
         size="wide"
-        onCancel={onClose}
+        onCancel={guard.request}
       >
         <div className="keygen-dialog">
           <KeygenPanel
@@ -68,10 +76,15 @@ export function KeygenDialog({
             }}
           />
         </div>
-        <button className="settings-close icon-button" onClick={onClose} aria-label="Schließen">
+        <button
+          className="settings-close icon-button"
+          onClick={guard.request}
+          aria-label="Schließen"
+        >
           ×
         </button>
       </Modal>
+      {guard.dialog}
       {vault && (
         <VaultDialog
           reason="Der neue Schlüssel wird verschlüsselt im Tresor abgelegt."
@@ -98,6 +111,11 @@ export function KeyImportDialog({
   const [busy, setBusy] = useState(false);
   const [vault, setVault] = useState(false);
   const started = useRef(false);
+  const guard = useCloseGuard(
+    picked !== null,
+    onClose,
+    'Die gewählte Key-Datei wird dann nicht importiert.',
+  );
 
   const pick = async () => {
     setError(null);
@@ -160,72 +178,75 @@ export function KeyImportDialog({
   }
 
   return (
-    <Modal
-      title="Key importieren"
-      onCancel={onClose}
-      footer={
-        <>
-          <button data-secondary onClick={() => void pick()} disabled={busy}>
-            Andere Datei…
-          </button>
-          <span className="spacer" />
-          <button data-secondary onClick={onClose} disabled={busy}>
-            Abbrechen
-          </button>
-          <button
-            className="primary"
-            disabled={!picked || busy || (picked.encrypted && !passphrase)}
-            onClick={() => void submit()}
+    <>
+      <Modal
+        title="Key importieren"
+        onCancel={guard.request}
+        footer={
+          <>
+            <button data-secondary onClick={() => void pick()} disabled={busy}>
+              Andere Datei…
+            </button>
+            <span className="spacer" />
+            <button data-secondary onClick={guard.request} disabled={busy}>
+              Abbrechen
+            </button>
+            <button
+              className="primary"
+              disabled={!picked || busy || (picked.encrypted && !passphrase)}
+              onClick={() => void submit()}
+            >
+              In den Tresor legen
+            </button>
+          </>
+        }
+      >
+        {!picked ? (
+          <p className="import-note">Wähle eine Key-Datei aus …</p>
+        ) : (
+          <form
+            className="form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submit();
+            }}
           >
-            In den Tresor legen
-          </button>
-        </>
-      }
-    >
-      {!picked ? (
-        <p className="import-note">Wähle eine Key-Datei aus …</p>
-      ) : (
-        <form
-          className="form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void submit();
-          }}
-        >
-          <p className="dialog-lead">
-            <code>{picked.fileName}</code>
-            {picked.info ? ` · ${picked.info.label}` : ' · mit Passphrase geschützt'}
-          </p>
-          {picked.info && (
-            <p className="field-hint">
-              <code className="fingerprint">{picked.info.fingerprintSha256}</code>
+            <p className="dialog-lead">
+              <code>{picked.fileName}</code>
+              {picked.info ? ` · ${picked.info.label}` : ' · mit Passphrase geschützt'}
             </p>
-          )}
-          <label className="field">
-            <span>Name im Tresor</span>
-            <input value={label} onChange={(e) => setLabel(e.target.value)} />
-          </label>
-          {picked.encrypted && (
+            {picked.info && (
+              <p className="field-hint">
+                <code className="fingerprint">{picked.info.fingerprintSha256}</code>
+              </p>
+            )}
             <label className="field">
-              <span>Passphrase</span>
-              <input
-                type="password"
-                data-autofocus
-                value={passphrase}
-                autoComplete="off"
-                onChange={(e) => setPassphrase(e.target.value)}
-              />
-              <em className="field-hint">Wird mit dem Key im Tresor gespeichert.</em>
+              <span>Name im Tresor</span>
+              <input value={label} onChange={(e) => setLabel(e.target.value)} />
             </label>
-          )}
-          <button type="submit" hidden />
-        </form>
-      )}
-      {error && (
-        <p className="field-error" role="alert">
-          {error}
-        </p>
-      )}
-    </Modal>
+            {picked.encrypted && (
+              <label className="field">
+                <span>Passphrase</span>
+                <input
+                  type="password"
+                  data-autofocus
+                  value={passphrase}
+                  autoComplete="off"
+                  onChange={(e) => setPassphrase(e.target.value)}
+                />
+                <em className="field-hint">Wird mit dem Key im Tresor gespeichert.</em>
+              </label>
+            )}
+            <button type="submit" hidden />
+          </form>
+        )}
+        {error && (
+          <p className="field-error" role="alert">
+            {error}
+          </p>
+        )}
+      </Modal>
+      {guard.dialog}
+    </>
   );
 }

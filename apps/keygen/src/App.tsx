@@ -1,6 +1,7 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { KeygenPanel, type Step } from '@desktop/components/keygen/KeygenPanel';
 import { updateSettings, useSettings } from '@desktop/lib/settings';
+import { useCloseGuard } from '@desktop/components/CloseGuard';
 import { useState } from 'react';
 
 const TITLES: Record<Step, string> = {
@@ -20,6 +21,13 @@ export function App() {
   const [step, setStep] = useState<Step>('settings');
   const window = () => getCurrentWindow();
   const dark = settings.theme === 'dark';
+  const guard = useCloseGuard(
+    step !== 'settings',
+    () => void window().close(),
+    step === 'done'
+      ? 'Der neue Schlüssel ist noch nicht gespeichert und geht dabei verloren.'
+      : 'Der gesammelte Zufall geht dabei verloren.',
+  );
 
   return (
     <div className="keygen-app">
@@ -58,7 +66,7 @@ export function App() {
           </button>
           <button
             className="window-control close"
-            onClick={() => void window().close()}
+            onClick={guard.request}
             title="Schließen"
             aria-label="Schließen"
           >
@@ -75,6 +83,7 @@ export function App() {
             {TITLES[step]}
           </h1>
           <KeygenPanel onStep={setStep} />
+          {guard.dialog}
         </section>
         <p className="keygen-app-note">
           Teil von UwUSSH · Keys entstehen nur auf diesem Rechner und werden nirgends hochgeladen.

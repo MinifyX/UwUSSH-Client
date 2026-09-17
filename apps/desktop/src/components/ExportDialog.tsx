@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { asBackupFailure, exportHosts, type BackupSummary } from '../lib/backup';
 import { Modal } from './Modal';
+import { useCloseGuard } from './CloseGuard';
 import { NyuScene } from './nyu/scenes';
 import { VaultDialog } from './VaultDialog';
 
@@ -17,6 +18,11 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [vault, setVault] = useState(false);
   const [done, setDone] = useState<{ fileName: string; summary: BackupSummary } | null>(null);
+  const guard = useCloseGuard(
+    !done && password.length > 0,
+    onClose,
+    'Das eingegebene Passwort für die Datei geht dabei verloren.',
+  );
 
   const mismatch = secrets && repeat.length > 0 && password !== repeat;
   const ready = !busy && (!secrets || (password.length >= 8 && password === repeat));
@@ -96,11 +102,11 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
   return (
     <Modal
       title="Exportieren"
-      onCancel={onClose}
+      onCancel={guard.request}
       footer={
         <>
           <span className="spacer" />
-          <button data-secondary onClick={onClose} disabled={busy}>
+          <button data-secondary onClick={guard.request} disabled={busy}>
             Abbrechen
           </button>
           <button className="primary" onClick={() => void run()} disabled={!ready}>

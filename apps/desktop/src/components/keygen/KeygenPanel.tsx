@@ -45,8 +45,16 @@ export type Step = 'settings' | 'entropy' | 'generating' | 'done';
 
 type KindChoice = 'rsa' | 'ed25519' | 'ecdsa';
 
-/** Bytes of pointer samples to collect: a few seconds of play, never a chore. */
-const ENTROPY_TARGET = 3200;
+/**
+ * Moments of play to collect. A moment is a sample at least `MOMENT_MS`
+ * after the last one and `MOMENT_MOVE` away from it: a fast mouse sends a
+ * thousand samples a second, and counting those filled the bar before Nyu had
+ * a chance to pounce. This is a good quarter of a minute of chasing the dot.
+ */
+const ENTROPY_TARGET = 360;
+const MOMENT_MS = 40;
+/** In 1/16 CSS px, like the samples: 6 px. */
+const MOMENT_MOVE = 96;
 /** The most sent to Rust; older samples fold into it. */
 const ENTROPY_BUFFER = 4096;
 
@@ -94,6 +102,8 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
   const [copied, setCopied] = useState<string | null>(null);
 
   const entropy = useRef(new Uint8Array(ENTROPY_BUFFER));
+  const moments = useRef(0);
+  const lastMoment = useRef({ x: -1e6, y: -1e6, time: -1e6 });
   const written = useRef(0);
   const flush = useRef(0);
   const tokenRef = useRef<string | null>(null);
@@ -120,10 +130,23 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
       buffer[at] = written.current < ENTROPY_BUFFER ? byte : buffer[at]! ^ byte;
       written.current += 1;
     }
+    // Every sample goes into the buffer; only real moments of play fill the bar.
+    const view = new DataView(sample.buffer, sample.byteOffset, sample.byteLength);
+    const x = view.getUint16(0);
+    const y = view.getUint16(2);
+    const time = view.getUint32(8) / 1000;
+    const last = lastMoment.current;
+    const moved = Math.hypot(x - last.x, y - last.y);
+    if (time - last.time >= MOMENT_MS || time < last.time) {
+      if (moved >= MOMENT_MOVE) {
+        lastMoment.current = { x, y, time };
+        moments.current += 1;
+      }
+    }
     if (flush.current) return;
     flush.current = window.setTimeout(() => {
       flush.current = 0;
-      setCollected(written.current);
+      setCollected(moments.current);
     }, 120);
   }, []);
 
@@ -143,6 +166,8 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
       );
       entropy.current.fill(0);
       written.current = 0;
+      moments.current = 0;
+      lastMoment.current = { x: -1e6, y: -1e6, time: -1e6 };
       if (tokenRef.current) void keygenDiscard(tokenRef.current).catch(() => undefined);
       tokenRef.current = result.token;
       setGenerated(result);
@@ -552,6 +577,8 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
             setGenerated(null);
             setPrivateText(null);
             setCollected(0);
+            moments.current = 0;
+            lastMoment.current = { x: -1e6, y: -1e6, time: -1e6 };
             setStep('settings');
           }}
         >

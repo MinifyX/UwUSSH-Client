@@ -1,0 +1,4 @@
+{
+  "de": "Hotfix ✧\n\n- UwUKeygen: Private Keys im OpenSSH-Format lassen sich wieder speichern (vorher meldete Windows das Dateiformat „.*“ als unbekannt)\n- UwUKeygen: Nyu will länger spielen. Der Zufall füllt sich jetzt mit echten Bewegungen statt mit jedem Mausereignis, gut eine Viertelminute Laserpointer-Jagd\n- Dialoge schließen sich nicht mehr, wenn man daneben klickt. Wer einen Dialog mit ungespeicherten Eingaben schließt (Host-Formular, UwUKeygen, Export, Import), wird vorher gefragt",
+  "en": "Hotfix ✧\n\n- UwUKeygen: private keys in OpenSSH format can be saved again (Windows called the file type “.*” unknown)\n- UwUKeygen: Nyu wants to play longer. The randomness bar now fills with real movement rather than every mouse event, a good quarter of a minute of laser chasing\n- Dialogs no longer close when you click beside them. Closing one with unsaved input (host form, UwUKeygen, export, import) asks first"
+}

@@ -28,12 +28,16 @@ pub(crate) async fn save(
             return Some(PathBuf::from(dir).join(file_name));
         }
     }
-    let dialog = app
+    let mut dialog = app
         .dialog()
         .file()
         .set_title(title)
-        .set_file_name(file_name)
-        .add_filter(filter.name, filter.extensions);
+        .set_file_name(file_name);
+    // A filter makes Windows append its extension; a file that has none (an
+    // OpenSSH key) gets no filter, or it would be saved as "id_ed25519.*".
+    if !filter.extensions.is_empty() {
+        dialog = dialog.add_filter(filter.name, filter.extensions);
+    }
     tauri::async_runtime::spawn_blocking(move || dialog.blocking_save_file())
         .await
         .ok()

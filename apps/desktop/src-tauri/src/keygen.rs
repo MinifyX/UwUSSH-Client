@@ -239,7 +239,7 @@ pub(crate) async fn save_key_file(
     let filter = Filter {
         name: "Private Key",
         extensions: if extension.is_empty() {
-            &["*"]
+            &[]
         } else {
             std::slice::from_ref(&extension)
         },

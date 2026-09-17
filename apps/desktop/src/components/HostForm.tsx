@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useRef, useEffect, useState, type FormEvent } from 'react';
 import { keyPublicLine, listKeys, type KeyRecord } from '../lib/keys';
 import {
   deleteHost,
@@ -10,6 +10,7 @@ import {
   type SaveFailure,
   type Workspace,
 } from '../lib/session';
+import { useCloseGuard } from './CloseGuard';
 import { useSettings, workspaceName } from '../lib/settings';
 import { Icon } from './Icon';
 import { KeyImportDialog, KeygenDialog } from './keygen/KeyDialogs';
@@ -88,6 +89,30 @@ export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, o
   const [keygen, setKeygen] = useState(false);
   const [keyImport, setKeyImport] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  // What the form holds, compared with what it opened with: closing a form
+  // that changed asks first. A key only counts when the host uses keys, since
+  // the list picks one on its own once it has loaded.
+  const snapshot = JSON.stringify([
+    name,
+    address,
+    port,
+    username,
+    auth,
+    auth === 'key' ? [keySource, keyPath, keyId] : null,
+    space,
+    groupPath,
+    password ?? null,
+    forget,
+  ]);
+  const opened = useRef(snapshot);
+  const guard = useCloseGuard(
+    snapshot !== opened.current,
+    onCancel,
+    host
+      ? 'Deine Änderungen an diesem Host gehen dabei verloren.'
+      : 'Der neue Host ist noch nicht gespeichert und geht dabei verloren.',
+  );
 
   const loadKeys = (select?: string) =>
     void listKeys()
@@ -240,7 +265,7 @@ export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, o
     <>
       <Modal
         title={host ? `${host.name} bearbeiten` : 'Neuer Host'}
-        onCancel={onCancel}
+        onCancel={guard.request}
         footer={
           <>
             {host && (
@@ -249,7 +274,7 @@ export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, o
               </button>
             )}
             <span className="spacer" />
-            <button data-secondary onClick={onCancel} disabled={busy}>
+            <button data-secondary onClick={guard.request} disabled={busy}>
               Abbrechen
             </button>
             <button className="primary" onClick={() => void submit()} disabled={busy}>
@@ -480,6 +505,7 @@ export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, o
         </form>
       </Modal>
 
+      {guard.dialog}
       {vault && (
         <VaultDialog
           reason="Das Passwort wird verschlüsselt im Tresor gespeichert."

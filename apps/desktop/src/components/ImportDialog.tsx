@@ -16,6 +16,7 @@ import {
   type ImportSummary,
 } from '../lib/session';
 import { Icon } from './Icon';
+import { useCloseGuard } from './CloseGuard';
 import { Modal } from './Modal';
 import { NyuScene } from './nyu/scenes';
 import { VaultDialog } from './VaultDialog';
@@ -54,6 +55,11 @@ export function ImportDialog({ onClose, onImported }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [vaultFor, setVaultFor] = useState<(() => Promise<void>) | null>(null);
   const [password, setPassword] = useState('');
+  const closeGuard = useCloseGuard(
+    step.kind === 'preview' || step.kind === 'file-password' || step.kind === 'file-preview',
+    onClose,
+    'Der Import wird dann nicht ausgeführt.',
+  );
 
   useEffect(() => {
     void guard(async () => {
@@ -137,7 +143,7 @@ export function ImportDialog({ onClose, onImported }: Props) {
 
   return (
     <>
-      <Modal title={title} onCancel={onClose} footer={footer()}>
+      <Modal title={title} onCancel={closeGuard.request} footer={footer()}>
         {error && (
           <p className="field-error" role="alert">
             {error}
@@ -145,6 +151,7 @@ export function ImportDialog({ onClose, onImported }: Props) {
         )}
         {body()}
       </Modal>
+      {closeGuard.dialog}
       {vaultFor && (
         <VaultDialog
           reason="Die importierten Passwörter und Keys landen verschlüsselt im Tresor."
@@ -258,7 +265,7 @@ export function ImportDialog({ onClose, onImported }: Props) {
         return (
           <>
             <span className="spacer" />
-            <button data-secondary onClick={onClose}>
+            <button data-secondary onClick={closeGuard.request}>
               Abbrechen
             </button>
             <button
@@ -275,7 +282,7 @@ export function ImportDialog({ onClose, onImported }: Props) {
         return (
           <>
             <span className="spacer" />
-            <button data-secondary onClick={onClose}>
+            <button data-secondary onClick={closeGuard.request}>
               Abbrechen
             </button>
             <button
@@ -293,7 +300,7 @@ export function ImportDialog({ onClose, onImported }: Props) {
         return (
           <>
             <span className="spacer" />
-            <button data-secondary onClick={onClose}>
+            <button data-secondary onClick={closeGuard.request}>
               Abbrechen
             </button>
             <button
@@ -319,7 +326,7 @@ export function ImportDialog({ onClose, onImported }: Props) {
         return (
           <>
             <span className="spacer" />
-            <button data-secondary onClick={onClose}>
+            <button data-secondary onClick={closeGuard.request}>
               Abbrechen
             </button>
           </>

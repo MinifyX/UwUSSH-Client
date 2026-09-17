@@ -20,7 +20,7 @@ const FOCUSABLE = 'input, button, textarea, select, [href], [tabindex]:not([tabi
 const stack: HTMLElement[] = [];
 
 /**
- * A dialog. Escape and a click on the backdrop cancel; focus moves into the
+ * A dialog. Escape cancels, a click beside it doesn't; focus moves into the
  * dialog on open, stays inside it while it is open, and goes back where it was
  * on close.
  *
@@ -39,6 +39,10 @@ export function Modal({
   footer,
 }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
+  // Escape calls the latest onCancel, not the one from when the dialog
+  // opened: a form that asks before closing only knows once something changed.
+  const cancelRef = useRef(onCancel);
+  cancelRef.current = onCancel;
   // Dialogs stack (the host form opens the vault): each needs its own title id.
   const titleId = useId();
 
@@ -62,7 +66,7 @@ export function Modal({
       if (stack[stack.length - 1] !== dialog) return;
       if (event.key === 'Escape') {
         event.preventDefault();
-        onCancel();
+        cancelRef.current();
         return;
       }
       if (event.key !== 'Tab') return;
@@ -97,7 +101,9 @@ export function Modal({
   }, []);
 
   return (
-    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onCancel()}>
+    // A click beside the dialog does nothing: closing by accident threw away
+    // whatever was typed into it. Escape and the dialog's own buttons close.
+    <div className="modal-backdrop">
       <div
         ref={dialogRef}
         className="modal"

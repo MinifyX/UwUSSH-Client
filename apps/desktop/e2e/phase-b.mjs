@@ -45,7 +45,44 @@ check(
   'typing into the field clears its error',
   await page.eval(`!document.querySelector('.field-error')`),
 );
+// A click beside the form keeps it open.
+for (const type of ['mousePressed', 'mouseReleased']) {
+  await page.send('Input.dispatchMouseEvent', {
+    type,
+    x: 8,
+    y: 700,
+    button: 'left',
+    clickCount: 1,
+  });
+}
+await sleep(300);
+check(
+  'a click beside a dialog does not close it',
+  await page.eval(
+    `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Neuer Host'`,
+  ),
+);
+// Closing a form with something typed into it asks first.
 await page.key('Escape');
+await page.waitFor(
+  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Wirklich schließen?'`,
+  { what: 'close question' },
+);
+check('closing a changed form asks first', true);
+await page.click('.modal-footer button', 'Weiter bearbeiten');
+await sleep(200);
+check(
+  '"keep editing" keeps what was typed',
+  await page.eval(
+    `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Neuer Host'`,
+  ),
+);
+await page.key('Escape');
+await page.waitFor(
+  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Wirklich schließen?'`,
+  { what: 'close question again' },
+);
+await page.click('.modal-footer button', 'Schließen');
 await page.waitFor(`!document.querySelector('.modal')`, { what: 'form closed' });
 
 // ── The host key changed ────────────────────────────────────────────────────
