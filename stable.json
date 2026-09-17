@@ -1,0 +1,11 @@
+{
+  "version": "0.0.0",
+  "notes": "{\"de\":\"Noch keine stabile Version. Die Betas gibt es im Kanal Beta.\",\"en\":\"No stable version yet. Betas are on the Beta channel.\"}",
+  "pub_date": "2026-09-17T08:07:16Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzEzekpMQ25tZm1jNWlPVVFmVnV3Qkx2VVdhM2N6Sjl5NklIRVQ2MjFBYWJlalluaFFONy9aTVExaEVCRlJ1Zjk1YUN4VjRrQ0xCVXIrRE9zcWt4WHdBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5NjMyNDMyCWZpbGU6VXdVU1NILVNldHVwLTAuMS4wLWJldGEuMS5leGUKMlN4eWFMU1Y5Qk1LZDVzSmVRL0NzbGZiaHJXaW1vOGZHaS90OUdlK096MURIK1MrRldsUDczRkpCc0pKZTk4Z044aUhrLzJ5ZHd5UWxOUFd2MndKQVE9PQo=",
+      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.0-beta.1/UwUSSH-Setup-0.1.0-beta.1.exe"
+    }
+  }
+}
