@@ -7,6 +7,8 @@ use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, State};
 use uwussh_core::SessionId;
 
+const MAX_PAYLOAD_MIB: u32 = 256;
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct M0Scenario {
@@ -32,6 +34,11 @@ pub(crate) async fn spawn_m0_session(
     rows: u16,
     on_data: Channel<InvokeResponseBody>,
 ) -> CommandResult<SessionId> {
+    // The measurement uses 64 MiB. Anything far beyond that is not a
+    // measurement but a way to fill the disk with flood files.
+    if !(1..=MAX_PAYLOAD_MIB).contains(&scenario.payload_mib) {
+        return Err(format!("payload must be 1 to {MAX_PAYLOAD_MIB} MiB"));
+    }
     let sink = ChannelSink { channel: on_data };
     let bytes = scenario.payload_mib as usize * 1024 * 1024;
     tracing::info!(?scenario, "M0 scenario starting");

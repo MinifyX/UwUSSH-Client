@@ -100,6 +100,21 @@ fn as_secret(bytes: Revealed) -> Result<Zeroizing<String>, ConnectFailure> {
         .map_err(|_| internal("a stored secret is not valid text"))
 }
 
+/// How a connection attempt is named: the tab it belongs to. Short and plain,
+/// since it only keys a map.
+fn check_attempt(attempt: &str) -> Result<(), ConnectFailure> {
+    let plain = !attempt.is_empty()
+        && attempt.len() <= 64
+        && attempt
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+    if plain {
+        Ok(())
+    } else {
+        Err(internal("invalid connection attempt"))
+    }
+}
+
 fn key_for(address: &str, port: u16) -> (String, u16) {
     (address.trim().to_ascii_lowercase(), port)
 }
@@ -108,12 +123,14 @@ fn key_for(address: &str, port: u16) -> (String, u16) {
 pub(crate) async fn connect_host(
     state: State<'_, AppState>,
     id: Uuid,
+    attempt: String,
     cols: u16,
     rows: u16,
     secret: Option<String>,
     on_data: Channel<InvokeResponseBody>,
 ) -> Result<SessionId, ConnectFailure> {
     let secret = secret.map(Zeroizing::new);
+    check_attempt(&attempt)?;
 
     let host = state
         .store
@@ -163,7 +180,7 @@ pub(crate) async fn connect_host(
     match state
         .sessions
         .spawn_ssh(
-            &host.id.to_string(),
+            &attempt,
             target,
             cols,
             rows,
@@ -241,10 +258,10 @@ pub(crate) fn trust_host_key(
     Ok(())
 }
 
-/// The user closed a password or passphrase prompt instead of answering it:
-/// close the verified connection that was waiting for the answer, rather than
-/// leaving it for the server to time out.
+/// The user closed a password or passphrase prompt instead of answering it, or
+/// closed the tab: close the verified connection that was waiting for the
+/// answer, rather than leaving it for the server to time out.
 #[tauri::command]
-pub(crate) fn cancel_connect(state: State<'_, AppState>, id: Uuid) {
-    state.sessions.abandon_ssh(&id.to_string());
+pub(crate) fn cancel_connect(state: State<'_, AppState>, attempt: String) {
+    state.sessions.abandon_ssh(&attempt);
 }

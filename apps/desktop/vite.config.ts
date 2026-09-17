@@ -15,6 +15,8 @@ export default defineConfig({
   },
   build: {
     target: 'chrome110',
-    sourcemap: true,
+    // Source maps would be packed into the release binary for nothing: the
+    // source is public anyway, and dev builds have them regardless.
+    sourcemap: false,
   },
 });

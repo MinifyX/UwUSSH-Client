@@ -213,6 +213,116 @@ check(
 );
 await shot('10-reconnected');
 
+// ── Tabs: a second connection to the same server, side by side ─────────────
+const terminalHas = (text) =>
+  `(() => { const t = window.__uwusshDriver?.term.buffer.active; if (!t) return false; for (let i = 0; i < t.length; i++) if (t.getLine(i)?.translateToString().includes(${JSON.stringify(text)})) return true; })()`;
+const tabCount = () => page.eval(`document.querySelectorAll('.tab').length`);
+const tabsBefore = await tabCount();
+check(
+  'the start-up shell and the SSH connection each have a tab',
+  tabsBefore === 2,
+  `${tabsBefore} tabs`,
+);
+
+await page.click('.host .host-name', 'dev-sshd');
+await page.waitFor(`document.querySelector('.modal-title')?.textContent === 'Passwort'`, {
+  what: 'password prompt for the second tab',
+  timeout: 15_000,
+});
+check('clicking the host again opens another tab', (await tabCount()) === tabsBefore + 1);
+check(
+  'the second tab to the same host is numbered',
+  (await page.text('.tab[data-active="true"] .tab-ordinal')) === '2',
+  await page.text('.tab[data-active="true"]'),
+);
+await page.type('nyu');
+await page.key('Enter');
+await page.waitFor(terminalHas('toy shell'), { what: 'banner in the second tab', timeout: 15_000 });
+check(
+  'two sessions to the same server are live at once',
+  (await page.eval(
+    `[...document.querySelectorAll('.tab[data-status="live"]')].filter(t => t.textContent.includes('dev-sshd')).length`,
+  )) === 2,
+);
+
+await page.eval(`window.__uwusshDriver.term.focus()`);
+await page.type('help');
+await page.key('Enter');
+await page.waitFor(terminalHas('flood <MiB>'), { what: 'help output in the second tab' });
+await shot('10b-second-tab');
+
+// Back to the first connection: its terminal is its own.
+await page.click('.tab .tab-select', 'dev-sshd');
+await sleep(300);
+check(
+  'switching tabs shows the other terminal',
+  !(await page.text('.tab[data-active="true"] .tab-ordinal')) &&
+    !(await page.eval(terminalHas('flood <MiB>'))),
+);
+
+// Closing the second tab leaves the first one working.
+await page.eval(
+  `[...document.querySelectorAll('.tab')].find(t => t.querySelector('.tab-ordinal')?.textContent === '2').querySelector('.tab-close').click()`,
+);
+await sleep(300);
+check('closing a tab removes it', (await tabCount()) === tabsBefore);
+await page.eval(`window.__uwusshDriver.term.focus()`);
+await page.type('help');
+await page.key('Enter');
+await page.waitFor(terminalHas('flood <MiB>'), { what: 'the first tab still answering' });
+check('the other connection keeps working after a tab closed', true);
+
+// ── Window controls ─────────────────────────────────────────────────────────
+const controls = await page.eval(
+  `[...document.querySelectorAll('.window-control')].map(b => b.getAttribute('aria-label')).join(',')`,
+);
+check(
+  'the title bar has minimize, maximize and close',
+  controls === 'Minimieren,Maximieren,Schließen',
+  controls,
+);
+await page.click('.window-control[aria-label="Maximieren"]');
+await page.waitFor(`document.querySelector('.window-control[aria-label="Verkleinern"]')`, {
+  what: 'maximized window',
+});
+check('maximize works and offers to restore', true);
+await page.click('.window-control[aria-label="Verkleinern"]');
+await page.waitFor(`document.querySelector('.window-control[aria-label="Maximieren"]')`, {
+  what: 'restored window',
+});
+await page.click('.window-control[aria-label="Schließen"]');
+await page.waitFor(`document.querySelector('.modal-title')?.textContent === 'UwUSSH schließen?'`, {
+  what: 'close confirmation',
+});
+check('closing with an open connection asks first', true);
+await shot('10c-close');
+await page.click('.modal-footer button', 'Abbrechen');
+await page.waitFor(`!document.querySelector('.modal')`, { what: 'confirmation dismissed' });
+
+// ── Settings ────────────────────────────────────────────────────────────────
+await page.click('.titlebar-action[aria-label="Einstellungen"]');
+await page.waitFor(`document.querySelector('.modal-title')?.textContent === 'Einstellungen'`, {
+  what: 'settings',
+});
+await page.click('.settings-nav button', 'Terminal');
+await page.click('.segmented button', 'Strich');
+await sleep(200);
+check(
+  'a terminal setting reaches the open terminals right away',
+  (await page.eval(`window.__uwusshDriver.term.options.cursorStyle`)) === 'bar',
+);
+await page.click('.segmented button', 'Block');
+await page.click('.settings-nav button', 'Updates');
+check(
+  'a beta build is on the beta channel',
+  await page.eval(
+    `[...document.querySelectorAll('.segmented button')].find(b => b.textContent === 'Beta')?.getAttribute('aria-checked') === 'true'`,
+  ),
+);
+await shot('10d-settings');
+await page.key('Escape');
+await page.waitFor(`!document.querySelector('.modal')`, { what: 'settings closed' });
+
 // ── Import: preview first, and the vault is asked before anything is written ─
 await page.click('.sidebar-head [aria-label="Hosts importieren"]');
 await page.waitFor(`document.querySelector('.modal-title')?.textContent === 'Importieren'`, {

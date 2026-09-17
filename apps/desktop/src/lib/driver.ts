@@ -50,6 +50,13 @@ const NYU_THEME = {
 
 export type Renderer = 'webgl' | 'canvas';
 
+export type TerminalOptions = {
+  fontSize: number;
+  cursorStyle: 'block' | 'bar' | 'underline';
+  cursorBlink: boolean;
+  scrollback: number;
+};
+
 /** How long output has to pause before a partial ack chunk is sent anyway. */
 const ACK_IDLE_MS = 20;
 
@@ -78,15 +85,13 @@ export class TerminalDriver {
   private pendingAck = 0;
   private ackTimer: number | undefined;
 
-  constructor(host: HTMLElement) {
+  constructor(host: HTMLElement, options: TerminalOptions) {
     this.term = new Terminal({
       fontFamily: "'JetBrains Mono', ui-monospace, Consolas, monospace",
-      fontSize: 13,
       lineHeight: 1.25,
-      cursorBlink: true,
-      scrollback: 10_000,
       theme: NYU_THEME,
       allowProposedApi: true,
+      ...options,
     });
 
     this.term.loadAddon(this.fit);
@@ -98,11 +103,33 @@ export class TerminalDriver {
       if (this.sessionId) void writeSession(this.sessionId, data);
     });
 
-    this.resizeObserver = new ResizeObserver(() => {
-      this.fit.fit();
-      if (this.sessionId) void resizeSession(this.sessionId, this.term.cols, this.term.rows);
-    });
+    // A tab in the background has no size (display: none). Fitting then
+    // would propose nothing; the observer fires again once the tab shows.
+    this.resizeObserver = new ResizeObserver(() => this.refit());
     this.resizeObserver.observe(host);
+  }
+
+  /** Font size, cursor and scrollback from the settings, applied to a running terminal. */
+  applyOptions(options: TerminalOptions) {
+    const { term } = this;
+    if (term.options.fontSize !== options.fontSize) term.options.fontSize = options.fontSize;
+    if (term.options.cursorStyle !== options.cursorStyle)
+      term.options.cursorStyle = options.cursorStyle;
+    if (term.options.cursorBlink !== options.cursorBlink)
+      term.options.cursorBlink = options.cursorBlink;
+    if (term.options.scrollback !== options.scrollback)
+      term.options.scrollback = options.scrollback;
+    this.refit();
+  }
+
+  private refit() {
+    const proposed = this.fit.proposeDimensions();
+    if (!proposed || !Number.isFinite(proposed.cols) || proposed.cols < 2) return;
+    const { cols, rows } = this.term;
+    this.fit.fit();
+    if (this.sessionId && (cols !== this.term.cols || rows !== this.term.rows)) {
+      void resizeSession(this.sessionId, this.term.cols, this.term.rows);
+    }
   }
 
   get session(): SessionId | null {

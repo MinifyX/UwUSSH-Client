@@ -6,12 +6,16 @@
 //!
 //! - [`sessions`] — terminal I/O for any session
 //! - [`hosts`] — the host list, connecting, and host key decisions
+//! - [`import`] — the vault and importing other clients' setups
+//! - [`system`] — updates, links, a fresh start for a reloaded page
 //! - [`m0`] — the throughput measurement
 
 mod hosts;
 mod import;
 mod m0;
 mod sessions;
+mod system;
+mod updates;
 
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -58,6 +62,8 @@ pub(crate) fn err(e: impl std::fmt::Display) -> String {
 }
 
 pub fn run() {
+    system::restrict_dll_search();
+
     tracing_subscriber::fmt()
         .with_env_filter(
             std::env::var("UWUSSH_LOG").unwrap_or_else(|_| "uwussh=debug,warn".to_string()),
@@ -65,7 +71,14 @@ pub fn run() {
         .init();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            if updates::apply_pending_on_start(app.handle()) {
+                // The downloaded setup replaces this version and starts UwUSSH again.
+                std::process::exit(0);
+            }
+
             // Same place as UwUMail keeps its database:
             // %APPDATA%\app.uwussh.desktop\uwussh.db on Windows.
             // UWUSSH_DB points elsewhere, so trying things out never touches
@@ -82,6 +95,7 @@ pub fn run() {
                 store: Arc::new(store),
                 presented_keys: Mutex::new(HashMap::new()),
             });
+            updates::start(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -104,6 +118,12 @@ pub fn run() {
             import::available_imports,
             import::scan_import,
             import::run_import,
+            system::close_all_sessions,
+            system::set_update_channel,
+            system::update_status,
+            system::check_for_updates,
+            system::install_update,
+            system::open_project_page,
             m0::spawn_m0_session,
             m0::m0_autorun,
             m0::m0_finish,

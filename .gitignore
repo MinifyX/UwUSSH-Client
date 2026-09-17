@@ -5,7 +5,7 @@ node_modules/
 dist/
 target/
 *.tsbuildinfo
-apps/desktop/src-tauri/gen/schemas/
+apps/*/src-tauri/gen/schemas/
 
 # Local environment
 .env

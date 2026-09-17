@@ -2,4 +2,4 @@ dist/
 target/
 pnpm-lock.yaml
 brand/
-apps/desktop/src-tauri/gen/
+apps/*/src-tauri/gen/

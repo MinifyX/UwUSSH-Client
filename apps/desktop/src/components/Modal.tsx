@@ -4,9 +4,11 @@ type ModalProps = {
   title: string;
   /** Security warnings get their own look, so they never blend in with routine dialogs. */
   tone?: 'default' | 'warning';
+  /** Settings need room for a section list next to the content. */
+  size?: 'default' | 'wide';
   onCancel: () => void;
   children: ReactNode;
-  footer: ReactNode;
+  footer?: ReactNode;
 };
 
 const FOCUSABLE = 'input, button, textarea, select, [href], [tabindex]:not([tabindex="-1"])';
@@ -22,7 +24,14 @@ const FOCUSABLE = 'input, button, textarea, select, [href], [tabindex]:not([tabi
  * behind let Enter activate whatever was focused in the background: in the
  * end-to-end test that was the host row, and it started a second connection.
  */
-export function Modal({ title, tone = 'default', onCancel, children, footer }: ModalProps) {
+export function Modal({
+  title,
+  tone = 'default',
+  size = 'default',
+  onCancel,
+  children,
+  footer,
+}: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -82,6 +91,7 @@ export function Modal({ title, tone = 'default', onCancel, children, footer }: M
         ref={dialogRef}
         className="modal"
         data-tone={tone}
+        data-size={size}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
@@ -91,7 +101,7 @@ export function Modal({ title, tone = 'default', onCancel, children, footer }: M
           {title}
         </h2>
         <div className="modal-body">{children}</div>
-        <div className="modal-footer">{footer}</div>
+        {footer && <div className="modal-footer">{footer}</div>}
       </div>
     </div>
   );

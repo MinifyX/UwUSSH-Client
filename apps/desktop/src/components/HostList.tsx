@@ -4,11 +4,12 @@ import { Nyu } from './nyu/Nyu';
 
 type Props = {
   hosts: HostRecord[];
-  /** `'shell'` for the local shell, a host id, or nothing. */
+  /** `'shell'` for the local shell, a host id, or nothing: what the active tab shows. */
   activeId: string | null;
-  /** The active session has ended; its host no longer counts as connected. */
-  activeEnded: boolean;
-  connectingId: string | null;
+  /** Hosts with at least one live session in some tab. */
+  onlineIds: ReadonlySet<string>;
+  /** Hosts a tab is connecting to right now. */
+  connectingIds: ReadonlySet<string>;
   onConnect: (host: HostRecord) => void;
   onLocalShell: () => void;
   onAdd: () => void;
@@ -40,8 +41,8 @@ function matches(host: HostRecord, query: string): boolean {
 export function HostList({
   hosts,
   activeId,
-  activeEnded,
-  connectingId,
+  onlineIds,
+  connectingIds,
   onConnect,
   onLocalShell,
   onAdd,
@@ -106,17 +107,14 @@ export function HostList({
                 <button
                   className="host"
                   aria-current={activeId === host.id}
-                  aria-busy={connectingId === host.id}
+                  aria-busy={connectingIds.has(host.id)}
                   onClick={() => onConnect(host)}
-                  title={`${host.username}@${host.address}:${host.port}`}
+                  title={`${host.username}@${host.address}:${host.port} · öffnet einen neuen Tab`}
                 >
-                  <i
-                    className="dot"
-                    data-state={activeId === host.id && !activeEnded ? 'online' : 'idle'}
-                  />
+                  <i className="dot" data-state={onlineIds.has(host.id) ? 'online' : 'idle'} />
                   <span className="host-name">{host.name}</span>
                   <span className="meta">
-                    {connectingId === host.id
+                    {connectingIds.has(host.id)
                       ? 'verbindet…'
                       : host.port === 22
                         ? host.address

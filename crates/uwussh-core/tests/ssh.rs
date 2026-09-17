@@ -798,3 +798,119 @@ async fn the_session_ends_when_the_remote_shell_exits() {
     assert!(metrics.child_exited, "the exit status was not seen");
     manager.close(id).unwrap();
 }
+
+// ── Tabs ────────────────────────────────────────────────────────────────────
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn two_tabs_log_in_to_the_same_server_side_by_side() {
+    let sshd = start_sshd().await;
+    let manager = SessionManager::new();
+    let trusted = Some(sshd.fingerprint.as_str());
+
+    // Both tabs get asked for the password before either answers.
+    for tab in ["tab-1", "tab-2"] {
+        let err = manager
+            .spawn_ssh(
+                tab,
+                target(&sshd, SshAuth::Password(None), trusted),
+                COLS,
+                ROWS,
+                Screen::default(),
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(err, SshError::PasswordRequired), "{err:?}");
+    }
+    assert_eq!(
+        sshd.log.lock().connections,
+        2,
+        "each tab verifies its own connection"
+    );
+
+    let (first, second) = (Screen::default(), Screen::default());
+    let one = manager
+        .spawn_ssh(
+            "tab-1",
+            target(&sshd, password(PASSWORD), trusted),
+            COLS,
+            ROWS,
+            first.clone(),
+        )
+        .await
+        .expect("first tab");
+    let two = manager
+        .spawn_ssh(
+            "tab-2",
+            target(&sshd, password(PASSWORD), trusted),
+            COLS,
+            ROWS,
+            second.clone(),
+        )
+        .await
+        .expect("second tab");
+    assert_ne!(one, two);
+    assert_eq!(
+        sshd.log.lock().connections,
+        2,
+        "each answer went over its own tab's connection"
+    );
+
+    for (id, screen) in [(one, &first), (two, &second)] {
+        assert!(
+            render_until(
+                &manager,
+                id,
+                screen,
+                usize::MAX,
+                Duration::from_secs(5),
+                |s| s.text().contains("welcome")
+            )
+            .await,
+            "a tab never got its shell"
+        );
+    }
+
+    // Closing one tab leaves the other one working.
+    manager.close(one).unwrap();
+    assert!(manager.write(two, b"still here\r").is_ok());
+    assert_eq!(manager.ids(), vec![two]);
+    manager.close(two).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_new_page_closes_what_the_old_one_left_open() {
+    let sshd = start_sshd().await;
+    let (manager, id, _screen) = open_with_password(&sshd).await;
+    let trusted = Some(sshd.fingerprint.as_str());
+    let _ = manager
+        .spawn_ssh(
+            "waiting-tab",
+            target(&sshd, SshAuth::Password(None), trusted),
+            COLS,
+            ROWS,
+            Screen::default(),
+        )
+        .await
+        .unwrap_err();
+
+    assert_eq!(manager.close_all(), 1);
+    assert!(manager.ids().is_empty());
+    assert!(
+        manager.write(id, b"ls\r").is_err(),
+        "a closed session still takes input"
+    );
+
+    // The waiting connection went too: answering now needs a new one.
+    let id = manager
+        .spawn_ssh(
+            "waiting-tab",
+            target(&sshd, password(PASSWORD), trusted),
+            COLS,
+            ROWS,
+            Screen::default(),
+        )
+        .await
+        .expect("fresh login");
+    assert_eq!(sshd.log.lock().connections, 3);
+    manager.close(id).unwrap();
+}

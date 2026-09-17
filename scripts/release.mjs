@@ -1,0 +1,232 @@
+// Publishes the UwUSSH version in tauri.conf.json for Windows, from this PC.
+//
+//   pnpm release              build and sign the setup, check it, publish it
+//   pnpm release --no-build   publish the setup already in target/release
+//
+// Needs a clean tree whose HEAD carries the pushed tag v<version>,
+// release-notes/<version>.json, the GitHub CLI signed in with write access and
+// the update signing key: TAURI_SIGNING_PRIVATE_KEY + TAURI_SIGNING_PRIVATE_KEY_PASSWORD,
+// or a folder with uwussh-update.key and PASSWORT.txt in UWUSSH_UPDATE_KEY_DIR
+// (default: Documents\UwUSSH-Update-Schluessel).
+//
+// Creates the GitHub release with the setup and updates the feeds on the
+// `updates` branch, creating that branch the first time.
+
+import { execFileSync } from 'node:child_process';
+import { createHash, createPublicKey, verify } from 'node:crypto';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { FEED_BRANCH, REPOSITORY, releaseFeeds } from './release-feeds.mjs';
+
+const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+const git = (args, cwd = root) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+const fail = (message) => {
+  console.error(`\n✗ ${message}`);
+  process.exit(1);
+};
+
+let token; // GitHub token for the API, looked up once
+const build = !process.argv.includes('--no-build');
+const conf = JSON.parse(readFileSync(join(root, 'apps/desktop/src-tauri/tauri.conf.json'), 'utf8'));
+const version = conf.version;
+const tag = `v${version}`;
+const setupName = `UwUSSH-Setup-${version}.exe`;
+const setup = join(root, 'target', 'release', setupName);
+
+console.log(`\n▸ Checking UwUSSH ${version}`);
+if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/.test(version)) fail(`Unexpected version ${version}`);
+if (git(['status', '--porcelain', '--untracked-files=no'])) {
+  fail('The working tree has uncommitted changes.');
+}
+const head = git(['rev-parse', 'HEAD']);
+let tagged = '';
+try {
+  tagged = git(['rev-parse', `${tag}^{commit}`]);
+} catch {
+  fail(`Tag ${tag} is missing. Tag the release commit and push the tag first.`);
+}
+if (tagged !== head) fail(`HEAD isn't ${tag}. Check out the tag first.`);
+const pushed = git(['ls-remote', '--tags', 'origin', `refs/tags/${tag}`]).split(/\s/)[0];
+if (pushed !== git(['rev-parse', `refs/tags/${tag}`])) fail(`Push ${tag} first.`);
+if (!ghToken()) fail('Sign in to the GitHub CLI first (gh auth login).');
+if (await github(`releases/tags/${tag}`)) fail(`${tag} is already released.`);
+const notesFile = join(root, 'release-notes', `${version}.json`);
+if (!existsSync(notesFile)) fail(`release-notes/${version}.json is missing.`);
+const notes = JSON.parse(readFileSync(notesFile, 'utf8'));
+if (typeof notes.de !== 'string' || typeof notes.en !== 'string') {
+  fail('The release notes need de and en.');
+}
+
+if (build) {
+  const env = { ...process.env, ...signingKey() };
+  console.log('\n▸ Building and signing the setup');
+  execFileSync(process.execPath, [join(root, 'scripts', 'build-setup.mjs')], {
+    cwd: root,
+    stdio: 'inherit',
+    env,
+  });
+} else if (!existsSync(setup)) {
+  fail(`${setup} is missing. Run without --no-build.`);
+} else if (statSync(setup).mtimeMs < Number(git(['log', '-1', '--format=%ct'])) * 1000) {
+  fail('The setup in target/release is older than the release commit. Run without --no-build.');
+}
+
+console.log('\n▸ Checking the signature against the updater key');
+if (!existsSync(`${setup}.sig`)) fail(`${setup}.sig is missing: the setup wasn't signed.`);
+const signature = readFileSync(`${setup}.sig`, 'utf8').trim();
+checkSignature(readFileSync(setup), signature, conf.plugins.updater.pubkey);
+console.log('  ✓ matches tauri.conf.json');
+
+const work = mkdtempSync(join(tmpdir(), 'uwussh-release-'));
+try {
+  console.log(`\n▸ Creating the release on ${REPOSITORY}`);
+  const notesPath = join(work, 'notes.md');
+  writeFileSync(notesPath, `## Deutsch\n\n${notes.de}\n\n## English\n\n${notes.en}\n`);
+  const channel = version.includes('-') ? '--prerelease' : '--latest';
+  execFileSync(
+    'gh',
+    [
+      'release',
+      'create',
+      tag,
+      setup,
+      '--repo',
+      REPOSITORY,
+      '--verify-tag',
+      '--title',
+      `UwUSSH ${version}`,
+      '--notes-file',
+      notesPath,
+      channel,
+    ],
+    { stdio: 'inherit' },
+  );
+
+  const feeds = releaseFeeds({ version, notes, setup: { name: setupName, signature } });
+  console.log(`\n▸ Updating ${Object.keys(feeds).join(', ')} on ${FEED_BRANCH}`);
+  const dir = join(work, 'feeds');
+  const remote = `https://github.com/${REPOSITORY}.git`;
+  const exists = git(['ls-remote', '--heads', remote, FEED_BRANCH], work) !== '';
+  if (exists) {
+    git(['clone', '-q', '--depth', '1', '--branch', FEED_BRANCH, remote, dir], work);
+  } else {
+    // First release: the branch holds nothing but the feeds.
+    git(['init', '-q', '-b', FEED_BRANCH, dir], work);
+    git(['remote', 'add', 'origin', remote], dir);
+    writeFileSync(
+      join(dir, 'README.md'),
+      '# Update feeds\n\nWritten by `pnpm release` on the main branch. Installed UwUSSH apps read ' +
+        '`stable.json` or `beta.json` from here, depending on their update channel.\n',
+    );
+  }
+  for (const [name, feed] of Object.entries(feeds)) {
+    writeFileSync(join(dir, name), `${JSON.stringify(feed, null, 2)}\n`);
+  }
+  git(['add', '--all'], dir);
+  git(
+    [
+      '-c',
+      'user.name=UwUSSH Release',
+      '-c',
+      'user.email=release@uwussh.invalid',
+      'commit',
+      '-qm',
+      `UwUSSH ${version}`,
+    ],
+    dir,
+  );
+  execFileSync('git', ['push', '-q', 'origin', `HEAD:${FEED_BRANCH}`], {
+    cwd: dir,
+    stdio: 'inherit',
+  });
+} finally {
+  rmSync(work, { recursive: true, force: true });
+}
+
+console.log("\n▸ Checking what's online");
+const release = await github(`releases/tags/${tag}`);
+const asset = release?.assets?.find((a) => a.name === setupName);
+if (!asset || asset.state !== 'uploaded') fail('The release has no setup.');
+if (asset.size !== statSync(setup).size) fail('The published setup has a different size.');
+const feedName = version.includes('-') ? 'beta.json' : 'stable.json';
+const file = await github(`contents/${feedName}?ref=${FEED_BRANCH}`);
+const update = file && JSON.parse(Buffer.from(file.content, 'base64').toString('utf8'));
+const platform = update?.platforms?.['windows-x86_64'];
+if (update?.version !== version || platform?.signature !== signature) {
+  fail(`${feedName} wasn't updated.`);
+}
+if (platform.url !== asset.browser_download_url) fail(`${feedName} points elsewhere.`);
+console.log(`\n✧ UwUSSH ${version} is out: ${asset.browser_download_url}`);
+console.log(`  ${feedName} updated${version.includes('-') ? ' (Beta channel)' : ''}`);
+
+/** The update signing key from the environment or the key folder. */
+function signingKey() {
+  if (process.env.TAURI_SIGNING_PRIVATE_KEY) return {};
+  const folder =
+    process.env.UWUSSH_UPDATE_KEY_DIR || join(homedir(), 'Documents', 'UwUSSH-Update-Schluessel');
+  const key = join(folder, 'uwussh-update.key');
+  if (!existsSync(key)) {
+    fail('No signing key: set TAURI_SIGNING_PRIVATE_KEY(_PASSWORD) or UWUSSH_UPDATE_KEY_DIR.');
+  }
+  const password = join(folder, 'PASSWORT.txt');
+  return {
+    TAURI_SIGNING_PRIVATE_KEY: readFileSync(key, 'utf8').trim(),
+    TAURI_SIGNING_PRIVATE_KEY_PASSWORD: existsSync(password)
+      ? readFileSync(password, 'utf8').trim()
+      : '',
+  };
+}
+
+/** Verifies a Tauri updater signature (base64 minisign) the way installed apps do. */
+function checkSignature(file, signatureBase64, pubkeyBase64) {
+  const lines = (text) => Buffer.from(text, 'base64').toString('utf8').split(/\r?\n/);
+  const pub = Buffer.from(lines(pubkeyBase64)[1], 'base64');
+  const [, signatureLine, trustedLine, globalLine] = lines(signatureBase64);
+  const sig = Buffer.from(signatureLine, 'base64');
+  if (pub.length !== 42 || sig.length !== 74) fail('Malformed key or signature.');
+  if (!sig.subarray(2, 10).equals(pub.subarray(2, 10))) {
+    fail('The setup was signed with a different key.');
+  }
+  const key = createPublicKey({
+    key: { kty: 'OKP', crv: 'Ed25519', x: pub.subarray(10).toString('base64url') },
+    format: 'jwk',
+  });
+  const algorithm = sig.subarray(0, 2).toString('latin1');
+  const signed = algorithm === 'ED' ? createHash('blake2b512').update(file).digest() : file;
+  if (!verify(null, signed, key, sig.subarray(10))) fail("The signature doesn't match the setup.");
+  const trusted = Buffer.from(trustedLine.replace(/^trusted comment: /, ''), 'utf8');
+  if (
+    !verify(
+      null,
+      Buffer.concat([sig.subarray(10), trusted]),
+      key,
+      Buffer.from(globalLine, 'base64'),
+    )
+  ) {
+    fail("The signature's trusted comment doesn't verify.");
+  }
+}
+
+async function github(path) {
+  const headers = { accept: 'application/vnd.github+json', 'user-agent': 'uwussh-release' };
+  token ??= process.env.GH_TOKEN || process.env.GITHUB_TOKEN || ghToken();
+  if (token) headers.authorization = `Bearer ${token}`;
+  const response = await fetch(`https://api.github.com/repos/${REPOSITORY}/${path}`, { headers });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`GitHub answered ${response.status} for ${path}`);
+  return response.json();
+}
+
+function ghToken() {
+  try {
+    return execFileSync('gh', ['auth', 'token'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return '';
+  }
+}

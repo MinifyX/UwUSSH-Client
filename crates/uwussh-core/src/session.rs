@@ -45,16 +45,19 @@ enum Session {
     Synthetic(SyntheticSession),
 }
 
-// Sessions currently outlive a webview reload: a reloaded page stops
-// acknowledging, and a flow-controlled session then pauses forever. Harmless
-// for M0, where nothing reloads mid-measurement; M1 ties sessions to the window
-// that opened them.
+/// Every open session, whatever runs it.
+///
+/// Sessions belong to the page that opened them. A reloaded page cannot talk to
+/// them any more — it stopped acknowledging, so a flow-controlled session would
+/// pause forever while its SSH connection stays open — so the desktop calls
+/// [`SessionManager::close_all`] whenever a page starts.
 #[derive(Default)]
 pub struct SessionManager {
     sessions: RwLock<HashMap<SessionId, Arc<Session>>>,
     /// Verified connections waiting for the user to answer a question —
     /// password, passphrase, another try — keyed by whatever the caller uses to
-    /// identify an attempt (the desktop uses the host id).
+    /// identify an attempt. The desktop uses the tab, so two tabs connecting to
+    /// the same host at the same time never share a half-open connection.
     pending: Mutex<HashMap<String, SshConnection>>,
 }
 
@@ -185,6 +188,27 @@ impl SessionManager {
         }
         tracing::info!(%id, "session closed");
         Ok(())
+    }
+
+    /// Close every session and drop every connection waiting for an answer.
+    /// Returns how many sessions were open.
+    pub fn close_all(&self) -> usize {
+        let sessions: Vec<_> = self.sessions.write().drain().collect();
+        for (_, session) in &sessions {
+            match &**session {
+                Session::Pty(pty) => pty.close(),
+                Session::Ssh(ssh) => ssh.close(),
+                Session::Synthetic(synthetic) => synthetic.close(),
+            }
+        }
+        let pending: Vec<_> = self.pending.lock().drain().map(|(_, c)| c).collect();
+        for connection in pending {
+            tokio::spawn(connection.close());
+        }
+        if !sessions.is_empty() {
+            tracing::info!(count = sessions.len(), "all sessions closed");
+        }
+        sessions.len()
     }
 
     pub fn ids(&self) -> Vec<SessionId> {

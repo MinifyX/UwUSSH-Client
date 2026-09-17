@@ -171,11 +171,14 @@ export function asConnectFailure(error: unknown): ConnectFailure {
 }
 
 /**
- * Open a shell on a host. `secret` is the password or the key passphrase,
- * depending on the host — sent for this one call and not kept anywhere.
+ * Open a shell on a host. `attempt` names the tab that connects, so two tabs to
+ * the same host never share a half-open connection. `secret` is the password
+ * or the key passphrase, depending on the host — sent for this one call and
+ * not kept anywhere.
  */
 export function connectHost(
   id: string,
+  attempt: string,
   cols: number,
   rows: number,
   secret: string | null,
@@ -184,6 +187,7 @@ export function connectHost(
 ): Promise<SessionId> {
   return invoke<SessionId>('connect_host', {
     id,
+    attempt,
     cols,
     rows,
     secret,
@@ -191,9 +195,9 @@ export function connectHost(
   });
 }
 
-/** The user closed a password or passphrase prompt: drop the connection that was waiting. */
-export function cancelConnect(id: string): Promise<void> {
-  return invoke('cancel_connect', { id });
+/** The user closed a password prompt or the tab: drop the connection that was waiting. */
+export function cancelConnect(attempt: string): Promise<void> {
+  return invoke('cancel_connect', { attempt });
 }
 
 /**
@@ -265,6 +269,38 @@ export function scanImport(source: ImportSource): Promise<ImportSummary> {
 
 export function runImport(source: ImportSource): Promise<ImportReport> {
   return invoke<ImportReport>('run_import', { source });
+}
+
+// ── App ─────────────────────────────────────────────────────────────────────
+
+/** A page just started: close whatever an earlier page left open. */
+export function closeAllSessions(): Promise<number> {
+  return invoke<number>('close_all_sessions');
+}
+
+export type UpdateInfo = { version: string; notes: string | null };
+
+export function setUpdateChannel(channel: 'stable' | 'beta'): Promise<void> {
+  return invoke('set_update_channel', { channel });
+}
+
+export function updateStatus(): Promise<UpdateInfo | null> {
+  return invoke<UpdateInfo | null>('update_status');
+}
+
+export function checkForUpdates(): Promise<UpdateInfo | null> {
+  return invoke<UpdateInfo | null>('check_for_updates');
+}
+
+/** Hands over to the downloaded setup; the app quits on success. */
+export function installUpdate(): Promise<void> {
+  return invoke('install_update');
+}
+
+export type ProjectPage = 'source' | 'releases' | 'issues' | 'license';
+
+export function openProjectPage(page: ProjectPage): Promise<void> {
+  return invoke('open_project_page', { page });
 }
 
 // ── M0 ──────────────────────────────────────────────────────────────────────
