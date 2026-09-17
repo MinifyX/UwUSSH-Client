@@ -240,8 +240,21 @@ check(
   `${connectionsSince()} connections in total`,
 );
 await shot('10-reconnected');
+check('the terminal fits: no row or column is cut off', await terminalFits());
 
 // ── Tabs: a second connection to the same server, side by side ─────────────
+/** Every row and column the terminal has is inside the box it is shown in. */
+async function terminalFits() {
+  return page.eval(`(() => {
+    const term = window.__uwusshDriver.term;
+    const cell = term._core._renderService.dimensions.css.cell;
+    const screen = term.element.parentElement.getBoundingClientRect();
+    return cell.height > 0
+      && term.rows * cell.height <= screen.height + 0.5
+      && term.cols * cell.width <= screen.width + 0.5;
+  })()`);
+}
+
 const tabCount = () => page.eval(`document.querySelectorAll('.tab').length`);
 const tabsBefore = await tabCount();
 check(
@@ -422,6 +435,7 @@ for (let i = 0; i < 2; i += 1) {
   await sleep(80);
 }
 await sleep(300);
+check('the terminal still fits after zooming in and out', await terminalFits());
 check(
   'Ctrl + wheel back brings the old size back',
   (await page.eval(`window.__uwusshDriver.term.options.fontSize`)) === fontBefore,

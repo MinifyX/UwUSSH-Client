@@ -123,6 +123,10 @@ function startApp(name, db, extraEnv = {}) {
       ...extraEnv,
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:
         '--remote-debugging-port=9223 --remote-debugging-address=127.0.0.1',
+      // A WebView2 folder of its own: an installed UwUSSH that is running
+      // shares the default one, and its browser process would ignore the
+      // debugging port above.
+      WEBVIEW2_USER_DATA_FOLDER: join(runDir, `webview-${name}`),
     },
   });
 }

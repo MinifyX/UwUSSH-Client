@@ -89,5 +89,12 @@ export function TerminalView({ onReady, onDispose }: TerminalViewProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return <div className="terminal-host" ref={hostRef} />;
+  // The padding lives on the outer box. xterm.js' fit addon measures the
+  // element the terminal opens in with its padding included, so a padded one
+  // gets a row and a few columns more than fit, and the last line is cut off.
+  return (
+    <div className="terminal-host">
+      <div className="terminal-screen" ref={hostRef} />
+    </div>
+  );
 }
