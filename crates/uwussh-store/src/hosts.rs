@@ -218,7 +218,7 @@ impl Store {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(&format!(
             "{HOST_SELECT} WHERE h.deleted = 0
-              ORDER BY h.workspace, lower(coalesce(h.group_path, '')), h.position, lower(h.name)"
+              ORDER BY h.workspace, lower(coalesce(g.name, '')), h.position, lower(h.name)"
         ))?;
         let hosts = stmt
             .query_map([], host_from_row)?
@@ -264,7 +264,7 @@ impl Store {
         let existing: Option<(Option<String>, String, Option<String>, i64)> = match draft.id {
             Some(id) => Some(
                 tx.query_row(
-                    "SELECT identity_id, workspace, group_path, position
+                    "SELECT identity_id, workspace, group_id, position
                        FROM hosts WHERE id = ?1 AND deleted = 0",
                     [id.to_string()],
                     |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
@@ -279,16 +279,15 @@ impl Store {
             .workspace
             .or_else(|| existing.as_ref().map(|(_, w, _, _)| Workspace::parse(w)))
             .unwrap_or_default();
-        if let Some(group) = &draft.group_path {
-            ensure_group(&tx, self.device, &vault, workspace, group)?;
-        }
+        let group = match &draft.group_path {
+            Some(name) => Some(ensure_group(&tx, self.device, &vault, workspace, name)?),
+            None => None,
+        };
         let position = match &existing {
-            Some((_, w, g, position))
-                if Workspace::parse(w) == workspace && *g == draft.group_path =>
-            {
+            Some((_, w, g, position)) if Workspace::parse(w) == workspace && *g == group => {
                 *position
             }
-            _ => next_position(&tx, workspace, draft.group_path.as_deref())?,
+            _ => next_position(&tx, workspace, group.as_deref())?,
         };
 
         // An identity several hosts share (a Termius import makes those) is
@@ -346,9 +345,9 @@ impl Store {
                 };
                 tx.execute(
                     "UPDATE hosts
-                        SET name = ?2, address = ?3, port = ?4, identity_id = ?5, group_path = ?6,
+                        SET name = ?2, address = ?3, port = ?4, identity_id = ?5, group_id = ?6,
                             workspace = ?7, position = ?8,
-                            hlc_wall_ms = ?9, hlc_counter = ?10, hlc_device = ?11,
+                            dirty = 1, hlc_wall_ms = ?9, hlc_counter = ?10, hlc_device = ?11,
                             rev = rev + 1
                       WHERE id = ?1",
                     params![
@@ -357,7 +356,7 @@ impl Store {
                         draft.address,
                         draft.port,
                         identity_id,
-                        draft.group_path,
+                        group,
                         workspace.as_str(),
                         position,
                         clock.wall_ms as i64,
@@ -372,7 +371,7 @@ impl Store {
                 let id = Uuid::now_v7();
                 tx.execute(
                     "INSERT INTO hosts
-                        (id, vault_id, name, address, port, identity_id, group_path,
+                        (id, vault_id, name, address, port, identity_id, group_id,
                          workspace, position, hlc_wall_ms, hlc_counter, hlc_device)
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
                     params![
@@ -382,7 +381,7 @@ impl Store {
                         draft.address,
                         draft.port,
                         identity_id,
-                        draft.group_path,
+                        group,
                         workspace.as_str(),
                         position,
                         clock.wall_ms as i64,
@@ -420,7 +419,7 @@ impl Store {
         let changed = tx.execute(
             "UPDATE hosts
                 SET deleted = 1, rev = rev + 1,
-                    hlc_wall_ms = ?2, hlc_counter = ?3, hlc_device = ?4
+                    dirty = 1, hlc_wall_ms = ?2, hlc_counter = ?3, hlc_device = ?4
               WHERE id = ?1 AND deleted = 0",
             params![
                 id.to_string(),
@@ -450,7 +449,7 @@ impl Store {
             tx.execute(
                 "UPDATE identities
                     SET deleted = 1, rev = rev + 1,
-                        hlc_wall_ms = ?2, hlc_counter = ?3, hlc_device = ?4
+                        dirty = 1, hlc_wall_ms = ?2, hlc_counter = ?3, hlc_device = ?4
                   WHERE id = ?1",
                 params![identity, clock.wall_ms as i64, clock.counter, clock.device],
             )?;
@@ -507,8 +506,17 @@ impl Store {
                     clock,
                 )?;
                 tx.execute(
-                    "UPDATE hosts SET identity_id = ?2, rev = rev + 1 WHERE id = ?1",
-                    params![id.to_string(), created],
+                    "UPDATE hosts
+                        SET identity_id = ?2, rev = rev + 1,
+                            dirty = 1, hlc_wall_ms = ?3, hlc_counter = ?4, hlc_device = ?5
+                      WHERE id = ?1",
+                    params![
+                        id.to_string(),
+                        created,
+                        clock.wall_ms as i64,
+                        clock.counter,
+                        clock.device
+                    ],
                 )?;
                 created
             }
@@ -530,7 +538,7 @@ impl Store {
         tx.execute(
             "UPDATE identities
                 SET password_secret_id = ?2, rev = rev + 1,
-                    hlc_wall_ms = ?3, hlc_counter = ?4, hlc_device = ?5
+                    dirty = 1, hlc_wall_ms = ?3, hlc_counter = ?4, hlc_device = ?5
               WHERE id = ?1",
             params![
                 identity,
@@ -574,13 +582,18 @@ impl Store {
     }
 }
 
+/// A host with its login and its group name. `nullif(g.name, '')` is for a
+/// group whose record has not arrived from the server yet: it is a placeholder
+/// with an empty name, and until the real one lands the host is simply shown
+/// without a group.
 pub(crate) const HOST_SELECT: &str = "SELECT h.id, h.name, h.address, h.port,
             coalesce(i.username, ''), coalesce(i.auth_type, 'password'), i.key_path,
-            h.group_path, h.last_connected_ms, h.workspace, h.position, h.os_id,
+            nullif(g.name, ''), h.last_connected_ms, h.workspace, h.position, h.os_id,
             i.password_secret_id IS NOT NULL, k.id, k.label
        FROM hosts h
        LEFT JOIN identities i ON i.id = h.identity_id AND i.deleted = 0
-       LEFT JOIN keys k ON k.id = i.key_id AND k.deleted = 0";
+       LEFT JOIN keys k ON k.id = i.key_id AND k.deleted = 0
+       LEFT JOIN host_groups g ON g.id = h.group_id AND g.deleted = 0";
 
 pub(crate) fn read_host(conn: &Connection, id: Uuid) -> Result<Option<HostRecord>> {
     Ok(conn
@@ -656,7 +669,7 @@ fn own_identity(tx: &Transaction, host: Uuid, identity: &str, clock: Hlc) -> Res
     tx.execute(
         "UPDATE hosts
             SET identity_id = ?2, rev = rev + 1,
-                hlc_wall_ms = ?3, hlc_counter = ?4, hlc_device = ?5
+                dirty = 1, hlc_wall_ms = ?3, hlc_counter = ?4, hlc_device = ?5
           WHERE id = ?1",
         params![
             host.to_string(),
@@ -734,7 +747,7 @@ fn update_identity(
         "UPDATE identities
             SET label = ?2, username = ?3, auth_type = ?4, key_path = ?5, key_id = ?6,
                 password_secret_id = ?7,
-                hlc_wall_ms = ?8, hlc_counter = ?9, hlc_device = ?10,
+                dirty = 1, hlc_wall_ms = ?8, hlc_counter = ?9, hlc_device = ?10,
                 rev = rev + 1
           WHERE id = ?1",
         params![
@@ -753,21 +766,37 @@ fn update_identity(
     Ok(())
 }
 
-/// Make sure a group record exists for a group a host names.
+/// The id of a live group by workspace and name.
+pub(crate) fn group_id(
+    tx: &Transaction,
+    workspace: Workspace,
+    name: &str,
+) -> Result<Option<String>> {
+    Ok(tx
+        .query_row(
+            "SELECT id FROM host_groups
+              WHERE workspace = ?1 AND name = ?2 AND deleted = 0
+              ORDER BY id",
+            params![workspace.as_str(), name],
+            |row| row.get(0),
+        )
+        .optional()?)
+}
+
+/// The id of the group a host names, creating the record if it is new.
+///
+/// Hosts point at this id rather than at the name, so renaming a group is one
+/// record rather than one per host — and, on two devices at once, one conflict
+/// rather than one per host.
 pub(crate) fn ensure_group(
     tx: &Transaction,
     device: u32,
     vault: &str,
     workspace: Workspace,
     name: &str,
-) -> Result<()> {
-    let exists: i64 = tx.query_row(
-        "SELECT count(*) FROM host_groups WHERE workspace = ?1 AND name = ?2 AND deleted = 0",
-        params![workspace.as_str(), name],
-        |row| row.get(0),
-    )?;
-    if exists > 0 {
-        return Ok(());
+) -> Result<String> {
+    if let Some(id) = group_id(tx, workspace, name)? {
+        return Ok(id);
     }
     let position: i64 = tx.query_row(
         "SELECT coalesce(max(position) + 1, 0) FROM host_groups
@@ -776,12 +805,13 @@ pub(crate) fn ensure_group(
         |row| row.get(0),
     )?;
     let clock = tick(tx, device)?;
+    let id = Uuid::now_v7().to_string();
     tx.execute(
         "INSERT INTO host_groups
             (id, vault_id, workspace, name, position, hlc_wall_ms, hlc_counter, hlc_device)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
-            Uuid::now_v7().to_string(),
+            id,
             vault,
             workspace.as_str(),
             name,
@@ -791,7 +821,7 @@ pub(crate) fn ensure_group(
             clock.device,
         ],
     )?;
-    Ok(())
+    Ok(id)
 }
 
 /// The position after the last host of a group.
@@ -802,7 +832,7 @@ pub(crate) fn next_position(
 ) -> Result<i64> {
     Ok(tx.query_row(
         "SELECT coalesce(max(position) + 1, 0) FROM hosts
-          WHERE deleted = 0 AND workspace = ?1 AND group_path IS ?2",
+          WHERE deleted = 0 AND workspace = ?1 AND group_id IS ?2",
         params![workspace.as_str(), group],
         |row| row.get(0),
     )?)

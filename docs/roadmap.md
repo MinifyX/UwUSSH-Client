@@ -86,8 +86,23 @@ The point where I can stop using anything else.
   for the signed-in user, opens the vault at start — one master password once,
   then never again on this machine, until you turn it off. Still to do here:
   recovery kit, Windows Hello and biometric unlock, auto-lock.
-- `UwUSSH-Server` v1: Axum, SQLite, Docker image, admin CLI
-- Device pairing (password and QR), device revocation, conflict resolution
+- **The sync foundation is done**, before there is a server to talk to: a
+  record travels as an envelope whose header is sealed with its payload, its
+  version is the server's sequence number, the outbox is a column in the
+  database rather than a queue in memory, and hosts point at their group by id
+  so a rename is one record. One pass pushes, pulls and merges; conflicts
+  resolve per record by the hybrid logical clock, with a delete beating a
+  concurrent edit. `MemoryServer` in `uwussh-sync` holds the server's rules as
+  running code, and sixteen tests drive two real devices against it — including
+  a server that flips a tombstone flag or replays an old version, which gets
+  nowhere. See [architecture](architecture.md#sync).
+- `UwUSSH-Server` v1: Axum, SQLite, its own TLS certificate with a pinned
+  fingerprint, Docker image, admin CLI
+- The account key (so a stolen server database is worth nothing), device
+  enrolment with a keypair per device, pairing by short code over SPAKE2,
+  revocation, the recovery kit
+- Settings → Sync: connect, device list, what happened on the last pass, and
+  the honest sentence about rotating keys after revoking a device
 
 ## M3 · SFTP and tunnels
 
@@ -144,10 +159,12 @@ Things I haven't decided, roughly in the order they'll bite:
 2. **What can the Termius import actually reach?** Verify against a real export
    before promising it in the README. If it's CSV only, that belongs in the
    README honestly.
-3. **Server default database** — SQLite (one volume, one backup) with Postgres
-   as an option, most likely.
+3. ~~**Server default database**~~ — settled: SQLite, one volume, one backup.
+   Postgres would be a second driver for a benefit nobody with three devices
+   feels.
 4. **Sync `known_hosts`?** — probably yes, on by default; it's the most common
-   friction point when switching devices.
+   friction point when switching devices. The merge rule for two devices that
+   trusted different keys for one machine is already in place.
 5. **File-based sync as a third option** — would Syncthing or Nextcloud as a
    transport, next to "local only" and "own server", be the shortest path for
    most homelabs?

@@ -21,6 +21,7 @@ pub mod keys;
 pub mod known_hosts;
 mod schema;
 pub mod secret;
+pub mod sync;
 pub mod vault;
 
 pub use backup::{decode_export, encode_export, export_is_sealed, Backup, BackupSummary};
@@ -35,6 +36,7 @@ pub use keys::{KeyDraft, KeyRecord};
 pub use known_hosts::KnownHostRecord;
 pub use schema::SCHEMA_VERSION;
 pub use secret::SecretText;
+pub use sync::{ApplyReport, Pushed, SyncState};
 pub use vault::{Revealed, VaultStatus};
 
 use parking_lot::Mutex;

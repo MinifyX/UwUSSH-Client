@@ -4,7 +4,7 @@
 
 |                 |                                                                             |
 | --------------- | --------------------------------------------------------------------------- |
-| **Stand**       | 2026-09-16 · Entwurf v0.2                                                   |
+| **Stand**       | 2026-09-17 · Entwurf v0.3                                                   |
 | **Basis**       | Tauri 2 + React + SQLite — identisch zu UwUMail                             |
 | **Bundle-ID**   | `app.uwussh.desktop`                                                        |
 | **Repo**        | [MinifyX/UwUSSH-Client](https://github.com/MinifyX/UwUSSH-Client) · GPL-3.0 |
@@ -139,19 +139,35 @@ Das Herzstück — hier entscheidet sich, ob "selfhosted Sync" ein Feature oder 
 ### Schlüsselableitung
 
 ```
-Master-Passwort
-   └─ Argon2id (m=64 MiB, t=3, p=4, salt = per-Vault random)
-        ├─ Bytes 0..32   →  Master Key (bleibt IMMER lokal)
-        └─ Bytes 32..64  →  Auth Secret → HKDF → Server-Login-Hash
+Master-Passwort ── Argon2id (m=64 MiB, t=3, p=4, Salt pro Vault) ──┐
+Account-Key (128 Bit, zufällig, liegt nur auf gekoppelten Geräten) ┴─ HKDF
+        ├─ Master Key   (bleibt IMMER lokal)  →  umschließt den Vault Key
+        └─ Auth Secret  →  Server speichert nur SHA-256 davon
 
 Vault Key (32 B, random, einmalig erzeugt)
    └─ wird mit Master Key umschlossen (key wrapping) → wrapped_vault_key
 ```
 
-Zwei Konsequenzen, die diesen Aufbau rechtfertigen:
+Drei Konsequenzen, die diesen Aufbau rechtfertigen:
 
 1. **Passwortwechsel = nur neu umschließen.** Kein Re-Encrypt von 200 Records.
-2. **Der Server kennt nur den Login-Hash**, nie den Master Key. Das ist das Bitwarden-Modell — gut verstanden und vielfach geprüft.
+   Deshalb kostet auch der Umstieg eines schon bestehenden lokalen Vaults auf
+   den Account-Key nichts: ein Schlüssel wird neu umschlossen, kein Record neu
+   verschlüsselt.
+2. **Der Server kennt nur den Login-Hash**, nie den Master Key. Das ist das
+   Bitwarden-Modell — gut verstanden und vielfach geprüft.
+3. **Der Account-Key macht die Server-Datenbank wertlos.** Der Server muss den
+   umschlossenen Vault Key speichern, sonst kann kein zweites Gerät ihn holen.
+   Ohne zweiten Faktor könnte also jeder, der den Server übernimmt, das
+   Master-Passwort offline raten — mit Argon2id teuer, bei einem schwachen
+   Passwort aber machbar. Der Account-Key (das 1Password-Modell) nimmt dieser
+   Kopie jeden Wert: er steht nur auf den gekoppelten Geräten und im
+   Recovery-Kit, nie auf dem Server.
+
+   Der Preis ist ehrlich zu benennen: **alle Geräte weg und das Recovery-Kit
+   weg heißt Daten weg.** Passwort plus Server-Adresse allein reichen dann
+   nicht mehr. Deshalb zeigt das Setup das Kit genau einmal und fragt nach,
+   ob es gesichert ist.
 
 ### Record-Verschlüsselung
 
@@ -174,16 +190,41 @@ Das ist der Teil, den man täglich merkt — deshalb ausformuliert statt nur "Va
 - Master-Passwort (immer)
 - **Windows Hello / Touch ID** → OS-Keychain hält den umschlossenen Vault Key, biometrisch freigegeben
 - Auto-Lock nach N Minuten Inaktivität, bei Standby, bei Lock-Screen
-- **Recovery Kit:** 24-Wort-BIP39-Phrase beim Setup, entschlüsselt den Vault Key unabhängig vom Passwort. Einmal anzeigen, zum Ausdrucken, nie synchronisieren.
+- **Recovery Kit:** zum Ausdrucken, einmal angezeigt, nie synchronisiert — Server-Adresse, Zertifikat-Fingerprint und der **Account-Key**, dazu eine 24-Wort-BIP39-Phrase, die den Vault Key unabhängig vom Master-Passwort entschlüsselt.
 
-### Neues Gerät koppeln
+### Erstes Gerät, weiteres Gerät
 
-Zwei Wege, beide ohne das Master-Passwort über einen Kanal zu schicken:
+Das Master-Passwort geht dabei nie über einen Kanal — es wird auf jedem Gerät
+einmal getippt und bleibt dort.
 
-1. **Passwort + Server-URL** — Standardfall, funktioniert ohne zweites Gerät.
-2. **QR-Pairing** — bestehendes Gerät zeigt QR mit kurzlebigem Transport-Key; SPAKE2 mit 6-stelligem Short Auth String gegen MITM. Angenehm auf dem Handy.
+**Erstes Gerät.** Der Server schreibt beim ersten Start einen Einrichtungscode
+ins Log: Adresse, Zertifikat-Fingerprint und Einladung in einem String. Den
+fügt man in Einstellungen → Sync ein, tippt das Master-Passwort und ist fertig.
+Die App erzeugt dabei Account-Key und Geräte-Keypair, legt das Konto an, schiebt
+alles hoch und zeigt das Recovery-Kit.
 
-Jedes Gerät bekommt eine `device_id` + eigenes Keypair für Server-Auth, einzeln widerrufbar. Ein verlorenes Notebook sperrt man aus, ohne dass alle anderen Geräte neu eingerichtet werden müssen.
+**Weiteres Gerät** — nach dem Vorbild von Magic Wormhole, weil an einem
+Desktop-PC selten eine Kamera für einen QR-Code hängt:
+
+1. Gerät A: „Gerät hinzufügen" zeigt einen Code wie `7-nyu-laser-kaffee`,
+   zehn Minuten gültig, inklusive Server-Adresse.
+2. Gerät B tippt den Code ein. Beide handeln per **SPAKE2** über das Relay des
+   Servers einen Schlüssel aus; der Server sieht dabei nichts Brauchbares, und
+   ein Angreifer hat pro Code genau einen Rateversuch.
+3. Gerät A fragt „LVLaptop möchte beitreten?" und schickt durch diesen Kanal
+   Zertifikat-Fingerprint, Account-Key und einen Einmal-Token. B prüft das
+   Zertifikat, das es gesehen hat, gegen den Fingerprint.
+4. B tippt das Master-Passwort und beweist dem Server damit, dass es das Konto
+   kennt. **Erst dann** gibt der Server den umschlossenen Vault Key und die
+   Records heraus — ein abgefangener Kopplungscode nützt ohne Passwort nichts.
+
+Hosts, die B schon selbst hatte, laufen durch dieselbe Duplikaterkennung wie
+ein Import; seine eigenen Secrets werden dabei unter dem Schlüssel des Kontos
+neu versiegelt (`adopt_vault`).
+
+Jedes Gerät bekommt eine `device_id` + eigenes Keypair für Server-Auth, einzeln
+widerrufbar. Ein verlorenes Notebook sperrt man aus, ohne dass alle anderen
+Geräte neu eingerichtet werden müssen.
 
 ---
 
@@ -191,57 +232,173 @@ Jedes Gerät bekommt eine `device_id` + eigenes Keypair für Server-Auth, einzel
 
 **Grundhaltung: offline-first.** Alles landet zuerst in SQLite; der Server ist ein Verteiler, kein Gatekeeper. Ohne Netz funktioniert die App vollständig.
 
+### Der Umschlag
+
+Ein Record reist als **Umschlag**: id, Art, Vault, HLC, Tombstone-Flag — und
+ein versiegelter Inhalt. Der Server sieht nur den Kopf, und **der Kopf ist
+mitversiegelt** (AAD = `Label ‖ id ‖ kind ‖ vault_id ‖ HLC ‖ deleted`). Das ist
+kein Detail, sondern die Stelle, an der ein bösartiger Server sonst gewinnt:
+
+- Könnte er `deleted` setzen, wäre jeder Host auf allen Geräten weg — Löschen
+  gewinnt gegen gleichzeitige Änderungen.
+- Könnte er die Uhr umschreiben, ließe sich eine alte Version als die neueste
+  ausgeben.
+
+Beides scheitert jetzt am Authentifizierungs-Tag. Ein Tombstone versiegelt
+deshalb einen leeren Inhalt, statt gar keinen zu haben.
+
 ### Protokoll
 
-| Endpoint                   | Zweck                                                     |
-| -------------------------- | --------------------------------------------------------- |
-| `GET /v1/sync?since=<seq>` | Alle Blobs mit `seq > since`, paginiert                   |
-| `POST /v1/sync`            | Batch-Push, jeder Record mit `base_rev`                   |
-| `WS /v1/stream`            | Push-Notify: "es gibt Änderungen ab seq N" → Client pullt |
-| `POST /v1/auth/login`      | Login-Hash → Session-Token + `wrapped_vault_key`          |
-| `GET/DELETE /v1/devices`   | Geräte listen, widerrufen                                 |
-| `GET /healthz`, `/metrics` | Ops, Prometheus                                           |
+| Endpoint                             | Zweck                                                         |
+| ------------------------------------ | ------------------------------------------------------------- |
+| `POST /v1/accounts`                  | Konto anlegen (Einladung): Vault-Header, Auth-Verifier, Gerät |
+| `POST /v1/session`                   | Gerät signiert eine Challenge (Ed25519) → Token, 1 h          |
+| `GET /v1/vault`, `PUT /v1/vault/key` | Vault-Header holen; beim Passwortwechsel neu setzen           |
+| `GET /v1/records?since=<seq>`        | Alle Umschläge mit `seq > since`, paginiert                   |
+| `POST /v1/records`                   | Batch-Push, jeder Record mit `base_seq`                       |
+| `GET /v1/events`                     | Server-Sent Events: „neu ab seq N" → Client pullt             |
+| `POST /v1/pair`, `/v1/pair/{id}`     | Relay für die Gerätekopplung (SPAKE2), 10 min                 |
+| `GET`/`DELETE /v1/devices`           | Geräte listen, widerrufen                                     |
+| `GET /healthz`                       | Ops                                                           |
 
-Der Cursor ist eine **monotone Server-Sequenznummer**, kein Zeitstempel. Zeitstempel über Geräte hinweg sind eine Fehlerquelle, Sequenznummern nicht.
+Der Cursor ist eine **monotone Server-Sequenznummer**, kein Zeitstempel.
+Zeitstempel über Geräte hinweg sind eine Fehlerquelle, Sequenznummern nicht.
+Die Version eines Records ist genau diese Nummer: der Client pusht mit
+`base_seq`, und weicht sie von der gespeicherten ab, ist es ein Konflikt. Ein
+gerätelokaler Zähler wäre hier falsch — zwei Geräte zählen unabhängig.
+
+**SSE statt WebSocket**, weil es durch jeden Reverse-Proxy kommt und für
+„es gibt Neues ab N" kein Rückkanal nötig ist.
+
+### Ein Durchgang
+
+Erst pushen, dann pullen — in dieser Reihenfolge, denn der Cursor bewegt sich
+nur beim Pull. Ein Durchgang, der mit einem Push endet, würde das Gerät seine
+eigenen Schreibvorgänge beim nächsten Mal herunterladen. So kommen sie einmal
+zurück und werden gegen den lokalen Stand geprüft — billig, und es fällt auf,
+wenn der Server etwas anderes gespeichert hat.
+
+Konflikte zeigen sich damit **auf dem Weg hinaus**: der Server lehnt ab und
+liefert seinen Stand mit, der Client merged ihn und beginnt die Runde neu
+(höchstens drei, dann Konflikt-Banner).
 
 ### Konflikte
 
-Last-Writer-Wins **pro Feld**, entschieden über die HLC. Bei `409 Conflict` liefert der Server den aktuellen Stand, der Client merged feldweise und pusht erneut (max. 3 Versuche, dann Konflikt-Banner in der UI).
+Last-Writer-Wins **pro Record**, entschieden über die HLC, und **Löschen
+gewinnt** gegen eine gleichzeitige Änderung: einen wiederauferstandenen Host,
+den man für eine stillgelegte Bastion schon entfernt hatte, will niemand.
 
-Das ist bewusst kein volles CRDT: Host-Einträge werden fast nie gleichzeitig auf zwei Geräten am selben Feld geändert — der Aufwand zahlt sich nicht aus. Ausnahme: **Snippet-Bodies**, wo Text echt kollidieren kann. Dafür ein 3-Wege-Merge mit Konfliktmarkern.
+Pro Record und nicht pro Feld: Zwei Geräte ändern praktisch nie denselben Host
+im selben Moment, und ein feldweiser Merge bräuchte für jedes Feld einen
+gemeinsamen Vorfahren — also eine zweite Kopie jedes Records für einen Fall,
+der nicht eintritt. Snippet-Bodies, wo Text echt kollidieren kann, sind die
+einzige Stelle, an der sich später ein 3-Wege-Merge lohnen könnte.
+
+Zwei Sonderfälle mit eigener Regel:
+
+- **Vertraute Host-Keys** teilen sich einen Platz pro `address:port`. Haben
+  zwei Geräte unabhängig verschiedene Schlüssel vertraut, bekommt der jüngere
+  Eintrag den Platz — auf jedem Gerät derselbe, also einigen sie sich. Bei
+  unterschiedlichen Fingerprints zählt die App das mit, damit die UI es sagen
+  kann.
+- **Keys als Datei** (`key_path`) bleiben lokal. Auf einem anderen Gerät
+  bedeutet ein Pfad nichts; dort steht künftig „Key liegt nur auf LVDesk1".
 
 ### Was synct
 
-- ✅ Hosts, Gruppen, Identities, Keys, Snippets, Port-Forwards, Terminal-Profile, UI-Prefs, Tags
+- ✅ Hosts, Gruppen, Anmeldungen, Keys, versiegelte Secrets, Snippets, später
+  Port-Forwards und Terminal-Profile
 - ⚙️ `known_hosts` — optional, Default an
-- ❌ Session-Historie, lokale Logs, Scrollback, Fenstergeometrie
+- ❌ Session-Historie, lokale Logs, Scrollback, Fenstergeometrie — und die
+  lokalen Spalten: Key-Pfad, letzte Verbindung, erkanntes System
+
+**Die Outbox ist die Datenbank.** Jeder lokale Schreibvorgang setzt in
+derselben Transaktion `dirty = 1`; daneben steht `server_seq`, die Version, die
+der Server bestätigt hat. Eine Warteschlange im RAM würde bei einem Absturz
+Änderungen verlieren. Dazu `sync_extra`: Felder, die eine **neuere** Version
+geschrieben hat, werden unverändert mitgeführt — ein älteres Gerät darf einen
+Host bearbeiten, ohne zu löschen, was es nicht kennt.
+
+Eine Umbenennung einer Gruppe ist genau ein Record: Hosts zeigen per
+`group_id` auf ihre Gruppe, nicht per Name. Vorher wären es N Hosts gewesen —
+und auf zwei Geräten gleichzeitig N Konflikte.
 
 ---
 
 ## 7. Der Sync-Server
 
-Ein Binary. Ein Docker-Image. Eine SQLite-Datei.
+Ein Binary. Ein Docker-Image. Eine SQLite-Datei. Er ist ein **dummer,
+verschlüsselter Briefkasten**: er vergibt Sequenznummern, hält von jedem Record
+die neueste Version, blättert ab einem Cursor durch sie und lehnt einen Schreib-
+vorgang ab, dessen `base_seq` nicht der gespeicherten Version entspricht. Alles
+Schlaue — verschlüsseln, mergen, entscheiden — passiert im Client.
 
 ```yaml
 services:
   uwussh:
-    image: ghcr.io/<user>/uwussh-server:latest
-    ports: ['8080:8080']
+    image: ghcr.io/minifyx/uwussh-server:latest
+    ports: ['8443:8443']
     volumes: ['./data:/data']
     environment:
-      UWUSSH_DB: /data/uwussh.db
+      UWUSSH_DATA: /data
+      UWUSSH_TLS: auto # auto = eigenes Zertifikat | off = hinter Reverse-Proxy
       UWUSSH_REGISTRATION: invite # open | invite | closed
 ```
 
-- **TLS macht der Reverse-Proxy** (Caddy/Traefik/nginx). Der Server spricht HTTP und wertet `X-Forwarded-*` aus.
-- **Admin-CLI:** `uwussh-server user add`, `invite create`, `device list`, `backup`.
-- **Backup** = die SQLite-Datei kopieren. Mehr nicht. Plus `GET /v1/export` für ein vollständiges, weiterhin verschlüsseltes Archiv.
-- **Postgres** als optionaler Treiber für Leute, die schon einen haben.
-- **Update-Feed** für den Tauri-Updater — die eigene Instanz verteilt auch die App-Updates.
+```
+UwUSSH-Server/
+  src/main.rs      serve | invite | devices | revoke | backup | fingerprint
+  src/config.rs    Umgebungsvariablen, nichts anderes
+  src/tls.rs       selbstsigniertes Zertifikat beim ersten Start (rustls)
+  src/db/          SQLite (WAL), Migrationen
+  src/api/         accounts, session, records, events, pairing, devices
+  src/limits.rs    Body- und Blob-Größen, Rate-Limits
+  tests/           im selben Prozess gegen den echten uwussh-sync-Client
+  Dockerfile       statisch (musl), distroless, nicht als root, ein Volume
+```
 
-### OIDC (Authentik, Keycloak) — mit einer ehrlichen Einschränkung
+```sql
+accounts (id, vault_id, kdf_*, salt, wrapped_key, auth_verifier, created_ms)
+devices  (id, account_id, name, public_key, cursor, last_seen_ms, revoked_ms)
+records  (account_id, id, kind, seq, hlc, deleted, nonce, blob)  -- nur die neueste Version
+invites  (code_hash, expires_ms, used_ms)
+```
 
-Homelab-Setups haben oft schon einen IdP, und Login per SSO ist bequem. Aber: **OIDC authentifiziert nur den Transport.** Der Vault bleibt hinter dem Master-Passwort, sonst wäre Zero-Knowledge weg — der IdP könnte sonst Vault-Zugriff ausstellen. Also: SSO ersetzt den Login-Hash, nicht das Unlock. Das muss in der UI klar dastehen, sonst ist die Erwartung falsch.
+### TLS gehört dazu, nicht daneben
+
+`UWUSSH_TLS=auto` erzeugt beim ersten Start ein eigenes Zertifikat und schreibt
+seinen Fingerprint ins Log. Die App merkt ihn sich bei der Einrichtung und pinnt
+ihn — **genau das Modell, das ein SSH-Client sowieso benutzt**, und beim Koppeln
+reicht Gerät A den Fingerprint durch den SPAKE2-Kanal weiter. Damit braucht ein
+Homelab keine Domain und kein Let's Encrypt, und der Server läuft auch über eine
+Tailscale-Adresse. Wer schon einen Reverse-Proxy mit echtem Zertifikat hat,
+setzt `UWUSSH_TLS=off` und bekommt die normale Prüfung. Reines HTTP lehnt die
+App ab, außer gegen `localhost`.
+
+### Grenzen, die der Server durchsetzt
+
+Er kann keinen Record lesen, aber zählen und messen: höchstens 500 Records pro
+Anfrage, 256 KiB pro Umschlag, eine 24-Byte-Nonce, die Schema-Version, und
+Rate-Limits auf Kontoanlage, Login und Kopplung.
+
+### Betrieb
+
+- **Admin-CLI:** `uwussh-server invite`, `devices`, `revoke`, `backup`,
+  `fingerprint`.
+- **Backup** per `VACUUM INTO` — eine laufende WAL-Datenbank einfach
+  wegzukopieren ist nicht zuverlässig. Dazu jede Nacht automatisch ein
+  Schnappschuss, 14 werden behalten: billige Versicherung gegen einen
+  Client-Bug, der Müll auf alle Geräte verteilt.
+- **Bewusst nicht in v1:** Postgres, OIDC, Web-Oberfläche, Metriken und ein
+  eigener Update-Feed. Updates kommen weiter aus dem Client-Repo.
+
+### OIDC später — mit einer ehrlichen Einschränkung
+
+Homelab-Setups haben oft schon einen IdP, und Login per SSO ist bequem. Aber:
+**OIDC authentifiziert nur den Transport.** Der Vault bleibt hinter dem
+Master-Passwort, sonst wäre Zero-Knowledge weg — der IdP könnte sonst
+Vault-Zugriff ausstellen. Also: SSO ersetzt den Login-Beweis, nicht das Unlock.
+Das muss in der UI klar dastehen, sonst ist die Erwartung falsch.
 
 ---
 
@@ -392,15 +549,28 @@ Drei Schritte, nicht mehr: **Vault anlegen → "Nur lokal" oder Server verbinden
 
 ### Threat Model — was bekommt ein Angreifer?
 
-| Szenario                             | Bekommt                                                                  | Bekommt **nicht**                                      |
-| ------------------------------------ | ------------------------------------------------------------------------ | ------------------------------------------------------ |
-| **Sync-Server kompromittiert**       | Chiffrat-Blobs, Anzahl Records, Änderungszeiten, Geräte-IDs              | Hostnamen, Adressen, Keys, Passwörter, Snippet-Inhalte |
-| **Netzwerk-MITM**                    | Nichts über TLS hinaus; Blobs sind zusätzlich Ende-zu-Ende verschlüsselt | —                                                      |
-| **Gerät gestohlen, Vault gesperrt**  | SQLite-Datei mit Chiffrat                                                | Klartext — Argon2id (64 MiB) macht Brute-Force teuer   |
-| **Gerät gestohlen, Vault entsperrt** | Alles                                                                    | — _(deshalb Auto-Lock als Default)_                    |
-| **XSS in der WebView**               | Terminal-Bytes, Metadaten, kann Sessions stören                          | Private Keys, Passwörter — die liegen im Rust-Core     |
+| Szenario                                      | Bekommt                                                                            | Bekommt **nicht**                                                                                                                                     |
+| --------------------------------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Sync-Server kompromittiert**                | Chiffrat-Blobs, Anzahl und Art der Records, Änderungszeiten, Geräte-IDs            | Hostnamen, Adressen, Keys, Passwörter, Snippet-Inhalte — und ohne den Account-Key auch keine Chance, das Master-Passwort offline zu raten             |
+| **Sync-Server bösartig, nicht nur neugierig** | Kann Records zurückhalten oder einem **frischen** Gerät einen älteren Stand zeigen | Kann nichts fälschen, vertauschen oder löschen: der Kopf ist mitversiegelt. Geräte, die einen Record schon haben, erkennen den Rückschritt an der HLC |
+| **Netzwerk-MITM**                             | Nichts über TLS hinaus; Blobs sind zusätzlich Ende-zu-Ende verschlüsselt           | —                                                                                                                                                     |
+| **Gerät gestohlen, Vault gesperrt**           | SQLite-Datei mit Chiffrat                                                          | Klartext — Argon2id (64 MiB) macht Brute-Force teuer                                                                                                  |
+| **Gerät gestohlen, Vault entsperrt**          | Alles                                                                              | — _(deshalb Auto-Lock als Default)_                                                                                                                   |
+| **XSS in der WebView**                        | Terminal-Bytes, Metadaten, kann Sessions stören                                    | Private Keys, Passwörter — die liegen im Rust-Core                                                                                                    |
 
-Die ehrliche Zeile ist die vierte: Gegen ein entsperrtes, entwendetes Gerät hilft Krypto nicht. Deshalb ist der Auto-Lock keine Komforteinstellung, sondern die eigentliche Verteidigung.
+Die ehrliche Zeile ist die fünfte: Gegen ein entsperrtes, entwendetes Gerät
+hilft Krypto nicht. Deshalb ist der Auto-Lock keine Komforteinstellung, sondern
+die eigentliche Verteidigung. Und ein verlorenes Gerät am Server zu widerrufen
+stoppt künftigen Sync, nicht das, was es schon hat — danach gehören SSH-Keys und
+Passwörter getauscht. Das sagt die UI in dem Moment, in dem man widerruft.
+
+Eine Grenze bleibt, und die hat jeder Zero-Knowledge-Sync: Ein Server, der
+einfach **schweigt**, lässt sich nicht daran hindern. Er kann Records
+zurückhalten oder einem ganz neuen Gerät einen älteren, in sich stimmigen Stand
+zeigen (Fork-Consistency). Geräte, die einen Record schon kennen, merken den
+Rückschritt an der HLC — ein frisches kann es nicht wissen. Was er dagegen nicht
+kann, ist etwas erfinden: Ohne den Vault Key entsteht kein Umschlag, der die
+Prüfung übersteht.
 
 ---
 
@@ -410,7 +580,7 @@ Die ehrliche Zeile ist die vierte: Gegen ein entsperrtes, entwendetes Gerät hil
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
 | **M0 · Fundament**     | Tauri-Shell, xterm.js, `russh` connect, Passwort+Key-Auth, Host-Key-Prüfung, SQLite-Schema, Host-Liste. **Zuerst: Durchsatz messen.** — **erledigt**                             | 2–3 Wochen |
 | **M1 · Daily Driver**  | Tabs/Splits, Agent, ProxyJump, Snippets, Themes, **Import aus PuTTY, KiTTY, `ssh_config` und Termius** samt der Host-Keys, denen diese Clients schon vertrauen, erste Nyu-Szenen | 3–4 Wochen |
-| **M2 · Vault & Sync**  | Vault-Krypto, Server v1, Device-Pairing, Konfliktauflösung, Recovery Kit                                                                                                         | 4–5 Wochen |
+| **M2 · Vault & Sync**  | Vault-Krypto ✓, **Sync-Fundament ✓**, Server v1, Kopplung, Account-Key, Recovery Kit                                                                                             | 4–5 Wochen |
 | **M3 · SFTP & Tunnel** | SFTP-Browser, Port-Forward-Manager, Remote-Edit                                                                                                                                  | 3 Wochen   |
 | **M4 · Politur**       | Updater, Portable-Build, Linux/macOS, Onboarding, Accessibility                                                                                                                  | 2–3 Wochen |
 | **M5 · Homelab**       | Tailscale-, Proxmox-, Netbox-Import, lokale Shells, Recording                                                                                                                    | offen      |
@@ -460,7 +630,12 @@ Zwei Entscheidungen, die sich später auszahlen:
 ~~Frontend-Framework~~ — **geklärt: React + TypeScript, Node 24, pnpm 11**, exakt wie UwUMail.
 ~~Lizenz~~ — **geklärt: GPL-3.0**, wie UwUMail. Wer eine geänderte Version weitergibt, gibt den Quelltext mit weiter.
 
-1. **Server-Default-DB** — Empfehlung SQLite (ein Volume, ein Backup); Postgres optional.
+~~Server-Default-DB~~ — **geklärt: SQLite**, ein Volume, ein Backup. Postgres wäre ein zweiter Treiber für einen Vorteil, den niemand mit drei Geräten spürt.
+~~Zweiter Faktor neben dem Master-Passwort?~~ — **geklärt: Account-Key**, siehe §5. Der Server speichert zwangsläufig den umschlossenen Vault Key; ohne Account-Key wäre eine geklaute Server-Datenbank ein Offline-Angriff auf das Master-Passwort.
+~~TLS nur über einen Reverse-Proxy?~~ — **geklärt: eingebaut als Default**, mit gepinntem Fingerprint wie bei einem SSH-Host; Reverse-Proxy bleibt möglich.
+~~Konflikte feldweise auflösen?~~ — **geklärt: pro Record**, siehe §6.
+
+1. **Feldweiser Merge für Snippet-Bodies** — lohnt der 3-Wege-Merge, sobald es Snippets gibt?
 2. **`known_hosts` synchronisieren?** — Empfehlung ja, Default an; es ist der häufigste Reibungspunkt beim Gerätewechsel.
 3. **Team-Vaults** — v1 bewusst raus, oder gleich im Datenmodell vorsehen? (`vault_id` ist ohnehin drin, es offen zu lassen kostet nichts.)
 4. ~~**PPK-Parser selbst schreiben?**~~ — **geklärt: nicht nötig.** russh liest `.ppk` v2/v3 nativ, verschlüsselt oder nicht.
@@ -485,4 +660,27 @@ Ein Ende-zu-Ende-Lauf (`node apps/desktop/e2e/run.mjs`) klickt die echte App geg
 
 ~~Tabs, Einstellungen, Installer und Updates — die erste Beta~~ — **erledigt, als 0.1.0-beta.1.** Jede Verbindung bekommt ihren eigenen Tab, auch mehrere zum selben Server; jeder Tab hat sein eigenes Terminal und seinen eigenen Login-Versuch, Rückfragen kommen der Reihe nach. Das Fenster hat eigene Knöpfe zum Minimieren, Maximieren und Schließen (vorher fehlten sie, weil das Fenster ohne Systemrahmen läuft), und fragt vor dem Schließen nach, wenn noch Verbindungen offen sind. Die Einstellungen decken Darstellung, Terminal, Tresor und Updates ab. Windows bekommt den eigenen Nyu-Installer wie UwUMail (pro Benutzer, ohne Adminrechte, ersetzt die alte NSIS-Installation) und signierte automatische Updates mit Kanal Stabil oder Beta. Dazu eine Sicherheitsrunde: DLLs nur aus System32, strengere CSP, M0-Befehle begrenzt, alte Sessions werden beim Neuladen der Seite geschlossen.
 
-Als Nächstes im Rest von **M1**: Splits, Agent-Login, ProxyJump-Ketten (der Import merkt sich den Jump-Host, verknüpft die Kette aber noch nicht). Offen: die von PuTTY schon vertrauten Host-Keys (eigenes Registry-Format, braucht einen echten Dump zum Verifizieren).
+~~Das Fundament für den Sync-Server~~ — **erledigt.** Bevor ein Server Sinn hat,
+musste der Client sicher synchronisieren können, und beim Durchlesen fanden sich
+dafür sieben Baustellen. Die wichtigste: Der Kopf eines Records war nicht
+mitversiegelt, ein Server hätte also jeden Host als gelöscht markieren können —
+und weil Löschen gegen Änderungen gewinnt, wäre er überall verschwunden. Jetzt
+ist der ganze Kopf Teil der Signatur, Tombstones versiegeln einen leeren Inhalt,
+die Version eines Records ist die Sequenznummer des Servers statt eines
+gerätelokalen Zählers, die Outbox liegt in der Datenbank statt im RAM, Hosts
+zeigen per ID auf ihre Gruppe (eine Umbenennung ist ein Record statt N), und
+eine fremde Uhr, die im Jahr 2099 steht, zieht die lokale nicht mehr mit.
+
+Dazu die Engine selbst: ein Durchgang pusht, pullt und merged, und ein
+Speicher-Server in `uwussh-sync` hält die Regeln des echten Servers als
+lauffähigen Code fest. Sechzehn Tests fahren zwei echte Geräte dagegen — ein
+Host, der ankommt, ein Passwort, das sich auf dem zweiten Gerät öffnet, zwei
+gleichzeitige Umbenennungen, die beide Seiten gleich entscheiden, ein Löschen,
+das nicht zurückkommt, ein Gerät, das mit eigenen Hosts beitritt, und ein
+Server, der schwindelt und damit nirgends hinkommt.
+
+Als Nächstes: **der Server selbst** (Axum, SQLite, Kopplung, Docker), danach der
+Rest von **M1** — Splits, Agent-Login, ProxyJump-Ketten (der Import merkt sich
+den Jump-Host, verknüpft die Kette aber noch nicht). Offen: die von PuTTY schon
+vertrauten Host-Keys (eigenes Registry-Format, braucht einen echten Dump zum
+Verifizieren).

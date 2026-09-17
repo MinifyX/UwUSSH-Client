@@ -110,6 +110,16 @@ impl Store {
         Ok(vault.open(id, uwussh_proto::EntityKind::Secret, &sealed)?)
     }
 
+    /// The vault's header: salt, key derivation costs and the wrapped key.
+    ///
+    /// None of it is secret and all of it is useless without the master
+    /// password, which is what makes it the thing a device uploads when it
+    /// creates an account, and the thing a second device downloads before it
+    /// asks for that password.
+    pub fn vault_header(&self) -> Result<Option<VaultHeader>> {
+        self.load_header()
+    }
+
     pub(crate) fn load_header(&self) -> Result<Option<VaultHeader>> {
         header_row(&self.conn.lock())
     }
@@ -150,7 +160,7 @@ pub(crate) fn forget_secret(tx: &Transaction, device: u32, id: &str) -> Result<(
     tx.execute(
         "UPDATE secrets
             SET deleted = 1, nonce = x'', blob = x'', rev = rev + 1,
-                hlc_wall_ms = ?2, hlc_counter = ?3, hlc_device = ?4
+                dirty = 1, hlc_wall_ms = ?2, hlc_counter = ?3, hlc_device = ?4
           WHERE id = ?1 AND deleted = 0",
         params![id, clock.wall_ms as i64, clock.counter, clock.device],
     )?;

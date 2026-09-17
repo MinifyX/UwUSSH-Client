@@ -9,7 +9,7 @@ rust-version.workspace = true
 
 [dependencies]
 serde.workspace = true
-uuid.workspace = true
-
-[dev-dependencies]
+# Payloads keep the fields they did not recognise as raw JSON, so a device
+# running an older build never drops what a newer one wrote.
 serde_json.workspace = true
+uuid.workspace = true

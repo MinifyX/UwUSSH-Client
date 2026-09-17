@@ -41,7 +41,7 @@ pub enum Source {
 
 /// The neutral shape every importer targets.
 ///
-/// Deliberately not [`uwussh_proto::Host`]: imported data is messy, half of it
+/// Deliberately not [`uwussh_proto::HostPayload`]: imported data is messy, half of it
 /// needs a decision from the user, and none of it has ids yet. Converting
 /// happens once, after the preview, in one place.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

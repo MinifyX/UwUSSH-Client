@@ -169,7 +169,7 @@ impl Store {
         tx.execute(
             "UPDATE keys
                 SET label = ?2, rev = rev + 1,
-                    hlc_wall_ms = ?3, hlc_counter = ?4, hlc_device = ?5
+                    dirty = 1, hlc_wall_ms = ?3, hlc_counter = ?4, hlc_device = ?5
               WHERE id = ?1",
             params![
                 id.to_string(),
@@ -214,7 +214,7 @@ impl Store {
         tx.execute(
             "UPDATE keys
                 SET deleted = 1, rev = rev + 1,
-                    hlc_wall_ms = ?2, hlc_counter = ?3, hlc_device = ?4
+                    dirty = 1, hlc_wall_ms = ?2, hlc_counter = ?3, hlc_device = ?4
               WHERE id = ?1",
             params![
                 id.to_string(),

@@ -4,10 +4,10 @@
 //! upgrade leaves the previous schema intact rather than half of the new one.
 
 use crate::{Result, StoreError};
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use uuid::Uuid;
 
-pub const SCHEMA_VERSION: i64 = 3;
+pub const SCHEMA_VERSION: i64 = 4;
 
 /// The sync header (`id`, `vault_id`, clock, `rev`, `deleted`) is on every
 /// syncable table from the start; see the crate docs for why.
@@ -179,6 +179,82 @@ CREATE TABLE device_unlock (
 );
 "#;
 
+/// What sync needs from the local database, and the one change it forces on
+/// the data model: a host points at its group by id.
+///
+/// Renaming a group used to rewrite every host in it, which turned one edit
+/// into one record per host — and, on two devices at once, into one conflict
+/// per host. With an id, a rename is one record.
+const V4: &str = r#"
+-- Sync bookkeeping, on every table whose rows travel:
+--   `dirty`       changed here and not yet accepted by the server
+--   `server_seq`  the version the server last confirmed, 0 for never
+--   `sync_extra`  fields a newer build wrote that this one does not know,
+--                 kept verbatim so editing a record here does not drop them
+ALTER TABLE hosts        ADD COLUMN dirty      INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE hosts        ADD COLUMN server_seq INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE hosts        ADD COLUMN sync_extra TEXT;
+ALTER TABLE host_groups  ADD COLUMN dirty      INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE host_groups  ADD COLUMN server_seq INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE host_groups  ADD COLUMN sync_extra TEXT;
+ALTER TABLE identities   ADD COLUMN dirty      INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE identities   ADD COLUMN server_seq INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE identities   ADD COLUMN sync_extra TEXT;
+ALTER TABLE keys         ADD COLUMN dirty      INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE keys         ADD COLUMN server_seq INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE keys         ADD COLUMN sync_extra TEXT;
+ALTER TABLE snippets     ADD COLUMN dirty      INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE snippets     ADD COLUMN server_seq INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE snippets     ADD COLUMN sync_extra TEXT;
+ALTER TABLE known_hosts  ADD COLUMN dirty      INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE known_hosts  ADD COLUMN server_seq INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE known_hosts  ADD COLUMN sync_extra TEXT;
+-- A secret's payload is the secret itself, so there is nothing extra to keep.
+ALTER TABLE secrets      ADD COLUMN dirty      INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE secrets      ADD COLUMN server_seq INTEGER NOT NULL DEFAULT 0;
+
+-- A tombstone from before there was a server has nobody to tell.
+UPDATE hosts       SET dirty = 0 WHERE deleted = 1;
+UPDATE host_groups SET dirty = 0 WHERE deleted = 1;
+UPDATE identities  SET dirty = 0 WHERE deleted = 1;
+UPDATE keys        SET dirty = 0 WHERE deleted = 1;
+UPDATE snippets    SET dirty = 0 WHERE deleted = 1;
+UPDATE known_hosts SET dirty = 0 WHERE deleted = 1;
+UPDATE secrets     SET dirty = 0 WHERE deleted = 1;
+
+-- Finding what to push must not scan the whole list, so each table gets a
+-- partial index over just the rows that are waiting.
+CREATE INDEX hosts_pending       ON hosts (dirty)       WHERE dirty = 1;
+CREATE INDEX host_groups_pending ON host_groups (dirty) WHERE dirty = 1;
+CREATE INDEX identities_pending  ON identities (dirty)  WHERE dirty = 1;
+CREATE INDEX keys_pending        ON keys (dirty)        WHERE dirty = 1;
+CREATE INDEX snippets_pending    ON snippets (dirty)    WHERE dirty = 1;
+CREATE INDEX known_hosts_pending ON known_hosts (dirty) WHERE dirty = 1;
+CREATE INDEX secrets_pending     ON secrets (dirty)     WHERE dirty = 1;
+
+-- Where this device stands with its server. Local, never synced.
+CREATE TABLE sync_state (
+    id              INTEGER PRIMARY KEY CHECK (id = 1),
+    server_url      TEXT,
+    account_id      TEXT,
+    device_id       TEXT,
+    -- The server sequence number this device has seen everything up to.
+    cursor          INTEGER NOT NULL DEFAULT 0,
+    last_sync_ms    INTEGER
+);
+INSERT INTO sync_state (id) VALUES (1);
+
+ALTER TABLE hosts ADD COLUMN group_id TEXT REFERENCES host_groups (id);
+"#;
+
+/// Dropping `group_path` is separate: the column has to stay until every host
+/// has an id, and `ALTER TABLE … DROP COLUMN` cannot run in the same batch as
+/// the statements that read it.
+const V4_DROP_GROUP_PATH: &str = r#"
+ALTER TABLE hosts DROP COLUMN group_path;
+CREATE INDEX hosts_by_group ON hosts (group_id) WHERE group_id IS NOT NULL;
+"#;
+
 pub fn migrate(conn: &mut Connection) -> Result<()> {
     let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
 
@@ -267,6 +343,70 @@ pub fn migrate(conn: &mut Connection) -> Result<()> {
         tx.pragma_update(None, "user_version", 3)?;
         tx.commit()?;
         tracing::info!("store migrated to schema 3");
+    }
+
+    if version < 4 {
+        let tx = conn.transaction()?;
+        tx.execute_batch(V4)?;
+        let (vault_id, device): (String, i64) = tx.query_row(
+            "SELECT vault_id, device_id FROM meta WHERE id = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        // Every group a host names by text gets a record if it has none, and
+        // then the hosts of that group point at it by id.
+        let named = {
+            let mut stmt = tx.prepare(
+                "SELECT DISTINCT workspace, group_path FROM hosts
+                  WHERE deleted = 0 AND group_path IS NOT NULL
+                  ORDER BY workspace, lower(group_path)",
+            )?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            rows
+        };
+        for (workspace, name) in named {
+            let existing: Option<String> = tx
+                .query_row(
+                    "SELECT id FROM host_groups
+                      WHERE workspace = ?1 AND name = ?2 AND deleted = 0",
+                    params![workspace, name],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            let id = match existing {
+                Some(id) => id,
+                None => {
+                    let id = Uuid::now_v7().to_string();
+                    let position: i64 = tx.query_row(
+                        "SELECT coalesce(max(position) + 1, 0) FROM host_groups
+                          WHERE workspace = ?1 AND deleted = 0",
+                        [&workspace],
+                        |row| row.get(0),
+                    )?;
+                    tx.execute(
+                        "INSERT INTO host_groups
+                            (id, vault_id, workspace, name, position,
+                             hlc_wall_ms, hlc_counter, hlc_device)
+                         VALUES (?1, ?2, ?3, ?4, ?5, 0, 0, ?6)",
+                        params![id, vault_id, workspace, name, position, device],
+                    )?;
+                    id
+                }
+            };
+            tx.execute(
+                "UPDATE hosts SET group_id = ?3
+                  WHERE workspace = ?1 AND group_path = ?2 AND deleted = 0",
+                params![workspace, name, id],
+            )?;
+        }
+        tx.execute_batch(V4_DROP_GROUP_PATH)?;
+        tx.pragma_update(None, "user_version", 4)?;
+        tx.commit()?;
+        tracing::info!("store migrated to schema 4");
     }
 
     Ok(())
@@ -424,6 +564,89 @@ mod tests {
                 ("orphan".into(), 1, Vec::new())
             ]
         );
+    }
+
+    #[test]
+    fn a_v3_database_upgrades_to_v4_with_its_hosts_pointing_at_group_records() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(V1).unwrap();
+        conn.execute_batch(V2).unwrap();
+        conn.execute_batch(V3).unwrap();
+        conn.execute(
+            "INSERT INTO meta (id, device_id, vault_id) VALUES (1, 1, 'v')",
+            [],
+        )
+        .unwrap();
+        // One group with a record, one a host names without one, one host
+        // without a group, and a tombstone from before there was a server.
+        conn.execute_batch(
+            "INSERT INTO host_groups (id, vault_id, workspace, name, position,
+                                      hlc_wall_ms, hlc_counter, hlc_device)
+                  VALUES ('g-home', 'v', 'private', 'Homelab', 0, 1, 0, 1);
+             INSERT INTO hosts (id, vault_id, name, address, port, group_path, workspace,
+                                hlc_wall_ms, hlc_counter, hlc_device, deleted)
+                  VALUES ('a', 'v', 'a', '10.0.0.1', 22, 'Homelab',  'private', 1, 0, 1, 0),
+                         ('b', 'v', 'b', '10.0.0.2', 22, 'Clients',  'business', 1, 0, 1, 0),
+                         ('c', 'v', 'c', '10.0.0.3', 22, NULL,       'private', 1, 0, 1, 0),
+                         ('d', 'v', 'd', '10.0.0.4', 22, 'Homelab',  'private', 1, 0, 1, 1);",
+        )
+        .unwrap();
+        conn.pragma_update(None, "user_version", 3).unwrap();
+
+        migrate(&mut conn).unwrap();
+
+        let group_of = |host: &str| -> Option<String> {
+            conn.query_row(
+                "SELECT g.name FROM hosts h
+                   LEFT JOIN host_groups g ON g.id = h.group_id
+                  WHERE h.id = ?1",
+                [host],
+                |row| row.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(group_of("a").as_deref(), Some("Homelab"));
+        assert_eq!(
+            group_of("b").as_deref(),
+            Some("Clients"),
+            "a group only a host named got a record of its own"
+        );
+        assert_eq!(group_of("c"), None);
+
+        // The host still in a group shares the record that already existed.
+        let groups: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM host_groups WHERE name = 'Homelab'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(groups, 1);
+
+        let pending: Vec<(String, i64)> = conn
+            .prepare("SELECT id, dirty FROM hosts ORDER BY id")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(
+            pending,
+            vec![
+                ("a".into(), 1),
+                ("b".into(), 1),
+                ("c".into(), 1),
+                ("d".into(), 0)
+            ],
+            "everything waits to be pushed, except a tombstone nobody saw"
+        );
+
+        let cursor: i64 = conn
+            .query_row("SELECT cursor FROM sync_state WHERE id = 1", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(cursor, 0);
     }
 
     #[test]

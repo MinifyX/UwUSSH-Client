@@ -80,6 +80,7 @@ impl Store {
                         fingerprint_sha256 = excluded.fingerprint_sha256,
                         public_key = excluded.public_key,
                         first_seen_ms = excluded.first_seen_ms,
+                        dirty = 1,
                         hlc_wall_ms = excluded.hlc_wall_ms,
                         hlc_counter = excluded.hlc_counter,
                         hlc_device = excluded.hlc_device,
@@ -138,7 +139,7 @@ impl Store {
         let changed = tx.execute(
             "UPDATE known_hosts
                 SET deleted = 1, rev = rev + 1,
-                    hlc_wall_ms = ?3, hlc_counter = ?4, hlc_device = ?5
+                    dirty = 1, hlc_wall_ms = ?3, hlc_counter = ?4, hlc_device = ?5
               WHERE address = ?1 AND port = ?2 AND deleted = 0",
             params![
                 normalise(address),

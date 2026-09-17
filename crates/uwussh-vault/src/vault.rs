@@ -12,14 +12,14 @@
 //! The unwrapped vault key only ever exists inside an [`UnlockedVault`], which
 //! wipes it when dropped.
 
-use crate::crypto::{decrypt_record, encrypt_record, Sealed};
+use crate::crypto::{decrypt_record, decrypt_synced, encrypt_record, encrypt_synced, Sealed};
 use crate::kdf::{derive_master_secrets_with, KdfParams};
 use crate::{Result, VaultError};
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use rand::RngCore;
 use uuid::Uuid;
-use uwussh_proto::EntityKind;
+use uwussh_proto::{EntityKind, Hlc};
 use zeroize::Zeroizing;
 
 /// Associated data for wrapping the vault key: a label no record's AAD can
@@ -101,6 +101,47 @@ impl UnlockedVault {
 
     pub fn open(&self, id: Uuid, kind: EntityKind, sealed: &Sealed) -> Result<Zeroizing<Vec<u8>>> {
         decrypt_record(&self.key, id, kind, self.vault_id, sealed).map(Zeroizing::new)
+    }
+
+    /// Seal a record for the way to the server, with its whole header — clock
+    /// and tombstone flag included — as associated data.
+    pub fn seal_synced(
+        &self,
+        id: Uuid,
+        kind: EntityKind,
+        updated_at: Hlc,
+        deleted: bool,
+        plaintext: &[u8],
+    ) -> Result<Sealed> {
+        encrypt_synced(
+            &self.key,
+            id,
+            kind,
+            self.vault_id,
+            updated_at,
+            deleted,
+            plaintext,
+        )
+    }
+
+    pub fn open_synced(
+        &self,
+        id: Uuid,
+        kind: EntityKind,
+        updated_at: Hlc,
+        deleted: bool,
+        sealed: &Sealed,
+    ) -> Result<Zeroizing<Vec<u8>>> {
+        decrypt_synced(
+            &self.key,
+            id,
+            kind,
+            self.vault_id,
+            updated_at,
+            deleted,
+            sealed,
+        )
+        .map(Zeroizing::new)
     }
 
     /// The vault key itself, for the one place that keeps it without the

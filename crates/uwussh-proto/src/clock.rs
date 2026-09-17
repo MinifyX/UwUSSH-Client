@@ -9,6 +9,12 @@
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
+/// How far ahead of this device another one's clock may push the local clock
+/// when its edits arrive: one day, which covers a time zone typo and a
+/// forgotten daylight saving change without letting a device stuck in the next
+/// century poison every other one.
+pub const MAX_DRIFT_MS: u64 = 24 * 60 * 60 * 1000;
+
 /// A hybrid logical clock timestamp: wall time, a tie-break counter, and the
 /// device that produced it (so even identical (wall, counter) pairs order
 /// stably instead of flapping).
@@ -54,7 +60,19 @@ impl Hlc {
     }
 
     /// Merge a timestamp received from another device into the local clock.
+    ///
+    /// A remote clock further ahead than [`MAX_DRIFT_MS`] is not allowed to
+    /// drag the local one with it: a device whose clock says 2099 would
+    /// otherwise make every device that ever synced with it claim 2099 too,
+    /// and from then on every edit anywhere would only differ in the counter.
+    /// The record itself still keeps the timestamp it arrived with, so
+    /// ordering does not change — only what this device claims as *now*.
     pub fn merge(self, remote: Hlc, now_ms: u64) -> Self {
+        let remote_wall = remote.wall_ms.min(now_ms.saturating_add(MAX_DRIFT_MS));
+        let remote = Hlc {
+            wall_ms: remote_wall,
+            ..remote
+        };
         let max_wall = now_ms.max(self.wall_ms).max(remote.wall_ms);
 
         let counter = if max_wall == self.wall_ms && max_wall == remote.wall_ms {
@@ -120,6 +138,23 @@ mod tests {
             b > a,
             "an edit made later must never sort before an earlier one"
         );
+    }
+
+    #[test]
+    fn a_device_whose_clock_says_2099_does_not_take_the_local_clock_with_it() {
+        let now = 1_700_000_000_000;
+        let local = Hlc::new(now, 0, 1);
+        let absurd = Hlc::new(4_000_000_000_000, 0, 2);
+
+        let merged = local.merge(absurd, now);
+        assert!(
+            merged.wall_ms <= now + MAX_DRIFT_MS,
+            "the local clock stays in this decade: {}",
+            merged.wall_ms
+        );
+        // The record that arrived still sorts after ours — only the clock is
+        // capped, not the ordering.
+        assert!(absurd > local);
     }
 
     #[test]

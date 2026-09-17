@@ -1,13 +1,17 @@
 //! Groups, workspaces and the order of the host list.
 //!
-//! A host names its group by `group_path`; the group itself is a record in
-//! `host_groups`, so an empty group stays and groups keep the order they were
-//! dragged into. Every move is one call — a host onto a group, between two
-//! hosts, into the other workspace — and renumbers what it touched in one
-//! transaction. Only rows whose place actually changed get a new revision, so a
-//! drag doesn't turn into a sync of the whole list.
+//! A group is a record in `host_groups` and a host points at it by id, so an
+//! empty group stays, groups keep the order they were dragged into, and
+//! renaming one is a single record instead of one per host. Names stay the
+//! handle the user interface uses — nobody drags an id around — so every call
+//! here takes names and resolves them on the way in.
+//!
+//! Every move is one call — a host onto a group, between two hosts, into the
+//! other workspace — and renumbers what it touched in one transaction. Only
+//! rows whose place actually changed get a new revision, so a drag doesn't turn
+//! into a sync of the whole list.
 
-use crate::hosts::{ensure_group, group_name, read_host, HostRecord, Workspace};
+use crate::hosts::{ensure_group, group_id, group_name, read_host, HostRecord, Workspace};
 use crate::{tick, vault_id, Result, Store, StoreError};
 use rusqlite::{params, OptionalExtension, Transaction};
 use serde::Serialize;
@@ -28,23 +32,23 @@ fn required(name: &str) -> Result<String> {
     })
 }
 
+fn unknown_group() -> StoreError {
+    StoreError::Invalid {
+        field: "groupPath",
+        problem: "unknown",
+    }
+}
+
 impl Store {
-    /// Every group, in order, per workspace. A group a host names without a
-    /// record (sync could bring one) is listed after the recorded ones.
+    /// Every group, in order, per workspace. A placeholder for a group whose
+    /// record has not arrived from the server yet carries no name and is left
+    /// out until it does.
     pub fn list_groups(&self) -> Result<Vec<GroupRecord>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT workspace, name, position FROM (
-                SELECT workspace, name, position, 0 AS implicit
-                  FROM host_groups WHERE deleted = 0
-                UNION
-                SELECT DISTINCT h.workspace, h.group_path, 0, 1 FROM hosts h
-                 WHERE h.deleted = 0 AND h.group_path IS NOT NULL
-                   AND NOT EXISTS (SELECT 1 FROM host_groups g
-                                    WHERE g.deleted = 0 AND g.workspace = h.workspace
-                                      AND g.name = h.group_path)
-             )
-             ORDER BY workspace, implicit, position, lower(name)",
+            "SELECT workspace, name, position FROM host_groups
+              WHERE deleted = 0 AND name != ''
+              ORDER BY workspace, position, lower(name)",
         )?;
         let groups = stmt
             .query_map([], |row| {
@@ -63,17 +67,17 @@ impl Store {
         let name = required(name)?;
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
-        if group_exists(&tx, workspace, &name)? {
+        if group_id(&tx, workspace, &name)?.is_some() {
             return Err(StoreError::Invalid {
                 field: "groupPath",
                 problem: "exists",
             });
         }
         let vault = vault_id(&tx)?;
-        ensure_group(&tx, self.device, &vault, workspace, &name)?;
+        let id = ensure_group(&tx, self.device, &vault, workspace, &name)?;
         let position = tx.query_row(
-            "SELECT position FROM host_groups WHERE workspace = ?1 AND name = ?2 AND deleted = 0",
-            params![workspace.as_str(), name],
+            "SELECT position FROM host_groups WHERE id = ?1",
+            [&id],
             |row| row.get(0),
         )?;
         tx.commit()?;
@@ -84,8 +88,9 @@ impl Store {
         })
     }
 
-    /// Rename a group. Renaming onto a group that already exists merges the
-    /// two: the hosts join it at the end.
+    /// Rename a group. Its hosts are not touched at all — they point at the
+    /// record, not at the name. Renaming onto a group that already exists
+    /// merges the two: the hosts join it at the end.
     pub fn rename_group(&self, workspace: Workspace, from: &str, to: &str) -> Result<()> {
         let to = required(to)?;
         if from == to {
@@ -93,41 +98,30 @@ impl Store {
         }
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
-        let vault = vault_id(&tx)?;
-        if group_exists(&tx, workspace, &to)? {
-            move_members(&tx, self.device, workspace, from, workspace, &to)?;
-            tombstone_group(&tx, self.device, workspace, from)?;
-        } else {
-            ensure_group(&tx, self.device, &vault, workspace, from)?;
-            let clock = tick(&tx, self.device)?;
-            tx.execute(
-                "UPDATE host_groups
-                    SET name = ?3, rev = rev + 1,
-                        hlc_wall_ms = ?4, hlc_counter = ?5, hlc_device = ?6
-                  WHERE workspace = ?1 AND name = ?2 AND deleted = 0",
-                params![
-                    workspace.as_str(),
-                    from,
-                    to,
-                    clock.wall_ms as i64,
-                    clock.counter,
-                    clock.device
-                ],
-            )?;
-            tx.execute(
-                "UPDATE hosts
-                    SET group_path = ?3, rev = rev + 1,
-                        hlc_wall_ms = ?4, hlc_counter = ?5, hlc_device = ?6
-                  WHERE workspace = ?1 AND group_path = ?2 AND deleted = 0",
-                params![
-                    workspace.as_str(),
-                    from,
-                    to,
-                    clock.wall_ms as i64,
-                    clock.counter,
-                    clock.device
-                ],
-            )?;
+        let Some(from_id) = group_id(&tx, workspace, from)? else {
+            return Err(unknown_group());
+        };
+        match group_id(&tx, workspace, &to)? {
+            Some(to_id) => {
+                move_members(&tx, self.device, &from_id, workspace, Some(&to_id))?;
+                tombstone_group(&tx, self.device, &from_id)?;
+            }
+            None => {
+                let clock = tick(&tx, self.device)?;
+                tx.execute(
+                    "UPDATE host_groups
+                        SET name = ?2, rev = rev + 1,
+                            dirty = 1, hlc_wall_ms = ?3, hlc_counter = ?4, hlc_device = ?5
+                      WHERE id = ?1",
+                    params![
+                        from_id,
+                        to,
+                        clock.wall_ms as i64,
+                        clock.counter,
+                        clock.device
+                    ],
+                )?;
+            }
         }
         tx.commit()?;
         Ok(())
@@ -137,25 +131,11 @@ impl Store {
     pub fn delete_group(&self, workspace: Workspace, name: &str) -> Result<()> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
-        let hosts = members(&tx, workspace, Some(name))?;
-        let first = crate::hosts::next_position(&tx, workspace, None)?;
-        let clock = tick(&tx, self.device)?;
-        for (position, id) in (first..).zip(hosts) {
-            tx.execute(
-                "UPDATE hosts
-                    SET group_path = NULL, position = ?2, rev = rev + 1,
-                        hlc_wall_ms = ?3, hlc_counter = ?4, hlc_device = ?5
-                  WHERE id = ?1",
-                params![
-                    id,
-                    position,
-                    clock.wall_ms as i64,
-                    clock.counter,
-                    clock.device
-                ],
-            )?;
-        }
-        tombstone_group(&tx, self.device, workspace, name)?;
+        let Some(id) = group_id(&tx, workspace, name)? else {
+            return Err(unknown_group());
+        };
+        move_members(&tx, self.device, &id, workspace, None)?;
+        tombstone_group(&tx, self.device, &id)?;
         tx.commit()?;
         Ok(())
     }
@@ -172,49 +152,56 @@ impl Store {
     ) -> Result<()> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
-        let vault = vault_id(&tx)?;
-        ensure_group(&tx, self.device, &vault, workspace, name)?;
+        let Some(mut id) = group_id(&tx, workspace, name)? else {
+            return Err(unknown_group());
+        };
 
         if to != workspace {
-            if group_exists(&tx, to, name)? {
-                move_members(&tx, self.device, workspace, name, to, name)?;
-                tombstone_group(&tx, self.device, workspace, name)?;
-            } else {
-                let clock = tick(&tx, self.device)?;
-                tx.execute(
-                    "UPDATE host_groups
-                        SET workspace = ?3, rev = rev + 1,
-                            hlc_wall_ms = ?4, hlc_counter = ?5, hlc_device = ?6
-                      WHERE workspace = ?1 AND name = ?2 AND deleted = 0",
-                    params![
-                        workspace.as_str(),
-                        name,
-                        to.as_str(),
-                        clock.wall_ms as i64,
-                        clock.counter,
-                        clock.device
-                    ],
-                )?;
-                tx.execute(
-                    "UPDATE hosts
-                        SET workspace = ?3, rev = rev + 1,
-                            hlc_wall_ms = ?4, hlc_counter = ?5, hlc_device = ?6
-                      WHERE workspace = ?1 AND group_path = ?2 AND deleted = 0",
-                    params![
-                        workspace.as_str(),
-                        name,
-                        to.as_str(),
-                        clock.wall_ms as i64,
-                        clock.counter,
-                        clock.device
-                    ],
-                )?;
+            match group_id(&tx, to, name)? {
+                Some(target) => {
+                    move_members(&tx, self.device, &id, to, Some(&target))?;
+                    tombstone_group(&tx, self.device, &id)?;
+                    id = target;
+                }
+                None => {
+                    let clock = tick(&tx, self.device)?;
+                    tx.execute(
+                        "UPDATE host_groups
+                            SET workspace = ?2, rev = rev + 1,
+                                dirty = 1, hlc_wall_ms = ?3, hlc_counter = ?4, hlc_device = ?5
+                          WHERE id = ?1",
+                        params![
+                            id,
+                            to.as_str(),
+                            clock.wall_ms as i64,
+                            clock.counter,
+                            clock.device
+                        ],
+                    )?;
+                    tx.execute(
+                        "UPDATE hosts
+                            SET workspace = ?2, rev = rev + 1,
+                                dirty = 1, hlc_wall_ms = ?3, hlc_counter = ?4, hlc_device = ?5
+                          WHERE group_id = ?1 AND deleted = 0",
+                        params![
+                            id,
+                            to.as_str(),
+                            clock.wall_ms as i64,
+                            clock.counter,
+                            clock.device
+                        ],
+                    )?;
+                }
             }
         }
 
+        let before_id = match before {
+            Some(name) => group_id(&tx, to, name)?,
+            None => None,
+        };
         let mut order: Vec<(String, i64)> = {
             let mut stmt = tx.prepare(
-                "SELECT name, position FROM host_groups
+                "SELECT id, position FROM host_groups
                   WHERE workspace = ?1 AND deleted = 0
                   ORDER BY position, lower(name)",
             )?;
@@ -223,13 +210,13 @@ impl Store {
                 .collect::<rusqlite::Result<Vec<_>>>()?;
             rows
         };
-        let Some(from) = order.iter().position(|(n, _)| n == name) else {
+        let Some(from) = order.iter().position(|(other, _)| *other == id) else {
             tx.commit()?;
             return Ok(());
         };
         let moved = order.remove(from);
-        let at = before
-            .and_then(|b| order.iter().position(|(n, _)| n == b))
+        let at = before_id
+            .and_then(|before| order.iter().position(|(other, _)| *other == before))
             .unwrap_or(order.len());
         order.insert(at, moved);
 
@@ -240,11 +227,10 @@ impl Store {
             }
             tx.execute(
                 "UPDATE host_groups
-                    SET position = ?3, rev = rev + 1,
-                        hlc_wall_ms = ?4, hlc_counter = ?5, hlc_device = ?6
-                  WHERE workspace = ?1 AND name = ?2 AND deleted = 0",
+                    SET position = ?2, rev = rev + 1,
+                        dirty = 1, hlc_wall_ms = ?3, hlc_counter = ?4, hlc_device = ?5
+                  WHERE id = ?1",
                 params![
-                    to.as_str(),
                     group,
                     index as i64,
                     clock.wall_ms as i64,
@@ -271,21 +257,22 @@ impl Store {
         let tx = conn.transaction()?;
         let current: Option<(String, Option<String>, i64)> = tx
             .query_row(
-                "SELECT workspace, group_path, position FROM hosts WHERE id = ?1 AND deleted = 0",
+                "SELECT workspace, group_id, position FROM hosts WHERE id = ?1 AND deleted = 0",
                 [id.to_string()],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .optional()?;
         let (workspace, old_group, old_position) = current.ok_or(StoreError::UnknownHost(id))?;
         let vault = vault_id(&tx)?;
-        if let Some(group) = &group {
-            ensure_group(&tx, self.device, &vault, to, group)?;
-        }
+        let group = match &group {
+            Some(name) => Some(ensure_group(&tx, self.device, &vault, to, name)?),
+            None => None,
+        };
 
         let mut order: Vec<(String, i64)> = {
             let mut stmt = tx.prepare(
                 "SELECT id, position FROM hosts
-                  WHERE deleted = 0 AND workspace = ?1 AND group_path IS ?2 AND id != ?3
+                  WHERE deleted = 0 AND workspace = ?1 AND group_id IS ?2 AND id != ?3
                   ORDER BY position, lower(name)",
             )?;
             let rows = stmt
@@ -317,8 +304,8 @@ impl Store {
             }
             tx.execute(
                 "UPDATE hosts
-                    SET workspace = ?2, group_path = ?3, position = ?4, rev = rev + 1,
-                        hlc_wall_ms = ?5, hlc_counter = ?6, hlc_device = ?7
+                    SET workspace = ?2, group_id = ?3, position = ?4, rev = rev + 1,
+                        dirty = 1, hlc_wall_ms = ?5, hlc_counter = ?6, hlc_device = ?7
                   WHERE id = ?1",
                 params![
                     host,
@@ -337,45 +324,35 @@ impl Store {
     }
 }
 
-fn group_exists(tx: &Transaction, workspace: Workspace, name: &str) -> Result<bool> {
-    let count: i64 = tx.query_row(
-        "SELECT count(*) FROM host_groups WHERE workspace = ?1 AND name = ?2 AND deleted = 0",
-        params![workspace.as_str(), name],
-        |row| row.get(0),
-    )?;
-    Ok(count > 0)
-}
-
-/// The ids of a group's hosts, in order.
-fn members(tx: &Transaction, workspace: Workspace, group: Option<&str>) -> Result<Vec<String>> {
-    let mut stmt = tx.prepare(
-        "SELECT id FROM hosts
-          WHERE deleted = 0 AND workspace = ?1 AND group_path IS ?2
-          ORDER BY position, lower(name)",
-    )?;
-    let ids = stmt
-        .query_map(params![workspace.as_str(), group], |row| row.get(0))?
-        .collect::<rusqlite::Result<Vec<String>>>()?;
-    Ok(ids)
-}
-
-/// Every host of one group joins another, at its end.
+/// Every host of one group joins another one — or none — at its end.
 fn move_members(
     tx: &Transaction,
     device: u32,
-    from_workspace: Workspace,
     from: &str,
     to_workspace: Workspace,
-    to: &str,
+    to: Option<&str>,
 ) -> Result<()> {
-    let hosts = members(tx, from_workspace, Some(from))?;
-    let first = crate::hosts::next_position(tx, to_workspace, Some(to))?;
+    let hosts = {
+        let mut stmt = tx.prepare(
+            "SELECT id FROM hosts
+              WHERE deleted = 0 AND group_id = ?1
+              ORDER BY position, lower(name)",
+        )?;
+        let ids = stmt
+            .query_map([from], |row| row.get(0))?
+            .collect::<rusqlite::Result<Vec<String>>>()?;
+        ids
+    };
+    if hosts.is_empty() {
+        return Ok(());
+    }
+    let first = crate::hosts::next_position(tx, to_workspace, to)?;
     let clock = tick(tx, device)?;
     for (position, id) in (first..).zip(hosts) {
         tx.execute(
             "UPDATE hosts
-                SET workspace = ?2, group_path = ?3, position = ?4, rev = rev + 1,
-                    hlc_wall_ms = ?5, hlc_counter = ?6, hlc_device = ?7
+                SET workspace = ?2, group_id = ?3, position = ?4, rev = rev + 1,
+                    dirty = 1, hlc_wall_ms = ?5, hlc_counter = ?6, hlc_device = ?7
               WHERE id = ?1",
             params![
                 id,
@@ -391,20 +368,14 @@ fn move_members(
     Ok(())
 }
 
-fn tombstone_group(tx: &Transaction, device: u32, workspace: Workspace, name: &str) -> Result<()> {
+fn tombstone_group(tx: &Transaction, device: u32, id: &str) -> Result<()> {
     let clock = tick(tx, device)?;
     tx.execute(
         "UPDATE host_groups
             SET deleted = 1, rev = rev + 1,
-                hlc_wall_ms = ?3, hlc_counter = ?4, hlc_device = ?5
-          WHERE workspace = ?1 AND name = ?2 AND deleted = 0",
-        params![
-            workspace.as_str(),
-            name,
-            clock.wall_ms as i64,
-            clock.counter,
-            clock.device
-        ],
+                dirty = 1, hlc_wall_ms = ?2, hlc_counter = ?3, hlc_device = ?4
+          WHERE id = ?1 AND deleted = 0",
+        params![id, clock.wall_ms as i64, clock.counter, clock.device],
     )?;
     Ok(())
 }
@@ -529,10 +500,22 @@ mod tests {
     #[test]
     fn renaming_a_group_renames_it_for_its_hosts() {
         let store = store();
-        add(&store, "a", P, Some("old"));
+        let a = add(&store, "a", P, Some("old"));
         store.rename_group(P, "old", "new").unwrap();
         assert_eq!(group_names(&store, P), vec!["new"]);
         assert_eq!(names(&store, P, Some("new")), vec!["a"]);
+
+        // And it did not rewrite the hosts, which is what the id is for.
+        let rev: i64 = store
+            .conn
+            .lock()
+            .query_row(
+                "SELECT rev FROM hosts WHERE id = ?1",
+                [a.id.to_string()],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(rev, 1, "a rename is one record, not one per host");
     }
 
     #[test]
@@ -570,5 +553,23 @@ mod tests {
         assert_eq!(group_names(&store, P), vec!["three", "one"]);
         assert_eq!(group_names(&store, B), vec!["clients", "two"]);
         assert_eq!(names(&store, B, Some("two")), vec!["a"]);
+    }
+
+    #[test]
+    fn a_group_that_is_not_there_is_not_silently_ignored() {
+        let store = store();
+        for outcome in [
+            store.rename_group(P, "nope", "other"),
+            store.delete_group(P, "nope"),
+            store.move_group(P, "nope", B, None),
+        ] {
+            assert!(matches!(
+                outcome,
+                Err(StoreError::Invalid {
+                    problem: "unknown",
+                    ..
+                })
+            ));
+        }
     }
 }

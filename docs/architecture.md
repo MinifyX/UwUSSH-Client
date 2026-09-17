@@ -91,22 +91,30 @@ Every syncable entity shares one header:
 
 ```
 id          UUIDv7   time-sortable, no coordination needed
-updated_at  HLC      hybrid logical clock (wall_ms, counter, device_id)
-rev         u64      local revision counter
+updated_at  HLC      hybrid logical clock (wall_ms, counter, device)
 deleted     bool     tombstone, 90 day TTL
-vault_id    UUID     personal | work | shared
+vault_id    UUID     which vault this belongs to
+server_seq  u64      the version the server last confirmed, 0 for never
+dirty       bool     changed here and not pushed yet
+sync_extra  JSON     fields a newer build wrote that this one does not know
+rev         u64      local bookkeeping, handy in tests and logs
 ```
 
-Entities: `Host`, `Group`, `Identity`, `Key`, `Snippet`, `PortForward`,
-`KnownHost`, `TerminalProfile`. `SessionLog` stays local and does not sync by
-default.
+Entities: `Host`, `Group`, `Identity`, `Key`, `Secret`, `Snippet`,
+`PortForward`, `KnownHost`, `TerminalProfile` — the last two of those have no
+table yet. `SessionLog` stays local and does not sync by default, and so do the
+columns that only mean something here: a key's file path, when this device last
+connected, and the system a connection found.
 
-Hosts also carry a **workspace** (`private` or `business`), a position and
-the detected system. Workspaces are a view — two lists in one sidebar, like
-UwUMail's accounts — not separate vaults; everything shares one vault and one
-database. Groups are records of their own (`host_groups`: workspace, name,
-position), so an empty group survives and groups keep the order they were
-dragged into.
+Hosts also carry a **workspace** (`private` or `business`) and a position.
+Workspaces are a view — two lists in one sidebar, like UwUMail's accounts — not
+separate vaults; everything shares one vault and one database. Groups are
+records of their own (`host_groups`: workspace, name, position), so an empty
+group survives and groups keep the order they were dragged into, and a host
+points at its group **by id**. That last part is what keeps renaming a group one
+record instead of one per host — which, on two devices at once, would have been
+one conflict per host. Names stay the handle the interface uses; they are
+resolved to ids on the way in.
 
 `Host.jump_host_id` is a self-reference, which gives ProxyJump chains for free:
 `laptop → bastion → db-01` is a linked list the SessionManager resolves
@@ -168,23 +176,161 @@ unlocking anything.
 
 Offline-first: everything lands in SQLite first, the server is a relay.
 
-| Endpoint                   | Purpose                                          |
-| -------------------------- | ------------------------------------------------ |
-| `GET /v1/sync?since=<seq>` | Blobs newer than a cursor, paginated             |
-| `POST /v1/sync`            | Batch push, each record with its `base_rev`      |
-| `WS /v1/stream`            | "Changes from seq N" — the client then pulls     |
-| `POST /v1/auth/login`      | Login hash → session token + `wrapped_vault_key` |
-| `GET/DELETE /v1/devices`   | List and revoke devices                          |
+### The envelope
 
-The cursor is a monotonic server sequence number, not a timestamp. Clocks across
-devices are a bug source; sequence numbers are not.
+A record travels as an envelope — id, kind, vault, clock, tombstone flag — plus
+a payload sealed with the vault key. The server sees only the header, and
+**the header is sealed along with the payload** (associated data:
+`label ‖ id ‖ kind ‖ vault_id ‖ hlc ‖ deleted`).
 
-Conflicts resolve last-writer-wins **per field**, decided by the HLC. On `409`
-the server returns current state, the client merges field-wise and retries up to
-three times before showing a conflict banner. This is deliberately not a full
-CRDT — two devices practically never edit the same field of the same host at the
-same moment. The exception is snippet bodies, where real text collisions are
-possible; those get a three-way merge with conflict markers.
+That is not a detail. Without it a server could set `deleted`, and since a
+tombstone beats a concurrent edit, one flipped bit would remove a host from
+every device; or it could rewrite the clock and make an old version look like
+the newest one. Both now fail the authentication tag. A tombstone therefore
+seals an empty payload rather than nothing at all.
+
+### The outbox is the database
+
+A local write sets `dirty = 1` in the same transaction that writes the row, and
+`server_seq` records the version the server confirmed. A queue beside the
+database would lose edits in a crash; a column cannot. Finding what to push is a
+partial index over exactly the waiting rows.
+
+`sync_extra` is the other half of that: fields a **newer** build wrote are kept
+verbatim, so editing a host on an older device does not quietly drop what it has
+never heard of.
+
+### One pass
+
+Push first, then pull — and the pull is not optional even when nothing comes
+back, because the cursor only moves on a pull. A pass that ended with a push
+would leave the device believing it had not seen its own writes. Pulling last
+also brings those writes back once, checked against what is here, which is a
+cheap way to notice a server that stored something else.
+
+A conflict therefore shows up on the way out: the server refuses the record and
+returns the version it holds, the client merges that and starts the round again
+— at most three times, then a banner.
+
+### Conflicts
+
+Last-writer-wins **per record**, decided by the HLC, and a **delete beats a
+concurrent edit**: a host you removed coming back — a bastion you
+decommissioned, say — is worse than redoing a rename.
+
+Per record rather than per field, because two devices practically never edit the
+same host at the same moment, and a field-wise merge needs a common ancestor per
+field, which costs a second copy of every record for a case that does not
+happen. Snippet bodies, where text really can collide, are the one place that
+may earn a three-way merge later.
+
+The rule itself lives in `uwussh-proto`, next to the clock, because the store
+applies it inside the transaction that writes the record and the engine decides
+what to push — and the server must never disagree with either.
+
+Two cases have a rule of their own:
+
+- **Trusted host keys** share one slot per `address:port`. If two devices
+  trusted different keys without seeing each other's, the newer record takes
+  the slot, on every device, so they end up agreeing; a differing fingerprint is
+  counted so the interface can say so.
+- **A key referenced by file path** stays local. A path means nothing on
+  another machine.
+
+### Records that arrive out of order
+
+A host can arrive before the login it points at, and foreign keys would refuse
+it. So a missing reference gets a **placeholder**: a live row with the oldest
+possible clock, no name, never pushed — which the real record replaces the
+moment it turns up. Until then the host is listed without a login, and a group
+with no name yet is not shown as a group at all.
+
+### Joining an account
+
+A second device that already has hosts of its own has its own vault id and its
+own vault key. `adopt_vault` takes over the account's: every secret is opened
+with the old key and sealed again with the new one — the ids stay, but a sealed
+record is bound to its vault — the vault id is rewritten everywhere, the key
+this device had sealed for itself is dropped, and everything is marked waiting,
+because to the account it is all new. What was already there then goes through
+the same duplicate detection as an import.
+
+### The protocol
+
+| Endpoint                             | Purpose                                                                     |
+| ------------------------------------ | --------------------------------------------------------------------------- |
+| `POST /v1/accounts`                  | Create an account from an invite: vault header, auth verifier, first device |
+| `POST /v1/session`                   | A device signs a challenge (Ed25519) → token, one hour                      |
+| `GET /v1/vault`, `PUT /v1/vault/key` | The vault header; a new one on a password change                            |
+| `GET /v1/records?since=<seq>`        | Envelopes newer than a cursor, paginated                                    |
+| `POST /v1/records`                   | Batch push, each record with its `base_seq`                                 |
+| `GET /v1/events`                     | Server-sent events: "changes from seq N"                                    |
+| `POST /v1/pair`, `/v1/pair/{id}`     | Relay for device pairing (SPAKE2), ten minutes                              |
+| `GET`/`DELETE /v1/devices`           | List and revoke devices                                                     |
+
+The cursor is a monotonic server sequence number, not a timestamp: clocks across
+devices are a bug source. That number is also a record's version — a push
+carries the `base_seq` it was based on, and a mismatch is the conflict. A
+device-local counter would be wrong here, since two devices count on their own.
+
+Server-sent events rather than a WebSocket: "there is something new from N"
+needs no channel back, and SSE survives every reverse proxy.
+
+## The sync server
+
+One binary, one Docker image, one SQLite file — and deliberately dumb. It hands
+out sequence numbers, keeps the newest version of each record, pages through
+them from a cursor, and refuses a write whose `base_seq` is not the version it
+holds. It cannot read a record, so it cannot merge one either; everything clever
+happens on the devices.
+
+```
+accounts (id, vault_id, kdf_*, salt, wrapped_key, auth_verifier, created_ms)
+devices  (id, account_id, name, public_key, cursor, last_seen_ms, revoked_ms)
+records  (account_id, id, kind, seq, hlc, deleted, nonce, blob)
+invites  (code_hash, expires_ms, used_ms)
+```
+
+What it does enforce is size and rate, which needs no key: 500 records per
+request, 256 KiB per envelope, a 24-byte nonce, the schema version, and limits
+on account creation, login and pairing. A record too large for that is left out
+of a push rather than offered and refused, so one oversized snippet cannot stop
+everything else from syncing.
+
+`UWUSSH_TLS=auto` generates a certificate on first start and logs its
+fingerprint; the app pins it, which is the model an SSH client uses anyway, and
+pairing passes the fingerprint to the joining device inside the SPAKE2 channel.
+No domain, no Let's Encrypt, works over a Tailscale address. A reverse proxy
+with a real certificate is still an option; plain HTTP is not, except against
+localhost.
+
+Backups are `VACUUM INTO`, not a copy of a live WAL database, plus a nightly
+snapshot with fourteen kept — cheap insurance against a client bug that pushes
+nonsense to every device.
+
+### Keys and pairing
+
+```
+master password ── Argon2id(salt, params) ──┐
+account key (128 bits, on paired devices)  ┴─ HKDF
+     ├─ master key   never leaves the device  → wraps the vault key
+     └─ auth secret  → the server stores only its SHA-256
+```
+
+The account key is the part the server never sees, and it is what makes a stolen
+server database worthless: without it, whoever took the server could guess the
+master password offline against the wrapped vault key it has to store. The cost
+is stated plainly in the setup: losing every device **and** the recovery kit
+means losing the data.
+
+Pairing follows Magic Wormhole rather than a QR code, because desktops rarely
+have cameras. The device that is already in shows a code like
+`7-nyu-laser-kaffee`; the new one types it; SPAKE2 over the server's relay gives
+them a channel the server cannot read and an attacker exactly one guess per
+code. The first device confirms by name, passes the certificate fingerprint, the
+account key and a one-time token — and the server hands over the wrapped vault
+key only once the new device has proved it knows the master password. An
+intercepted pairing code alone is worth nothing.
 
 ## Import
 
@@ -517,8 +663,20 @@ the vault key sealed with DPAPI when the vault is remembered on this device (see
 
 ## How it is tested
 
-- **Unit tests** in every crate: clock, crypto, merge, outbox, parsers, flow
-  control, the store.
+- **Unit tests** in every crate: clock, crypto, merge, parsers, flow control,
+  the store.
+- **Two devices against a server**, in `crates/uwussh-sync/src/tests.rs`: two
+  real stores sharing one vault, syncing through `MemoryServer` — which is the
+  server's rules as running code, so the server's own tests can later be held
+  against the same thing. They check what sync has to get right: a host and its
+  sealed password arriving on the other device, two simultaneous renames ending
+  the same way on both, a delete that does not come back, a device joining with
+  hosts of its own, a second pass finding nothing to do, two devices that
+  trusted different keys for one machine agreeing on one — and a server that
+  misbehaves getting nowhere: a flipped tombstone flag, an old version replayed
+  under a new clock, a record from another vault. Plus the two properties
+  underneath: nothing readable in what the server holds, and a field a newer
+  build wrote surviving an edit by an older one.
 - **SSH integration tests** in `crates/uwussh-core/tests/ssh.rs` run a real SSH
   server in-process — russh's server half — and check on every commit what
   matters most: no login attempt against an untrusted or changed key, the

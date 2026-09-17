@@ -9,6 +9,7 @@ rust-version.workspace = true
 
 [dependencies]
 uwussh-proto.workspace = true
+uwussh-store.workspace = true
 
 parking_lot.workspace = true
 serde.workspace = true
@@ -16,5 +17,12 @@ thiserror.workspace = true
 tracing.workspace = true
 uuid.workspace = true
 
-# The HTTP half lands with M2:
-#   cargo add reqwest --features json,rustls-tls
+# The HTTP half lands with the server: a blocking client on the sync thread,
+# with a certificate the pairing pinned.
+#   cargo add ureq --features rustls
+
+[dev-dependencies]
+uwussh-vault.workspace = true
+
+serde_json.workspace = true
+zeroize.workspace = true

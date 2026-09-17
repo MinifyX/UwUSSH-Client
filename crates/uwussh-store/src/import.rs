@@ -203,7 +203,8 @@ impl Writer<'_> {
                     &self.vault_uuid,
                     group.workspace,
                     &name,
-                )?;
+                )
+                .map(drop)?;
             }
         }
 
@@ -399,16 +400,16 @@ impl Writer<'_> {
     }
 
     fn write_host(&self, host: &HostInput, identity_id: Option<&str>) -> Result<()> {
-        let group = crate::hosts::group_name(host.group_path.clone())?;
-        if let Some(group) = &group {
-            ensure_group(
+        let group = match crate::hosts::group_name(host.group_path.clone())? {
+            Some(name) => Some(ensure_group(
                 self.tx,
                 self.device,
                 &self.vault_uuid,
                 host.workspace,
-                group,
-            )?;
-        }
+                &name,
+            )?),
+            None => None,
+        };
         let position = match host.position {
             Some(position) => position,
             None => next_position(self.tx, host.workspace, group.as_deref())?,
@@ -416,7 +417,7 @@ impl Writer<'_> {
         let clock = self.clock()?;
         self.tx.execute(
             "INSERT INTO hosts
-                (id, vault_id, name, address, port, identity_id, group_path, workspace, position,
+                (id, vault_id, name, address, port, identity_id, group_id, workspace, position,
                  hlc_wall_ms, hlc_counter, hlc_device)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![

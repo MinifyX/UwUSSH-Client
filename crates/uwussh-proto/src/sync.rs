@@ -5,6 +5,13 @@
 //! ordering, paging, conflict detection — has to work on the header alone.
 //! That constraint is deliberate, and it is why the cursor is a server sequence
 //! number rather than a timestamp the client could lie about.
+//!
+//! **The header is authenticated too.** `updated_at` and `deleted` go into the
+//! associated data of the sealed blob (see `uwussh-vault`), which is what stops
+//! a hostile server from marking a record deleted — a tombstone beats a
+//! concurrent edit, so that one flipped bit would otherwise remove a host from
+//! every device. A tombstone therefore carries a sealed (empty) payload of its
+//! own instead of nothing at all.
 
 use crate::clock::Hlc;
 use crate::entities::EntityKind;
@@ -18,25 +25,29 @@ pub struct Envelope {
     pub vault_id: Uuid,
     pub kind: EntityKind,
     pub updated_at: Hlc,
-    /// The revision this edit was based on. The server compares it to what it
-    /// holds and answers 409 if someone else got there first.
-    pub base_rev: u64,
+    /// The version this edit was based on: the `seq` the server last gave this
+    /// record, or 0 for a record the server has never seen. The server compares
+    /// it to what it holds and reports a conflict if someone else got there
+    /// first.
+    #[serde(default)]
+    pub base_seq: u64,
     #[serde(default)]
     pub deleted: bool,
     /// XChaCha20-Poly1305 nonce, 24 bytes.
     #[serde(with = "serde_bytes_vec")]
     pub nonce: Vec<u8>,
-    /// Ciphertext plus tag. AAD is `id || kind || vault_id`, which is what
-    /// stops a hostile server from swapping blobs between records.
+    /// Ciphertext plus tag. The associated data covers the whole header, so
+    /// neither the blob nor the header can be changed or moved elsewhere.
     #[serde(with = "serde_bytes_vec")]
     pub blob: Vec<u8>,
     /// Assigned by the server on write; `None` on the way up.
+    #[serde(default)]
     pub seq: Option<u64>,
 }
 
 /// Where a device left off. Monotonic and server-assigned, so resuming a sync
 /// never depends on clocks agreeing.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct SyncCursor(pub u64);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,13 +65,34 @@ pub struct PushRequest {
     pub envelopes: Vec<Envelope>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PushResponse {
-    pub cursor: SyncCursor,
-    /// Records the server refused because someone else wrote first. The client
-    /// merges field-wise and tries again.
+    /// The records the server took, with the `seq` it gave each one.
+    #[serde(default)]
+    pub accepted: Vec<Accepted>,
+    /// Records the server refused because someone else wrote first, as it
+    /// holds them now. The client merges and tries again.
+    #[serde(default)]
     pub conflicts: Vec<Envelope>,
+    pub cursor: SyncCursor,
 }
+
+/// A record the server stored, and the version number it now has.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Accepted {
+    pub id: Uuid,
+    pub seq: u64,
+}
+
+/// How many records go into one request. The server enforces the same number;
+/// the client paging in smaller steps is fine, larger is refused.
+pub const MAX_BATCH: usize = 500;
+
+/// The largest sealed payload the protocol carries. A 4096-bit RSA key is
+/// about 3 KiB, so this is generous by two orders of magnitude and still small
+/// enough that a broken client cannot fill a server's disk one record at a
+/// time.
+pub const MAX_BLOB_BYTES: usize = 256 * 1024;
 
 /// Base64 for byte vectors, so envelopes stay readable in a JSON body.
 mod serde_bytes_vec {
@@ -127,7 +159,7 @@ mod tests {
             vault_id: Uuid::nil(),
             kind: EntityKind::Host,
             updated_at: Hlc::new(1_700_000_000_000, 0, 1),
-            base_rev: 3,
+            base_seq: 3,
             deleted: false,
             nonce: vec![1, 2, 3, 4, 5],
             blob: vec![9, 8, 7, 6, 5, 4, 3, 2, 1, 0],
