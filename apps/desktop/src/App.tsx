@@ -22,6 +22,7 @@ import { TitleBar } from './components/TitleBar';
 import { UpdateHint } from './components/UpdateHint';
 import { VaultDialog } from './components/VaultDialog';
 import type { Renderer, TerminalDriver } from './lib/driver';
+import type { PasswordPrompt } from './lib/highlight';
 import { openFiles, type OpenedFiles } from './lib/files';
 import { runSuite, type Progress, type ScenarioResult } from './lib/m0';
 import {
@@ -412,15 +413,22 @@ export function App() {
 
   // ── Starting what a tab shows ─────────────────────────────────────────────
 
-  /** The helper only ever offers a login's password to sudo asking for that login. */
-  const asksForLogin = (id: string, user: string | null) => {
+  /**
+   * The helper offers itself on its own only to sudo or doas asking for this
+   * login's password — a prompt that names another user wants another one.
+   */
+  const asksForLogin = (id: string, prompt: PasswordPrompt | null) => {
     const tab = tabsRef.current.find((t) => t.id === id);
-    return tab?.kind === 'ssh' && user !== null && user === tab.host.username;
+    return (
+      tab?.kind === 'ssh' &&
+      prompt !== null &&
+      (prompt.user === null || prompt.user === tab.host.username)
+    );
   };
 
   const watchPrompts = (id: string, driver: TerminalDriver) =>
-    driver.onPasswordPrompt((user) => {
-      if (alive(id, driver)) patchTab(id, { prompt: asksForLogin(id, user) });
+    driver.onPasswordPrompt((prompt) => {
+      if (alive(id, driver)) patchTab(id, { prompt: asksForLogin(id, prompt) });
     });
 
   const runShell = async (id: string, driver: TerminalDriver) => {
@@ -634,22 +642,12 @@ export function App() {
       const session = driver?.session;
       if (!driver || !session) return;
       patchTab(id, { prompt: false });
-      // Asked again right before typing: the prompt may be gone by now — sudo
-      // timed out, or the vault took a while — and the password plus Enter
-      // must never land in a shell.
-      const stillAsking = () => asksForLogin(id, driver.promptUser());
-      const type = () => {
-        if (!stillAsking()) {
-          patchTab(id, {
-            notice: {
-              tone: 'info',
-              text: 'Gerade fragt nichts nach dem Passwort. Nichts eingetippt.',
-            },
-          });
-          return Promise.resolve();
-        }
-        return typeSessionPassword(session).then(() => driver.term.focus());
-      };
+      // Always typed, whatever asks. Enter only follows when the cursor sits
+      // after a question (`Password:`), checked right before typing: at a
+      // shell prompt — sudo timed out, the vault took a while — the password
+      // must never run as a command or land in the history.
+      const type = () =>
+        typeSessionPassword(session, driver.waitsForAnswer()).then(() => driver.term.focus());
       void type().catch((error) => {
         const failure = error as { kind?: string };
         if (failure?.kind === 'vault-locked') {
@@ -828,7 +826,7 @@ export function App() {
           break;
         }
         case 'type-password':
-          if (tab?.kind === 'ssh' && tab.canTypePassword && tab.prompt && id) typePassword(id);
+          if (tab?.kind === 'ssh' && tab.canTypePassword && id) typePassword(id);
           break;
         case 'open-files':
           if (tab?.kind === 'ssh' || tab?.kind === 'files') openFilesTab(tab.host);
@@ -922,13 +920,8 @@ export function App() {
                   activeTab.status === 'live' && (
                     <button
                       className="quiet toolbar-button"
-                      disabled={!activeTab.prompt}
                       onClick={() => typePassword(activeTab.id)}
-                      title={
-                        activeTab.prompt
-                          ? 'Das Passwort des Hosts ins Terminal tippen (Strg+Umschalt+P)'
-                          : 'Geht, sobald sudo nach dem Passwort fragt'
-                      }
+                      title="Das Passwort des Hosts ins Terminal tippen (Strg+Umschalt+P). Enter kommt nur dazu, wenn gerade etwas nach einer Eingabe fragt."
                     >
                       <Icon name="key" size={15} />
                       Passwort eintippen

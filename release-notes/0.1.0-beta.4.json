@@ -1,0 +1,4 @@
+{
+  "de": "Hotfix ✧\n\n- „Passwort eintippen“ geht jetzt immer, per Knopf oder Strg+Umschalt+P. Fragt gerade etwas nach einer Eingabe (die Zeile endet auf einen Doppelpunkt, etwa „Password:“), kommt Enter gleich mit; an einer normalen Shell nur das Passwort, damit nichts versehentlich ausgeführt wird\n- Der Passwort-Hinweis erkennt jetzt auch sudo-rs auf neuem Ubuntu: „[sudo: authenticate] Password:“",
+  "en": "Hotfix ✧\n\n- “Type password” now always works, by button or Ctrl+Shift+P. When something is asking for input (the line ends in a colon, like “Password:”), Enter comes along; at a plain shell only the password, so nothing runs by accident\n- The password hint now also recognises sudo-rs on recent Ubuntu: “[sudo: authenticate] Password:”"
+}

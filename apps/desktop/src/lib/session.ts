@@ -281,8 +281,9 @@ export function sessionCanTypePassword(id: SessionId): Promise<boolean> {
 }
 
 /** Types the terminal's password and Enter. The password never reaches the page. */
-export function typeSessionPassword(id: SessionId): Promise<void> {
-  return invoke('type_session_password', { id });
+/** Type the host's password into the terminal; with `enter`, press Enter too. */
+export function typeSessionPassword(id: SessionId, enter: boolean): Promise<void> {
+  return invoke('type_session_password', { id, enter });
 }
 
 /** Store (or forget, with `null`) a host's password in the vault. */

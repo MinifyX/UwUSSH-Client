@@ -507,18 +507,22 @@ pub(crate) fn session_can_type_password(state: State<'_, AppState>, id: SessionI
         .is_some_and(|h| h.has_password)
 }
 
-/// Type the terminal's password, followed by Enter, into the terminal — after
-/// the user said yes to the prompt the page spotted. The page never sees it.
+/// Type the terminal's password into the terminal, on the user's click, and
+/// press Enter with `enter` — which the page asks for only when the cursor
+/// sits after a question. The page never sees the password.
 #[tauri::command]
 pub(crate) fn type_session_password(
     state: State<'_, AppState>,
     id: SessionId,
+    enter: bool,
 ) -> Result<(), ConnectFailure> {
     let password = session_password(&state, id)?
         .ok_or_else(|| internal("there is no password for this terminal"))?;
     let mut line = Zeroizing::new(Vec::with_capacity(password.len() + 1));
     line.extend_from_slice(password.as_bytes());
-    line.push(b'\r');
+    if enter {
+        line.push(b'\r');
+    }
     state.sessions.write(id, &line).map_err(internal)
 }
 

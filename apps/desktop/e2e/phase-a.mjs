@@ -459,6 +459,43 @@ check(
   await page.eval(`!document.querySelector('.password-helper')`),
 );
 
+// sudo-rs asks without naming a user; the helper knows it too, and the
+// toolbar button types the password and Enter at such a question.
+await page.eval(`window.__uwusshDriver.term.focus()`);
+await page.type('sudo -i');
+await page.key('Enter');
+await page.waitFor(`document.querySelector('.password-helper')`, {
+  what: 'password helper for sudo-rs',
+  timeout: 5_000,
+});
+check("sudo-rs' prompt without a user name brings up the helper", true);
+await page.click('.toolbar button', 'Passwort eintippen');
+await sleep(800);
+check(
+  'the toolbar button typed the password and Enter at the prompt',
+  count('sudo: accepted') === 2,
+);
+
+// At a shell prompt the button still types the password — but no Enter, so
+// nothing runs.
+await page.eval(`window.__uwusshDriver.term.focus()`);
+check(
+  'the toolbar button is always there to click',
+  await page.eval(
+    `[...document.querySelectorAll('.toolbar button')].some(b => b.textContent.includes('Passwort eintippen') && !b.disabled)`,
+  ),
+);
+await page.click('.toolbar button', 'Passwort eintippen');
+await sleep(600);
+check(
+  'at a shell prompt it types without Enter',
+  await page.eval(`(() => {
+    const t = window.__uwusshDriver.term.buffer.active;
+    return t.getLine(t.baseY + t.cursorY)?.translateToString(true).endsWith('$ nyu');
+  })()`),
+);
+for (let i = 0; i < 3; i += 1) await page.key('Backspace');
+
 // ── Save the password: the vault is created on the way ──────────────────────
 await page.eval(
   `[...document.querySelectorAll('.host-row')].find(r => r.textContent.includes('dev-sshd')).querySelector('.host-actions button[aria-label$="bearbeiten"]').click()`,

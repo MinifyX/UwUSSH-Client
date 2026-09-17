@@ -40,12 +40,16 @@ const USER: &str = "uwu";
 const PASSWORD: &str = "nyu";
 const PROMPT: &str = "\x1b[38;5;211muwu\x1b[0m@\x1b[38;5;117mdev-sshd\x1b[0m:~$ ";
 const SUDO_PROMPT: &str = "[sudo] password for uwu: ";
+/// How sudo-rs asks, as on recent Ubuntu: no user named.
+const SUDO_RS_PROMPT: &str = "[sudo: authenticate] Password: ";
 
 #[derive(Default)]
 struct DevShell {
     line: String,
     /// `sudo` is waiting for a password, with this many tries left.
     sudo: Option<u8>,
+    /// `sudo -i` asks the way sudo-rs does.
+    sudo_rs: bool,
     /// Public keys allowed to log in as `USER`. Shared by every client.
     authorized: Arc<Vec<PublicKey>>,
     files: Arc<PathBuf>,
@@ -239,7 +243,15 @@ impl server::Handler for DevShell {
                     } else if tries > 1 {
                         println!("sudo: rejected");
                         echo.extend_from_slice(
-                            format!("Sorry, try again.\r\n{SUDO_PROMPT}").as_bytes(),
+                            format!(
+                                "Sorry, try again.\r\n{}",
+                                if self.sudo_rs {
+                                    SUDO_RS_PROMPT
+                                } else {
+                                    SUDO_PROMPT
+                                }
+                            )
+                            .as_bytes(),
                         );
                         self.sudo = Some(tries - 1);
                     } else {
@@ -254,7 +266,15 @@ impl server::Handler for DevShell {
                     let line = std::mem::take(&mut self.line);
                     if line.trim().starts_with("sudo") {
                         self.sudo = Some(3);
-                        echo.extend_from_slice(SUDO_PROMPT.as_bytes());
+                        self.sudo_rs = line.contains(" -i");
+                        echo.extend_from_slice(
+                            if self.sudo_rs {
+                                SUDO_RS_PROMPT
+                            } else {
+                                SUDO_PROMPT
+                            }
+                            .as_bytes(),
+                        );
                         continue;
                     }
                     if !run(line.trim(), channel, session)? {

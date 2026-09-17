@@ -332,28 +332,44 @@ export class Highlighter {
 
 /**
  * Prompts that ask for the login's own password on the same machine: sudo
- * (English and German) and doas, each naming the user it asks for. Nothing
- * else — not `Password:` from su, docker or ftp, not `user@host's password`
- * from another ssh, not git's `Password for 'https://…'` — since there the
- * password would go somewhere else.
+ * (English and German), sudo-rs (`[sudo: authenticate] Password:`, which
+ * names no user) and doas. These bring up the helper on their own. Nothing
+ * else does — not `Password:` from su, docker or ftp, not `user@host's
+ * password` from another ssh, not git's `Password for 'https://…'` — since
+ * there the password would go somewhere else; the button still works there.
  */
 const PASSWORD_PROMPTS = [
   /^\[sudo\] (?:password|passwort) (?:for|für) ([^\s:]{1,64}):\s*$/i,
+  /^\[sudo: authenticate\] (?:password|passwort):\s*$/i,
   /^doas \(([^\s@)]{1,64})@[^\s)]{1,128}\) password:\s*$/i,
 ];
 
+/** A sudo or doas prompt, and the user it names, if it names one. */
+export type PasswordPrompt = { user: string | null };
+
 /**
- * The user a password prompt on this line asks for, or `null` when the line
- * is no such prompt. Matched against the line the cursor is on.
+ * The sudo or doas prompt on this line, or `null` when the line is no such
+ * prompt. Matched against the line the cursor is on.
  */
-export function passwordPromptUser(line: string): string | null {
+export function passwordPrompt(line: string): PasswordPrompt | null {
   const trimmed = line.replace(/\s+$/, ' ').trimStart();
   if (trimmed.length > 200) return null;
   for (const prompt of PASSWORD_PROMPTS) {
     const match = prompt.exec(trimmed);
-    if (match) return match[1]!;
+    if (match) return { user: match[1] ?? null };
   }
   return null;
+}
+
+/**
+ * Whether the line ends in a question waiting for an answer — `Password:`,
+ * `Passphrase for key:` — rather than a shell prompt like `~$`. Typing the
+ * password there ends with Enter; anywhere else it doesn't, so a password
+ * typed at a shell never runs as a command.
+ */
+export function waitsForAnswer(line: string): boolean {
+  const trimmed = line.trimEnd();
+  return trimmed.length > 0 && trimmed.length <= 200 && trimmed.endsWith(':');
 }
 
 /** The text on the cursor's line, up to the cursor. */

@@ -344,17 +344,18 @@ locally and shown as an icon; it never syncs and never decides anything.
 
 A session that logged in with a password keeps that password in Rust memory
 for as long as the session lives, or until the host's stored password is
-forgotten. When the cursor's line is sudo's or doas' prompt asking for the very
-user the tab logged in as (`[sudo] password for uwu:`,
-`[sudo] Passwort für uwu:`, `doas (uwu@host) password:`), a pill offers to type
-it; Ctrl+Shift+P does the same. Nothing else counts: a bare `Password:` may be
-su, docker or ftp, `user@other's password:` is another server, and git's
-`Password for 'https://…':` is a website — the password would go somewhere it
-doesn't belong. The page only asks `type_session_password` for its own
-session and never gets the password; Rust writes it into that session and
-nowhere else. Nothing is typed without a click, and the prompt is checked again
-right before typing, so a password never lands in a shell because sudo timed
-out while the vault was being unlocked.
+forgotten. When the cursor's line is sudo's, sudo-rs' or doas' prompt for this
+login (`[sudo] password for uwu:`, `[sudo: authenticate] Password:`,
+`doas (uwu@host) password:`), a pill offers to type it. Only those bring it
+up on their own: a bare `Password:` may be su, docker or ftp, and git's
+`Password for 'https://…':` is a website.
+
+The toolbar button and Ctrl+Shift+P always work, whatever is on screen: the
+user decides. Enter follows only when the cursor sits after a question — the
+line ends in a colon — checked right before typing, so at a shell prompt the
+password is typed but never runs as a command or lands in the history. The
+page only asks `type_session_password` for its own session and never gets
+the password; Rust writes it into that session and nowhere else.
 
 ## Files
 

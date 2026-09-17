@@ -9,7 +9,14 @@
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
-import { cursorLineText, Highlighter, passwordPromptUser, type Rule } from './highlight';
+import {
+  cursorLineText,
+  Highlighter,
+  passwordPrompt,
+  waitsForAnswer,
+  type PasswordPrompt,
+  type Rule,
+} from './highlight';
 import {
   ACK_CHUNK,
   ackSession,
@@ -91,9 +98,9 @@ export class TerminalDriver {
   private ackTimer: number | undefined;
   private readonly highlighter: Highlighter;
   private promptTimer: number | undefined;
-  /** The user a password prompt under the cursor asks for, as last seen. */
-  private prompted: string | null = null;
-  private readonly promptListeners = new Set<(user: string | null) => void>();
+  /** The password prompt under the cursor, as last seen. */
+  private prompted: PasswordPrompt | null = null;
+  private readonly promptListeners = new Set<(prompt: PasswordPrompt | null) => void>();
 
   constructor(host: HTMLElement, options: TerminalOptions) {
     this.term = new Terminal({
@@ -129,7 +136,7 @@ export class TerminalDriver {
     this.highlighter = new Highlighter(this.term);
     this.term.onWriteParsed(() => {
       window.clearTimeout(this.promptTimer);
-      this.promptTimer = window.setTimeout(() => this.setPrompt(this.promptUser()), PROMPT_IDLE_MS);
+      this.promptTimer = window.setTimeout(() => this.setPrompt(this.prompt()), PROMPT_IDLE_MS);
     });
 
     // A tab in the background has no size (display: none). Fitting then
@@ -162,25 +169,27 @@ export class TerminalDriver {
     this.setPrompt(null);
   }
 
-  /**
-   * Called whenever a password prompt appears under the cursor or goes away,
-   * with the user it asks for, or `null`.
-   */
-  onPasswordPrompt(listener: (user: string | null) => void): () => void {
+  /** Called whenever a password prompt appears under the cursor or goes away. */
+  onPasswordPrompt(listener: (prompt: PasswordPrompt | null) => void): () => void {
     this.promptListeners.add(listener);
     return () => this.promptListeners.delete(listener);
   }
 
-  /** The user a password prompt under the cursor asks for right now, or `null`. */
-  promptUser(): string | null {
+  /** The sudo or doas prompt under the cursor right now, or `null`. */
+  prompt(): PasswordPrompt | null {
     if (this.term.buffer.active.type !== 'normal') return null;
-    return passwordPromptUser(cursorLineText(this.term));
+    return passwordPrompt(cursorLineText(this.term));
   }
 
-  private setPrompt(user: string | null) {
-    if (user === this.prompted) return;
-    this.prompted = user;
-    for (const listener of this.promptListeners) listener(user);
+  /** Whether the cursor sits after a question, like `Password:`. */
+  waitsForAnswer(): boolean {
+    return waitsForAnswer(cursorLineText(this.term));
+  }
+
+  private setPrompt(prompt: PasswordPrompt | null) {
+    if (prompt?.user === this.prompted?.user && !prompt === !this.prompted) return;
+    this.prompted = prompt;
+    for (const listener of this.promptListeners) listener(prompt);
   }
 
   private refit() {
