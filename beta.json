@@ -1,11 +1,11 @@
 {
-  "version": "0.1.0-beta.3",
-  "notes": "{\"de\":\"Hotfix ✧\\n\\n- Im Terminal wird die unterste Zeile nicht mehr abgeschnitten, und rechts passt wieder alles hinein\",\"en\":\"Hotfix ✧\\n\\n- The terminal's bottom line is no longer cut off, and nothing runs past the right edge any more\"}",
-  "pub_date": "2026-09-17T13:58:56Z",
+  "version": "0.1.0-beta.4",
+  "notes": "{\"de\":\"Hotfix ✧\\n\\n- „Passwort eintippen“ geht jetzt immer, per Knopf oder Strg+Umschalt+P. Fragt gerade etwas nach einer Eingabe (die Zeile endet auf einen Doppelpunkt, etwa „Password:“), kommt Enter gleich mit; an einer normalen Shell nur das Passwort, damit nichts versehentlich ausgeführt wird\\n- Der Passwort-Hinweis erkennt jetzt auch sudo-rs auf neuem Ubuntu: „[sudo: authenticate] Password:“\",\"en\":\"Hotfix ✧\\n\\n- “Type password” now always works, by button or Ctrl+Shift+P. When something is asking for input (the line ends in a colon, like “Password:”), Enter comes along; at a plain shell only the password, so nothing runs by accident\\n- The password hint now also recognises sudo-rs on recent Ubuntu: “[sudo: authenticate] Password:”\"}",
+  "pub_date": "2026-09-17T14:58:36Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzM5ejR1TnVGRm1xL0hhMVRiUnc2TytzdHowVjJaYTU0QWVaVVpuMU1sVkN5by94Vkp2NlMxSkpSRmVQZzFQNlRRa011YWhDL2hlMDM0cVBVeWhPZlFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5NjUzNTMyCWZpbGU6VXdVU1NILVNldHVwLTAuMS4wLWJldGEuMy5leGUKNmhOZVRxRUhwb0t5ZFRqcGMwSDFnbi9JZUdWS0lSeS81SnB5NlNoSjJlRCtSZjM2cnRlaGpkaGxjNjl5MW5aWDl6QXlPRW80NUlUS2d1TXdWaE55Q1E9PQo=",
-      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.0-beta.3/UwUSSH-Setup-0.1.0-beta.3.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzFJWkhRWmhJRHk4b0tiSXpQZ1VzNVA5UjI0V3ovNXRlMlZMTFJHZmpSVm1Kb2ttNDhaT1F5YnRyN1ZOZ2YrYXhMVkwrTWVoUmVjQzVUNVgyaHRqdGc0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg5NjU3MTExCWZpbGU6VXdVU1NILVNldHVwLTAuMS4wLWJldGEuNC5leGUKSFVYUVo3QUFDTHdDTFUxdm4wWE9ya0VFeFlELzN4Q0NtK1dsSDJuL256M1RSbVFIdy91NWRCZ0cwOUY5MU8rdjVvc2ExK0pKemFqOHdhWE5wSXU5QWc9PQo=",
+      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.0-beta.4/UwUSSH-Setup-0.1.0-beta.4.exe"
     }
   }
 }
