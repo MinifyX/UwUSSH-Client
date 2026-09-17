@@ -7,6 +7,7 @@ import {
   type BackupSummary,
   type PickedExport,
 } from '../lib/backup';
+import { t, useLanguage } from '../lib/i18n';
 import {
   availableImports,
   runImport,
@@ -50,6 +51,7 @@ type Step =
  * a secret.
  */
 export function ImportDialog({ onClose, onImported }: Props) {
+  useLanguage();
   const [step, setStep] = useState<Step>({ kind: 'loading' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -58,7 +60,7 @@ export function ImportDialog({ onClose, onImported }: Props) {
   const closeGuard = useCloseGuard(
     step.kind === 'preview' || step.kind === 'file-password' || step.kind === 'file-preview',
     onClose,
-    'Der Import wird dann nicht ausgeführt.',
+    t('Der Import wird dann nicht ausgeführt.'),
   );
 
   useEffect(() => {
@@ -139,7 +141,7 @@ export function ImportDialog({ onClose, onImported }: Props) {
     });
   }
 
-  const title = step.kind === 'done' ? 'Import abgeschlossen ✧' : 'Importieren';
+  const title = step.kind === 'done' ? t('Import abgeschlossen ✧') : t('Importieren');
 
   return (
     <>
@@ -154,7 +156,7 @@ export function ImportDialog({ onClose, onImported }: Props) {
       {closeGuard.dialog}
       {vaultFor && (
         <VaultDialog
-          reason="Die importierten Passwörter und Keys landen verschlüsselt im Tresor."
+          reason={t('Die importierten Passwörter und Keys landen verschlüsselt im Tresor.')}
           onDone={() => {
             const write = vaultFor;
             setVaultFor(null);
@@ -169,12 +171,15 @@ export function ImportDialog({ onClose, onImported }: Props) {
   function body() {
     switch (step.kind) {
       case 'loading':
-        return <p className="import-note">Wird gesucht…</p>;
+        return <p className="import-note">{t('Wird gesucht…')}</p>;
 
-      case 'pick':
+      case 'pick': {
+        const [beforeConfig, afterConfig] = t(
+          'Auf diesem Rechner wurden keine anderen SSH-Clients gefunden. UwUSSH liest Termius, PuTTY, KiTTY und {config} dort, wo sie ihre Daten ablegen.',
+        ).split('{config}');
         return (
           <div className="import-sources">
-            <p className="import-note">Woraus möchtest du importieren?</p>
+            <p className="import-note">{t('Woraus möchtest du importieren?')}</p>
             {step.sources.map((source) => (
               <button
                 key={source}
@@ -186,16 +191,18 @@ export function ImportDialog({ onClose, onImported }: Props) {
               </button>
             ))}
             <button className="import-source" disabled={busy} onClick={() => void guard(pickFile)}>
-              <Icon name="file" size={16} /> UwUSSH-Export (.uwussh)…
+              <Icon name="file" size={16} /> {t('UwUSSH-Export (.uwussh)…')}
             </button>
             {step.sources.length === 0 && (
               <p className="import-note">
-                Auf diesem Rechner wurden keine anderen SSH-Clients gefunden. UwUSSH liest Termius,
-                PuTTY, KiTTY und <code>~/.ssh/config</code> dort, wo sie ihre Daten ablegen.
+                {beforeConfig}
+                <code>~/.ssh/config</code>
+                {afterConfig}
               </p>
             )}
           </div>
         );
+      }
 
       case 'preview':
         return (
@@ -207,7 +214,10 @@ export function ImportDialog({ onClose, onImported }: Props) {
           />
         );
 
-      case 'file-password':
+      case 'file-password': {
+        const [beforeFile, afterFile] = t(
+          '{file} ist mit einem Passwort geschützt, weil Passwörter und Keys darin stecken.',
+        ).split('{file}');
         return (
           <form
             className="form"
@@ -217,11 +227,12 @@ export function ImportDialog({ onClose, onImported }: Props) {
             }}
           >
             <p className="dialog-lead">
-              <code>{step.file.fileName}</code> ist mit einem Passwort geschützt, weil Passwörter
-              und Keys darin stecken.
+              {beforeFile}
+              <code>{step.file.fileName}</code>
+              {afterFile}
             </p>
             <label className="field">
-              <span>Passwort der Export-Datei</span>
+              <span>{t('Passwort der Export-Datei')}</span>
               <input
                 type="password"
                 data-autofocus
@@ -230,23 +241,24 @@ export function ImportDialog({ onClose, onImported }: Props) {
                 aria-invalid={step.wrong}
                 onChange={(e) => setPassword(e.target.value)}
               />
-              {step.wrong && <em className="field-error">Das Passwort passt nicht.</em>}
+              {step.wrong && <em className="field-error">{t('Das Passwort passt nicht.')}</em>}
             </label>
             <button type="submit" hidden />
           </form>
         );
+      }
 
       case 'file-preview':
         return (
           <Preview
             source={step.file.fileName}
             counts={[
-              ['Hosts', step.summary.hosts],
-              ['Gruppen', step.summary.groups],
-              ['Passwörter', step.summary.passwords],
-              ['Keys', step.summary.keys],
-              ['Bekannte Host-Keys', step.summary.knownHosts],
-              ['Snippets', step.summary.snippets],
+              [t('Hosts'), step.summary.hosts],
+              [t('Gruppen'), step.summary.groups],
+              [t('Passwörter'), step.summary.passwords],
+              [t('Keys'), step.summary.keys],
+              [t('Bekannte Host-Keys'), step.summary.knownHosts],
+              [t('Snippets'), step.summary.snippets],
             ]}
             secrets={step.summary.passwords > 0 || step.summary.keys > 0}
             skipped={[]}
@@ -266,14 +278,14 @@ export function ImportDialog({ onClose, onImported }: Props) {
           <>
             <span className="spacer" />
             <button data-secondary onClick={closeGuard.request}>
-              Abbrechen
+              {t('Abbrechen')}
             </button>
             <button
               className="primary"
               disabled={busy || nothing}
               onClick={() => void guard(() => importSource(step.source))}
             >
-              {busy ? 'Importiere…' : 'Importieren'}
+              {busy ? t('Importiere…') : t('Importieren')}
             </button>
           </>
         );
@@ -283,14 +295,14 @@ export function ImportDialog({ onClose, onImported }: Props) {
           <>
             <span className="spacer" />
             <button data-secondary onClick={closeGuard.request}>
-              Abbrechen
+              {t('Abbrechen')}
             </button>
             <button
               className="primary"
               disabled={busy || !password}
               onClick={() => void guard(() => unlockFile(step.file))}
             >
-              Öffnen
+              {t('Öffnen')}
             </button>
           </>
         );
@@ -301,14 +313,14 @@ export function ImportDialog({ onClose, onImported }: Props) {
           <>
             <span className="spacer" />
             <button data-secondary onClick={closeGuard.request}>
-              Abbrechen
+              {t('Abbrechen')}
             </button>
             <button
               className="primary"
               disabled={busy || nothing}
               onClick={() => void guard(() => importFile(step.file, step.password))}
             >
-              {busy ? 'Importiere…' : 'Importieren'}
+              {busy ? t('Importiere…') : t('Importieren')}
             </button>
           </>
         );
@@ -318,7 +330,7 @@ export function ImportDialog({ onClose, onImported }: Props) {
           <>
             <span className="spacer" />
             <button className="primary" onClick={onClose}>
-              Fertig
+              {t('Fertig')}
             </button>
           </>
         );
@@ -327,7 +339,7 @@ export function ImportDialog({ onClose, onImported }: Props) {
           <>
             <span className="spacer" />
             <button data-secondary onClick={closeGuard.request}>
-              Abbrechen
+              {t('Abbrechen')}
             </button>
           </>
         );
@@ -337,11 +349,11 @@ export function ImportDialog({ onClose, onImported }: Props) {
 
 function sourceCounts(summary: ImportSummary): [string, number][] {
   return [
-    ['Hosts', summary.hosts],
-    ['Anmeldungen', summary.identities],
-    ['Keys', summary.keys],
-    ['Bekannte Host-Keys', summary.knownHosts],
-    ['Snippets', summary.snippets],
+    [t('Hosts'), summary.hosts],
+    [t('Anmeldungen'), summary.identities],
+    [t('Keys'), summary.keys],
+    [t('Bekannte Host-Keys'), summary.knownHosts],
+    [t('Snippets'), summary.snippets],
   ];
 }
 
@@ -356,11 +368,14 @@ function Preview({
   secrets: boolean;
   skipped: string[];
 }) {
+  useLanguage();
   return (
     <div className="import-preview">
       <p className="import-note">
-        Das findet UwUSSH in {source}. Schon vorhandene Hosts (gleiche Adresse, gleicher Port,
-        gleicher Benutzer) und Host-Keys werden übersprungen, nichts wird überschrieben.
+        {t(
+          'Das findet UwUSSH in {source}. Schon vorhandene Hosts (gleiche Adresse, gleicher Port, gleicher Benutzer) und Host-Keys werden übersprungen, nichts wird überschrieben.',
+          { source },
+        )}
       </p>
       <ul className="import-counts">
         {counts
@@ -372,20 +387,21 @@ function Preview({
             </li>
           ))}
       </ul>
-      {secrets && <p className="import-note">Die Secrets landen verschlüsselt im Tresor.</p>}
+      {secrets && <p className="import-note">{t('Die Secrets landen verschlüsselt im Tresor.')}</p>}
       <Skipped items={skipped} />
     </div>
   );
 }
 
 function Report({ report }: { report: ImportReport }) {
+  useLanguage();
   const rows: [string, number][] = [
-    ['Hosts hinzugefügt', report.hostsAdded],
-    ['Hosts übersprungen (schon da)', report.hostsSkipped],
-    ['Anmeldungen', report.identitiesAdded],
-    ['Keys', report.keysAdded],
-    ['Host-Keys', report.knownHostsAdded],
-    ['Snippets', report.snippetsAdded],
+    [t('Hosts hinzugefügt'), report.hostsAdded],
+    [t('Hosts übersprungen (schon da)'), report.hostsSkipped],
+    [t('Anmeldungen'), report.identitiesAdded],
+    [t('Keys'), report.keysAdded],
+    [t('Host-Keys'), report.knownHostsAdded],
+    [t('Snippets'), report.snippetsAdded],
   ];
   return (
     <div className="import-preview">
@@ -404,11 +420,14 @@ function Report({ report }: { report: ImportReport }) {
 }
 
 function Skipped({ items }: { items: string[] }) {
+  useLanguage();
   if (items.length === 0) return null;
   return (
     <details className="import-skipped">
       <summary>
-        {items.length} {items.length === 1 ? 'Eintrag' : 'Einträge'} übersprungen
+        {items.length === 1
+          ? t('1 Eintrag übersprungen')
+          : t('{n} Einträge übersprungen', { n: items.length })}
       </summary>
       <ul>
         {items.map((item, i) => (

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { t, useLanguage } from '../../lib/i18n';
 import {
   forgetPickedKey,
   asKeyFailure,
@@ -28,14 +29,15 @@ export function KeygenDialog({
   onStored?: (key: KeyRecord) => void;
   onClose: () => void;
 }) {
+  useLanguage();
   const [step, setStep] = useState<Step>('settings');
   const [vault, setVault] = useState<{ resolve: (open: boolean) => void } | null>(null);
   const guard = useCloseGuard(
     step !== 'settings',
     onClose,
     step === 'done'
-      ? 'Der neue Schlüssel ist noch nicht gespeichert und geht dabei verloren.'
-      : 'Der gesammelte Zufall geht dabei verloren.',
+      ? t('Der neue Schlüssel ist noch nicht gespeichert und geht dabei verloren.')
+      : t('Der gesammelte Zufall geht dabei verloren.'),
   );
 
   const store = async (token: string, label: string, passphrase: string | null) => {
@@ -56,10 +58,10 @@ export function KeygenDialog({
       <Modal
         title={
           step === 'done'
-            ? 'Dein neuer Schlüssel'
+            ? t('Dein neuer Schlüssel')
             : step === 'settings'
-              ? 'UwUKeygen – neuer SSH-Schlüssel'
-              : 'Zufall sammeln'
+              ? t('UwUKeygen – neuer SSH-Schlüssel')
+              : t('Zufall sammeln')
         }
         size="wide"
         onCancel={guard.request}
@@ -79,7 +81,7 @@ export function KeygenDialog({
         <button
           className="settings-close icon-button"
           onClick={guard.request}
-          aria-label="Schließen"
+          aria-label={t('Schließen')}
         >
           ×
         </button>
@@ -87,7 +89,7 @@ export function KeygenDialog({
       {guard.dialog}
       {vault && (
         <VaultDialog
-          reason="Der neue Schlüssel wird verschlüsselt im Tresor abgelegt."
+          reason={t('Der neue Schlüssel wird verschlüsselt im Tresor abgelegt.')}
           onDone={() => vault.resolve(true)}
           onCancel={() => vault.resolve(false)}
         />
@@ -104,6 +106,7 @@ export function KeyImportDialog({
   onImported: (key: KeyRecord) => void;
   onClose: () => void;
 }) {
+  useLanguage();
   const [picked, setPicked] = useState<PickedKey | null>(null);
   const [label, setLabel] = useState('');
   const [passphrase, setPassphrase] = useState('');
@@ -114,7 +117,7 @@ export function KeyImportDialog({
   const guard = useCloseGuard(
     picked !== null,
     onClose,
-    'Die gewählte Key-Datei wird dann nicht importiert.',
+    t('Die gewählte Key-Datei wird dann nicht importiert.'),
   );
 
   const pick = async () => {
@@ -129,7 +132,9 @@ export function KeyImportDialog({
       setLabel(file.fileName.replace(/\.(ppk|pem|key)$/i, ''));
     } catch (e) {
       const failure = asKeyFailure(e);
-      setError(failure.kind === 'error' ? failure.message : 'Diese Datei ist kein lesbarer Key.');
+      setError(
+        failure.kind === 'error' ? failure.message : t('Diese Datei ist kein lesbarer Key.'),
+      );
     }
   };
 
@@ -157,8 +162,11 @@ export function KeyImportDialog({
       const failure = asKeyFailure(e);
       if (failure.kind === 'vault-locked') setVault(true);
       else if (failure.kind === 'passphrase-wrong' || failure.kind === 'passphrase-required')
-        setError('Die Passphrase passt nicht zu diesem Key.');
-      else setError(failure.kind === 'error' ? failure.message : `Fehler (${failure.kind})`);
+        setError(t('Die Passphrase passt nicht zu diesem Key.'));
+      else
+        setError(
+          failure.kind === 'error' ? failure.message : t('Fehler ({kind})', { kind: failure.kind }),
+        );
     } finally {
       setBusy(false);
     }
@@ -167,7 +175,7 @@ export function KeyImportDialog({
   if (vault) {
     return (
       <VaultDialog
-        reason="Der Key wird verschlüsselt im Tresor abgelegt."
+        reason={t('Der Key wird verschlüsselt im Tresor abgelegt.')}
         onDone={() => {
           setVault(false);
           void submit();
@@ -180,29 +188,29 @@ export function KeyImportDialog({
   return (
     <>
       <Modal
-        title="Key importieren"
+        title={t('Key importieren')}
         onCancel={guard.request}
         footer={
           <>
             <button data-secondary onClick={() => void pick()} disabled={busy}>
-              Andere Datei…
+              {t('Andere Datei…')}
             </button>
             <span className="spacer" />
             <button data-secondary onClick={guard.request} disabled={busy}>
-              Abbrechen
+              {t('Abbrechen')}
             </button>
             <button
               className="primary"
               disabled={!picked || busy || (picked.encrypted && !passphrase)}
               onClick={() => void submit()}
             >
-              In den Tresor legen
+              {t('In den Tresor legen')}
             </button>
           </>
         }
       >
         {!picked ? (
-          <p className="import-note">Wähle eine Key-Datei aus …</p>
+          <p className="import-note">{t('Wähle eine Key-Datei aus …')}</p>
         ) : (
           <form
             className="form"
@@ -213,7 +221,7 @@ export function KeyImportDialog({
           >
             <p className="dialog-lead">
               <code>{picked.fileName}</code>
-              {picked.info ? ` · ${picked.info.label}` : ' · mit Passphrase geschützt'}
+              {picked.info ? ` · ${picked.info.label}` : ` · ${t('mit Passphrase geschützt')}`}
             </p>
             {picked.info && (
               <p className="field-hint">
@@ -221,12 +229,12 @@ export function KeyImportDialog({
               </p>
             )}
             <label className="field">
-              <span>Name im Tresor</span>
+              <span>{t('Name im Tresor')}</span>
               <input value={label} onChange={(e) => setLabel(e.target.value)} />
             </label>
             {picked.encrypted && (
               <label className="field">
-                <span>Passphrase</span>
+                <span>{t('Passphrase')}</span>
                 <input
                   type="password"
                   data-autofocus
@@ -234,7 +242,7 @@ export function KeyImportDialog({
                   autoComplete="off"
                   onChange={(e) => setPassphrase(e.target.value)}
                 />
-                <em className="field-hint">Wird mit dem Key im Tresor gespeichert.</em>
+                <em className="field-hint">{t('Wird mit dem Key im Tresor gespeichert.')}</em>
               </label>
             )}
             <button type="submit" hidden />

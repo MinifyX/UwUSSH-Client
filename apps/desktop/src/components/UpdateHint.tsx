@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { language, t, useLanguage } from '../lib/i18n';
 import type { UpdateInfo } from '../lib/session';
 import { Nyu } from './nyu/Nyu';
 
@@ -7,7 +8,7 @@ export function notesFor(notes: string | null | undefined): string {
   if (!notes) return '';
   try {
     const parsed = JSON.parse(notes) as Record<string, unknown>;
-    const text = parsed.de ?? parsed.en;
+    const text = language() === 'en' ? (parsed.en ?? parsed.de) : (parsed.de ?? parsed.en);
     if (typeof text === 'string') return text;
   } catch {
     // Plain text notes.
@@ -25,6 +26,7 @@ type Props = {
 
 /** Nyu's quiet note that a new version is downloaded and ready. */
 export function UpdateHint({ update, openConnections, onLater, onRestart }: Props) {
+  useLanguage();
   const [showNotes, setShowNotes] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,9 +37,9 @@ export function UpdateHint({ update, openConnections, onLater, onRestart }: Prop
       <div className="update-hint-head">
         <Nyu size={40} mood="sparkle" title="Nyu" />
         <div>
-          <p className="update-hint-title">Ein Update ist bereit ✧</p>
+          <p className="update-hint-title">{t('Ein Update ist bereit ✧')}</p>
           <p className="update-hint-meta">
-            Version {update.version}
+            {t('Version {version}', { version: update.version })}
             {notes && (
               <>
                 {' · '}
@@ -46,7 +48,7 @@ export function UpdateHint({ update, openConnections, onLater, onRestart }: Prop
                   onClick={() => setShowNotes(!showNotes)}
                   aria-expanded={showNotes}
                 >
-                  Was ist neu?
+                  {t('Was ist neu?')}
                 </button>
               </>
             )}
@@ -57,8 +59,10 @@ export function UpdateHint({ update, openConnections, onLater, onRestart }: Prop
       {openConnections > 0 && (
         <p className="update-hint-warning">
           {openConnections === 1
-            ? 'Eine Verbindung ist noch offen und wird beim Neustart getrennt.'
-            : `${openConnections} Verbindungen sind noch offen und werden beim Neustart getrennt.`}
+            ? t('Eine Verbindung ist noch offen und wird beim Neustart getrennt.')
+            : t('{count} Verbindungen sind noch offen und werden beim Neustart getrennt.', {
+                count: openConnections,
+              })}
         </p>
       )}
       {error && (
@@ -68,7 +72,7 @@ export function UpdateHint({ update, openConnections, onLater, onRestart }: Prop
       )}
       <div className="update-hint-actions">
         <button className="quiet" onClick={onLater}>
-          Später
+          {t('Später')}
         </button>
         <button
           className="primary"
@@ -84,7 +88,7 @@ export function UpdateHint({ update, openConnections, onLater, onRestart }: Prop
             }
           }}
         >
-          {restarting ? 'Startet neu …' : 'Jetzt neu starten'}
+          {restarting ? t('Startet neu …') : t('Jetzt neu starten')}
         </button>
       </div>
     </aside>

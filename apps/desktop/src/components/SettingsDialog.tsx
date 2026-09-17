@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import pkg from '../../package.json';
 import { customRegex, HIGHLIGHT_HEX } from '../lib/highlight';
+import { locale, N_, t, useLanguage } from '../lib/i18n';
 import {
   passphraseNote,
   asKeyFailure,
@@ -46,13 +47,13 @@ export type SettingsSection =
   'appearance' | 'terminal' | 'highlight' | 'vault' | 'data' | 'updates' | 'about';
 
 const SECTIONS: { id: SettingsSection; label: string }[] = [
-  { id: 'appearance', label: 'Darstellung' },
-  { id: 'terminal', label: 'Terminal' },
-  { id: 'highlight', label: 'Hervorhebung' },
-  { id: 'vault', label: 'Tresor & Keys' },
-  { id: 'data', label: 'Import & Export' },
-  { id: 'updates', label: 'Updates' },
-  { id: 'about', label: 'Über UwUSSH' },
+  { id: 'appearance', label: N_('Darstellung') },
+  { id: 'terminal', label: N_('Terminal') },
+  { id: 'highlight', label: N_('Hervorhebung') },
+  { id: 'vault', label: N_('Tresor & Keys') },
+  { id: 'data', label: N_('Import & Export') },
+  { id: 'updates', label: N_('Updates') },
+  { id: 'about', label: N_('Über UwUSSH') },
 ];
 
 type Props = {
@@ -144,51 +145,71 @@ function Appearance() {
   const settings = useSettings();
   return (
     <>
-      <Row label="Farbschema" description="Das Terminal bleibt in jedem Schema dunkel.">
+      <Row
+        label="Sprache · Language"
+        description="„System“ folgt der Sprache von Windows. · “System” follows Windows."
+      >
         <Segmented
-          label="Farbschema"
-          value={settings.theme}
-          onChange={(theme) => updateSettings({ theme })}
+          label="Sprache · Language"
+          value={settings.language}
+          onChange={(language) => updateSettings({ language })}
           options={[
             { value: 'system', label: 'System' },
-            { value: 'light', label: 'Hell' },
-            { value: 'dark', label: 'Dunkel' },
+            { value: 'de', label: 'Deutsch' },
+            { value: 'en', label: 'English' },
           ]}
         />
       </Row>
-      <Row label="Animationen" description="„System“ folgt der Windows-Einstellung.">
+      <Row label={t('Farbschema')} description={t('Das Terminal bleibt in jedem Schema dunkel.')}>
         <Segmented
-          label="Animationen"
+          label={t('Farbschema')}
+          value={settings.theme}
+          onChange={(theme) => updateSettings({ theme })}
+          options={[
+            { value: 'system', label: t('System') },
+            { value: 'light', label: t('Hell') },
+            { value: 'dark', label: t('Dunkel') },
+          ]}
+        />
+      </Row>
+      <Row label={t('Animationen')} description={t('„System“ folgt der Windows-Einstellung.')}>
+        <Segmented
+          label={t('Animationen')}
           value={settings.motion}
           onChange={(motion) => updateSettings({ motion })}
           options={[
-            { value: 'system', label: 'System' },
-            { value: 'on', label: 'An' },
-            { value: 'off', label: 'Aus' },
+            { value: 'system', label: t('System') },
+            { value: 'on', label: t('An') },
+            { value: 'off', label: t('Aus') },
           ]}
         />
       </Row>
       <Row
-        label="Privat und Business"
-        description="Zwei Bereiche in der Hostliste, wie bei UwUMail. Hosts und Gruppen ziehst du einfach in den anderen Bereich."
+        label={t('Privat und Business')}
+        description={t(
+          'Zwei Bereiche in der Hostliste, wie bei UwUMail. Hosts und Gruppen ziehst du einfach in den anderen Bereich.',
+        )}
       >
         <Toggle
-          label="Privat und Business"
+          label={t('Privat und Business')}
           checked={settings.workspaces}
           onChange={(workspaces) => updateSettings({ workspaces })}
         />
       </Row>
       {settings.workspaces && (
-        <Row label="Namen der Bereiche" description="Leer lassen für „Privat“ und „Business“.">
+        <Row
+          label={t('Namen der Bereiche')}
+          description={t('Leer lassen für „Privat“ und „Business“.')}
+        >
           <div className="workspace-names">
             {(['private', 'business'] as const).map((id) => (
               <input
                 key={id}
                 className="search"
                 value={settings.workspaceNames[id]}
-                placeholder={id === 'private' ? 'Privat' : 'Business'}
+                placeholder={id === 'private' ? t('Privat') : t('Business')}
                 maxLength={24}
-                aria-label={`Name für ${workspaceName(id, settings)}`}
+                aria-label={t('Name für {name}', { name: workspaceName(id, settings) })}
                 onChange={(e) =>
                   updateSettings({
                     workspaceNames: { ...settings.workspaceNames, [id]: e.target.value },
@@ -211,10 +232,10 @@ function TerminalSettings() {
   );
   return (
     <>
-      <Row label="Schriftgröße" description="Oder Strg + Mausrad über dem Terminal.">
+      <Row label={t('Schriftgröße')} description={t('Oder Strg + Mausrad über dem Terminal.')}>
         <select
           className="select"
-          aria-label="Schriftgröße"
+          aria-label={t('Schriftgröße')}
           value={settings.fontSize}
           onChange={(event) => updateSettings({ fontSize: Number(event.target.value) })}
         >
@@ -225,106 +246,111 @@ function TerminalSettings() {
           ))}
         </select>
       </Row>
-      <Row label="Cursor">
+      <Row label={t('Cursor')}>
         <Segmented<CursorStyle>
-          label="Cursorform"
+          label={t('Cursorform')}
           value={settings.cursorStyle}
           onChange={(cursorStyle) => updateSettings({ cursorStyle })}
           options={[
-            { value: 'block', label: 'Block' },
-            { value: 'bar', label: 'Strich' },
-            { value: 'underline', label: 'Unterstrich' },
+            { value: 'block', label: t('Block') },
+            { value: 'bar', label: t('Strich') },
+            { value: 'underline', label: t('Unterstrich') },
           ]}
         />
       </Row>
-      <Row label="Cursor blinkt">
+      <Row label={t('Cursor blinkt')}>
         <Toggle
-          label="Cursor blinkt"
+          label={t('Cursor blinkt')}
           checked={settings.cursorBlink}
           onChange={(cursorBlink) => updateSettings({ cursorBlink })}
         />
       </Row>
-      <Row label="Scrollback" description="So viele Zeilen hält jeder Tab zum Zurückscrollen.">
+      <Row
+        label={t('Scrollback')}
+        description={t('So viele Zeilen hält jeder Tab zum Zurückscrollen.')}
+      >
         <Segmented
-          label="Scrollback"
+          label={t('Scrollback')}
           value={settings.scrollback}
           onChange={(scrollback) => updateSettings({ scrollback })}
           options={SCROLLBACK_CHOICES.map((lines) => ({
             value: lines,
-            label: lines.toLocaleString('de-DE'),
+            label: lines.toLocaleString(locale()),
           }))}
         />
       </Row>
       <Row
-        label="Passwort-Helfer"
-        description="Fragt sudo oder su im Terminal nach dem Passwort, bietet UwUSSH an, das Passwort des Hosts einzutippen (Strg+Umschalt+P)."
+        label={t('Passwort-Helfer')}
+        description={t(
+          'Fragt sudo oder su im Terminal nach dem Passwort, bietet UwUSSH an, das Passwort des Hosts einzutippen (Strg+Umschalt+P).',
+        )}
       >
         <Toggle
-          label="Passwort-Helfer"
+          label={t('Passwort-Helfer')}
           checked={settings.passwordHelper}
           onChange={(passwordHelper) => updateSettings({ passwordHelper })}
         />
       </Row>
       <Row
-        label="Strg+C kopiert markierten Text"
-        description="Ohne Markierung geht Strg+C wie immer als Abbruch an das Programm."
+        label={t('Strg+C kopiert markierten Text')}
+        description={t('Ohne Markierung geht Strg+C wie immer als Abbruch an das Programm.')}
       >
         <Toggle
-          label="Strg+C kopiert markierten Text"
+          label={t('Strg+C kopiert markierten Text')}
           checked={settings.ctrlCCopies}
           onChange={(ctrlCCopies) => updateSettings({ ctrlCCopies })}
         />
       </Row>
       <Row
-        label="Strg+V fügt ein"
-        description="Aus: Strg+V geht als ^V an das Programm. Strg+Umschalt+V fügt immer ein."
+        label={t('Strg+V fügt ein')}
+        description={t('Aus: Strg+V geht als ^V an das Programm. Strg+Umschalt+V fügt immer ein.')}
       >
         <Toggle
-          label="Strg+V fügt ein"
+          label={t('Strg+V fügt ein')}
           checked={settings.ctrlVPastes}
           onChange={(ctrlVPastes) => updateSettings({ ctrlVPastes })}
         />
       </Row>
-      <Row label="Beim Start eine lokale Shell öffnen">
+      <Row label={t('Beim Start eine lokale Shell öffnen')}>
         <Toggle
-          label="Beim Start eine lokale Shell öffnen"
+          label={t('Beim Start eine lokale Shell öffnen')}
           checked={settings.openShellOnStart}
           onChange={(openShellOnStart) => updateSettings({ openShellOnStart })}
         />
       </Row>
       <Row
-        label="Vor dem Schließen nachfragen"
-        description="Wenn noch SSH-Verbindungen offen sind."
+        label={t('Vor dem Schließen nachfragen')}
+        description={t('Wenn noch SSH-Verbindungen offen sind.')}
       >
         <Toggle
-          label="Vor dem Schließen nachfragen"
+          label={t('Vor dem Schließen nachfragen')}
           checked={settings.confirmCloseWithSessions}
           onChange={(confirmCloseWithSessions) => updateSettings({ confirmCloseWithSessions })}
         />
       </Row>
       <div className="shortcuts">
-        <p className="setting-label">Tastenkürzel</p>
+        <p className="setting-label">{t('Tastenkürzel')}</p>
         <dl>
-          <dt>Strg+Umschalt+T</dt>
-          <dd>Neue lokale Shell</dd>
-          <dt>Strg+Umschalt+D</dt>
-          <dd>Tab duplizieren (neue Verbindung zum selben Host)</dd>
-          <dt>Strg+Umschalt+W</dt>
-          <dd>Tab schließen</dd>
-          <dt>Strg+Tab · Strg+Umschalt+Tab</dt>
-          <dd>Nächster · vorheriger Tab</dd>
-          <dt>Strg+Umschalt+1 … 9</dt>
-          <dd>Zu Tab 1 … 9</dd>
-          <dt>Strg+Umschalt+F</dt>
-          <dd>Dateien des Hosts öffnen</dd>
-          <dt>Strg+Umschalt+P</dt>
-          <dd>Passwort eintippen, wenn danach gefragt wird</dd>
-          <dt>Strg+Umschalt+C · Strg+Umschalt+V</dt>
-          <dd>Kopieren · Einfügen</dd>
-          <dt>Strg+Mausrad</dt>
-          <dd>Schrift größer · kleiner</dd>
-          <dt>Strg+,</dt>
-          <dd>Einstellungen</dd>
+          <dt>{t('Strg+Umschalt+T')}</dt>
+          <dd>{t('Neue lokale Shell')}</dd>
+          <dt>{t('Strg+Umschalt+D')}</dt>
+          <dd>{t('Tab duplizieren (neue Verbindung zum selben Host)')}</dd>
+          <dt>{t('Strg+Umschalt+W')}</dt>
+          <dd>{t('Tab schließen')}</dd>
+          <dt>{t('Strg+Tab · Strg+Umschalt+Tab')}</dt>
+          <dd>{t('Nächster · vorheriger Tab')}</dd>
+          <dt>{t('Strg+Umschalt+1 … 9')}</dt>
+          <dd>{t('Zu Tab 1 … 9')}</dd>
+          <dt>{t('Strg+Umschalt+F')}</dt>
+          <dd>{t('Dateien des Hosts öffnen')}</dd>
+          <dt>{t('Strg+Umschalt+P')}</dt>
+          <dd>{t('Passwort eintippen, wenn danach gefragt wird')}</dd>
+          <dt>{t('Strg+Umschalt+C · Strg+Umschalt+V')}</dt>
+          <dd>{t('Kopieren · Einfügen')}</dd>
+          <dt>{t('Strg+Mausrad')}</dt>
+          <dd>{t('Schrift größer · kleiner')}</dd>
+          <dt>{t('Strg+,')}</dt>
+          <dd>{t('Einstellungen')}</dd>
         </dl>
       </div>
     </>
@@ -332,12 +358,12 @@ function TerminalSettings() {
 }
 
 const COLOR_NAMES: Record<HighlightColor, string> = {
-  red: 'Rot',
-  yellow: 'Gelb',
-  green: 'Grün',
-  blue: 'Blau',
-  magenta: 'Pink',
-  cyan: 'Türkis',
+  red: N_('Rot'),
+  yellow: N_('Gelb'),
+  green: N_('Grün'),
+  blue: N_('Blau'),
+  magenta: N_('Pink'),
+  cyan: N_('Türkis'),
 };
 
 function Swatch({ color }: { color: HighlightColor }) {
@@ -373,25 +399,42 @@ function Highlighting() {
     colors: HighlightColor[];
     example: string;
   }[] = [
-    { key: 'errors', label: 'Fehler', colors: ['red'], example: 'error, failed, denied, fatal …' },
-    { key: 'warnings', label: 'Warnungen', colors: ['yellow'], example: 'warning, deprecated …' },
-    { key: 'success', label: 'Erfolg', colors: ['green'], example: 'ok, active, running, done …' },
+    {
+      key: 'errors',
+      label: t('Fehler'),
+      colors: ['red'],
+      example: 'error, failed, denied, fatal …',
+    },
+    {
+      key: 'warnings',
+      label: t('Warnungen'),
+      colors: ['yellow'],
+      example: 'warning, deprecated …',
+    },
+    {
+      key: 'success',
+      label: t('Erfolg'),
+      colors: ['green'],
+      example: 'ok, active, running, done …',
+    },
     {
       key: 'network',
-      label: 'Adressen',
+      label: t('Adressen'),
       colors: ['blue', 'cyan'],
-      example: 'IPv4, IPv6, http(s)-Links',
+      example: t('IPv4, IPv6, http(s)-Links'),
     },
   ];
 
   return (
     <>
       <Row
-        label="Schlüsselwörter hervorheben"
-        description="Wie bei Termius: Wörter wie „error“ oder „active“ und IP-Adressen bekommen im Terminal eine Farbe. Vollbild-Programme wie vim oder htop bleiben unberührt."
+        label={t('Schlüsselwörter hervorheben')}
+        description={t(
+          'Wie bei Termius: Wörter wie „error“ oder „active“ und IP-Adressen bekommen im Terminal eine Farbe. Vollbild-Programme wie vim oder htop bleiben unberührt.',
+        )}
       >
         <Toggle
-          label="Schlüsselwörter hervorheben"
+          label={t('Schlüsselwörter hervorheben')}
           checked={highlight.enabled}
           onChange={(enabled) => set({ enabled })}
         />
@@ -414,11 +457,12 @@ function Highlighting() {
           ))}
 
           <div className="highlight-custom">
-            <p className="setting-label">Eigene Regeln</p>
+            <p className="setting-label">{t('Eigene Regeln')}</p>
             {highlight.custom.length === 0 && (
               <p className="setting-description">
-                Noch keine. Zum Beispiel den Namen deiner Server, „prod“ oder eine Regex für
-                Ticketnummern.
+                {t(
+                  'Noch keine. Zum Beispiel den Namen deiner Server, „prod“ oder eine Regex für Ticketnummern.',
+                )}
               </p>
             )}
             <ul>
@@ -433,7 +477,7 @@ function Highlighting() {
                     onClick={() =>
                       set({ custom: highlight.custom.filter((r) => r.id !== rule.id) })
                     }
-                    aria-label={`Regel ${rule.pattern} löschen`}
+                    aria-label={t('Regel {pattern} löschen', { pattern: rule.pattern })}
                   >
                     <Icon name="trash" size={15} />
                   </button>
@@ -450,21 +494,21 @@ function Highlighting() {
               <input
                 className="search"
                 value={pattern}
-                placeholder={regex ? 'Regex, z. B. INC-\\d+' : 'Wort, z. B. prod'}
+                placeholder={regex ? t('Regex, z. B. INC-\\d+') : t('Wort, z. B. prod')}
                 spellCheck={false}
                 aria-invalid={pattern.length > 0 && !valid}
                 onChange={(e) => setPattern(e.target.value)}
-                aria-label="Muster"
+                aria-label={t('Muster')}
               />
               <select
                 className="select"
                 value={color}
                 onChange={(e) => setColor(e.target.value as HighlightColor)}
-                aria-label="Farbe"
+                aria-label={t('Farbe')}
               >
                 {HIGHLIGHT_COLORS.map((c) => (
                   <option key={c} value={c}>
-                    {COLOR_NAMES[c]}
+                    {t(COLOR_NAMES[c])}
                   </option>
                 ))}
               </select>
@@ -477,12 +521,12 @@ function Highlighting() {
                 <span>Regex</span>
               </label>
               <button type="submit" className="primary" disabled={!valid}>
-                Hinzufügen
+                {t('Hinzufügen')}
               </button>
             </form>
           </div>
 
-          <pre className="highlight-preview" aria-label="Vorschau">
+          <pre className="highlight-preview" aria-label={t('Vorschau')}>
             <span>systemctl status nginx</span>
             {'\n'}● nginx.service – <span style={{ color: HIGHLIGHT_HEX.green }}>active</span> (
             <span style={{ color: HIGHLIGHT_HEX.green }}>running</span>) on{' '}
@@ -500,6 +544,7 @@ function Highlighting() {
 }
 
 function Vault({ onChanged }: { onChanged: () => void }) {
+  useLanguage();
   const [state, setState] = useState<VaultState | null>(null);
   const [keys, setKeys] = useState<KeyRecord[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -532,8 +577,11 @@ function Vault({ onChanged }: { onChanged: () => void }) {
       const failure = asKeyFailure(e);
       if (failure.kind === 'vault-locked') setDialog({ kind: 'vault' });
       else if (failure.kind === 'in-use')
-        setError(`Dieser Key wird noch von ${failure.hosts} Host(s) benutzt.`);
-      else setError(failure.kind === 'error' ? failure.message : `Fehler (${failure.kind})`);
+        setError(t('Dieser Key wird noch von {hosts} Host(s) benutzt.', { hosts: failure.hosts }));
+      else
+        setError(
+          failure.kind === 'error' ? failure.message : t('Fehler ({kind})', { kind: failure.kind }),
+        );
     }
     load();
     onChanged();
@@ -541,33 +589,39 @@ function Vault({ onChanged }: { onChanged: () => void }) {
 
   const status = state?.status;
   const text: Record<VaultState['status'], string> = {
-    absent: 'Noch kein Tresor. Er entsteht, sobald du ein Passwort oder einen Key speicherst.',
-    locked: 'Gesperrt. UwUSSH fragt nach dem Master-Passwort, sobald etwas daraus gebraucht wird.',
-    unlocked: 'Entsperrt. Gespeicherte Passwörter und Keys können benutzt werden.',
+    absent: t('Noch kein Tresor. Er entsteht, sobald du ein Passwort oder einen Key speicherst.'),
+    locked: t(
+      'Gesperrt. UwUSSH fragt nach dem Master-Passwort, sobald etwas daraus gebraucht wird.',
+    ),
+    unlocked: t('Entsperrt. Gespeicherte Passwörter und Keys können benutzt werden.'),
   };
 
   return (
     <>
       <Row
-        label="Status"
-        description="Passwörter und Keys liegen verschlüsselt im Tresor, mit Argon2id und XChaCha20-Poly1305. Das Master-Passwort verlässt dieses Gerät nie."
+        label={t('Status')}
+        description={t(
+          'Passwörter und Keys liegen verschlüsselt im Tresor, mit Argon2id und XChaCha20-Poly1305. Das Master-Passwort verlässt dieses Gerät nie.',
+        )}
       >
         <span className="vault-status" data-status={status ?? 'loading'}>
-          {status ? text[status] : error ? error : 'Wird geprüft …'}
+          {status ? text[status] : error ? error : t('Wird geprüft …')}
         </span>
         {status !== 'unlocked' && (
           <button className="primary" onClick={() => setDialog({ kind: 'vault' })}>
-            {status === 'absent' ? 'Anlegen' : 'Entsperren'}
+            {status === 'absent' ? t('Anlegen') : t('Entsperren')}
           </button>
         )}
       </Row>
       {status !== 'absent' && (
         <Row
-          label="Auf diesem Gerät merken"
-          description="Windows öffnet den Tresor beim Start für dein Benutzerkonto, ohne Master-Passwort. Andere Konten und andere Rechner brauchen es weiter."
+          label={t('Auf diesem Gerät merken')}
+          description={t(
+            'Windows öffnet den Tresor beim Start für dein Benutzerkonto, ohne Master-Passwort. Andere Konten und andere Rechner brauchen es weiter.',
+          )}
         >
           <Toggle
-            label="Auf diesem Gerät merken"
+            label={t('Auf diesem Gerät merken')}
             checked={Boolean(state?.remembered)}
             onChange={(remember) =>
               void guard(async () => {
@@ -583,34 +637,37 @@ function Vault({ onChanged }: { onChanged: () => void }) {
       )}
       {status === 'unlocked' && (
         <Row
-          label="Tresor sperren"
+          label={t('Tresor sperren')}
           description={
             state?.remembered
-              ? 'Bis zum nächsten Start. Offene Verbindungen bleiben bestehen.'
-              : 'Offene Verbindungen bleiben bestehen; neue fragen wieder nach dem Master-Passwort.'
+              ? t('Bis zum nächsten Start. Offene Verbindungen bleiben bestehen.')
+              : t(
+                  'Offene Verbindungen bleiben bestehen; neue fragen wieder nach dem Master-Passwort.',
+                )
           }
         >
-          <button onClick={() => void guard(lockVault)}>Jetzt sperren</button>
+          <button onClick={() => void guard(lockVault)}>{t('Jetzt sperren')}</button>
         </Row>
       )}
 
       <div className="key-list">
         <div className="key-list-head">
-          <p className="setting-label">SSH-Keys im Tresor</p>
+          <p className="setting-label">{t('SSH-Keys im Tresor')}</p>
           <span className="spacer" />
           <button onClick={() => setDialog({ kind: 'import' })}>
             <Icon name="import" size={15} />
-            Importieren…
+            {t('Importieren…')}
           </button>
           <button className="primary" onClick={() => setDialog({ kind: 'keygen' })}>
             <Icon name="sparkles" size={15} />
-            Erzeugen…
+            {t('Erzeugen…')}
           </button>
         </div>
         {keys.length === 0 ? (
           <p className="setting-description">
-            Noch keine Keys. Erzeuge einen mit UwUKeygen oder importiere eine Key-Datei (OpenSSH,
-            PEM oder PuTTY).
+            {t(
+              'Noch keine Keys. Erzeuge einen mit UwUKeygen oder importiere eine Key-Datei (OpenSSH, PEM oder PuTTY).',
+            )}
           </p>
         ) : (
           <ul>
@@ -621,15 +678,17 @@ function Vault({ onChanged }: { onChanged: () => void }) {
                   <b>{key.label}</b>
                   <small>
                     {key.keyType.replace(/^ssh-|^ecdsa-sha2-/, '')}
-                    {key.hasPassphrase ? ' · mit Passphrase' : ''}
-                    {key.hosts > 0 ? ` · ${key.hosts} Host${key.hosts === 1 ? '' : 's'}` : ''}
+                    {key.hasPassphrase ? ` · ${t('mit Passphrase')}` : ''}
+                    {key.hosts > 0
+                      ? ` · ${key.hosts === 1 ? t('1 Host') : t('{count} Hosts', { count: key.hosts })}`
+                      : ''}
                   </small>
                 </span>
                 <span className="spacer" />
                 <button
                   className="icon-button"
-                  title="Public Key kopieren"
-                  aria-label={`Public Key von ${key.label} kopieren`}
+                  title={t('Public Key kopieren')}
+                  aria-label={t('Public Key von {label} kopieren', { label: key.label })}
                   onClick={() =>
                     void guard(async () => {
                       await navigator.clipboard.writeText(await keyPublicLine(key.id));
@@ -642,8 +701,8 @@ function Vault({ onChanged }: { onChanged: () => void }) {
                 </button>
                 <button
                   className="icon-button"
-                  title="Als Datei exportieren"
-                  aria-label={`${key.label} exportieren`}
+                  title={t('Als Datei exportieren')}
+                  aria-label={t('{label} exportieren', { label: key.label })}
                   onClick={() =>
                     setDialog({ kind: 'export', key, format: 'openssh', passphrase: '' })
                   }
@@ -652,16 +711,16 @@ function Vault({ onChanged }: { onChanged: () => void }) {
                 </button>
                 <button
                   className="icon-button"
-                  title="Umbenennen"
-                  aria-label={`${key.label} umbenennen`}
+                  title={t('Umbenennen')}
+                  aria-label={t('{label} umbenennen', { label: key.label })}
                   onClick={() => setDialog({ kind: 'rename', key, label: key.label })}
                 >
                   <Icon name="pencil" size={15} />
                 </button>
                 <button
                   className="icon-button"
-                  title={key.hosts > 0 ? 'Wird noch benutzt' : 'Löschen'}
-                  aria-label={`${key.label} löschen`}
+                  title={key.hosts > 0 ? t('Wird noch benutzt') : t('Löschen')}
+                  aria-label={t('{label} löschen', { label: key.label })}
                   disabled={key.hosts > 0}
                   onClick={() => void guard(() => deleteKey(key.id))}
                 >
@@ -695,13 +754,13 @@ function Vault({ onChanged }: { onChanged: () => void }) {
       )}
       {dialog?.kind === 'rename' && (
         <Modal
-          title="Key umbenennen"
+          title={t('Key umbenennen')}
           onCancel={() => setDialog(null)}
           footer={
             <>
               <span className="spacer" />
               <button data-secondary onClick={() => setDialog(null)}>
-                Abbrechen
+                {t('Abbrechen')}
               </button>
               <button
                 className="primary"
@@ -711,13 +770,13 @@ function Vault({ onChanged }: { onChanged: () => void }) {
                   void guard(() => renameKey(key.id, label));
                 }}
               >
-                Speichern
+                {t('Speichern')}
               </button>
             </>
           }
         >
           <label className="field">
-            <span>Name</span>
+            <span>{t('Name')}</span>
             <input
               data-autofocus
               value={dialog.label}
@@ -728,13 +787,13 @@ function Vault({ onChanged }: { onChanged: () => void }) {
       )}
       {dialog?.kind === 'export' && (
         <Modal
-          title={`${dialog.key.label} exportieren`}
+          title={t('{label} exportieren', { label: dialog.key.label })}
           onCancel={() => setDialog(null)}
           footer={
             <>
               <span className="spacer" />
               <button data-secondary onClick={() => setDialog(null)}>
-                Abbrechen
+                {t('Abbrechen')}
               </button>
               <button
                 className="primary"
@@ -744,13 +803,13 @@ function Vault({ onChanged }: { onChanged: () => void }) {
                   void guard(() => exportKeyFile(key.id, format, passphrase || null));
                 }}
               >
-                Speichern unter…
+                {t('Speichern unter…')}
               </button>
             </>
           }
         >
           <label className="field">
-            <span>Format</span>
+            <span>{t('Format')}</span>
             <select
               className="select"
               value={dialog.format}
@@ -764,7 +823,7 @@ function Vault({ onChanged }: { onChanged: () => void }) {
             </select>
           </label>
           <label className="field">
-            <span>Passphrase für die Datei (optional)</span>
+            <span>{t('Passphrase für die Datei (optional)')}</span>
             <input
               type="password"
               value={dialog.passphrase}
@@ -774,7 +833,7 @@ function Vault({ onChanged }: { onChanged: () => void }) {
             <em className="field-hint">
               {dialog.passphrase
                 ? passphraseNote(dialog.format, true)
-                : 'Ohne Passphrase liegt der private Key unverschlüsselt in der Datei.'}
+                : t('Ohne Passphrase liegt der private Key unverschlüsselt in der Datei.')}
             </em>
           </label>
         </Modal>
@@ -784,25 +843,30 @@ function Vault({ onChanged }: { onChanged: () => void }) {
 }
 
 function Data({ onImport }: { onImport: () => void }) {
+  useLanguage();
   const [exporting, setExporting] = useState(false);
   return (
     <>
       <Row
-        label="Exportieren"
-        description="Alle Hosts mit Bereichen, Gruppen und Host-Keys in eine .uwussh-Datei – auf Wunsch mit Passwörtern und Keys, dann mit eigenem Passwort verschlüsselt."
+        label={t('Exportieren')}
+        description={t(
+          'Alle Hosts mit Bereichen, Gruppen und Host-Keys in eine .uwussh-Datei – auf Wunsch mit Passwörtern und Keys, dann mit eigenem Passwort verschlüsselt.',
+        )}
       >
         <button onClick={() => setExporting(true)}>
           <Icon name="export" size={15} />
-          Exportieren…
+          {t('Exportieren…')}
         </button>
       </Row>
       <Row
-        label="Importieren"
-        description="Aus einer .uwussh-Datei, aus Termius, PuTTY, KiTTY oder ~/.ssh/config. Schon vorhandene Hosts werden übersprungen."
+        label={t('Importieren')}
+        description={t(
+          'Aus einer .uwussh-Datei, aus Termius, PuTTY, KiTTY oder ~/.ssh/config. Schon vorhandene Hosts werden übersprungen.',
+        )}
       >
         <button onClick={onImport}>
           <Icon name="import" size={15} />
-          Importieren…
+          {t('Importieren…')}
         </button>
       </Row>
       {exporting && <ExportDialog onClose={() => setExporting(false)} />}
@@ -822,33 +886,35 @@ function Updates({
   return (
     <>
       <Row
-        label="Update-Kanal"
+        label={t('Update-Kanal')}
         description={
           settings.updateChannel === 'beta'
-            ? 'Beta bekommt neue Versionen früher. Es kann mal etwas wackeln.'
-            : 'Stabil bekommt nur fertige Versionen.'
+            ? t('Beta bekommt neue Versionen früher. Es kann mal etwas wackeln.')
+            : t('Stabil bekommt nur fertige Versionen.')
         }
       >
         <Segmented
-          label="Update-Kanal"
+          label={t('Update-Kanal')}
           value={settings.updateChannel}
           onChange={(updateChannel) => {
             setResult(null);
             updateSettings({ updateChannel });
           }}
           options={[
-            { value: 'stable', label: 'Stabil' },
-            { value: 'beta', label: 'Beta' },
+            { value: 'stable', label: t('Stabil') },
+            { value: 'beta', label: t('Beta') },
           ]}
         />
       </Row>
       <Row
-        label={`Version ${pkg.version}`}
-        description="UwUSSH lädt neue Versionen still herunter und installiert sie beim nächsten Start. Jedes Update ist signiert und wird vor dem Start geprüft."
+        label={t('Version {version}', { version: pkg.version })}
+        description={t(
+          'UwUSSH lädt neue Versionen still herunter und installiert sie beim nächsten Start. Jedes Update ist signiert und wird vor dem Start geprüft.',
+        )}
       >
         {update ? (
           <button className="primary" onClick={onInstallUpdate}>
-            {update.version} installieren
+            {t('{version} installieren', { version: update.version })}
           </button>
         ) : (
           <button
@@ -859,15 +925,18 @@ function Updates({
               try {
                 const found = await checkForUpdates();
                 if (found) onUpdateFound(found);
-                else setResult({ tone: 'info', text: 'UwUSSH ist auf dem neuesten Stand. ✧' });
+                else setResult({ tone: 'info', text: t('UwUSSH ist auf dem neuesten Stand. ✧') });
               } catch (e) {
-                setResult({ tone: 'error', text: `Suche fehlgeschlagen: ${String(e)}` });
+                setResult({
+                  tone: 'error',
+                  text: t('Suche fehlgeschlagen: {error}', { error: String(e) }),
+                });
               } finally {
                 setChecking(false);
               }
             }}
           >
-            {checking ? 'Sucht …' : 'Nach Updates suchen'}
+            {checking ? t('Sucht …') : t('Nach Updates suchen')}
           </button>
         )}
       </Row>
@@ -881,6 +950,7 @@ function Updates({
 }
 
 function About({ onRunM0 }: { onRunM0: () => void }) {
+  useLanguage();
   const open = (page: ProjectPage) => void openProjectPage(page).catch(() => undefined);
   return (
     <div className="about">
@@ -888,22 +958,25 @@ function About({ onRunM0 }: { onRunM0: () => void }) {
       <p className="about-name">
         <span>UwU</span>SSH
       </p>
-      <p className="about-version">Version {pkg.version}</p>
+      <p className="about-version">{t('Version {version}', { version: pkg.version })}</p>
       <p className="about-text">
-        Freie Software unter der GNU GPL v3.0. Nutzen, ändern, weitergeben – nur geänderte Versionen
-        müssen offen bleiben. Kein Tracking, kein Konto.
+        {t(
+          'Freie Software unter der GNU GPL v3.0. Nutzen, ändern, weitergeben – nur geänderte Versionen müssen offen bleiben. Kein Tracking, kein Konto.',
+        )}
       </p>
       <div className="about-actions">
-        <button onClick={() => open('source')}>Quellcode auf GitHub</button>
-        <button onClick={() => open('releases')}>Versionen</button>
-        <button onClick={() => open('license')}>Lizenz</button>
+        <button onClick={() => open('source')}>{t('Quellcode auf GitHub')}</button>
+        <button onClick={() => open('releases')}>{t('Versionen')}</button>
+        <button onClick={() => open('license')}>{t('Lizenz')}</button>
       </div>
       <details className="about-diagnostics">
-        <summary>Diagnose</summary>
+        <summary>{t('Diagnose')}</summary>
         <p className="setting-description">
-          Misst in einem eigenen Tab, wie schnell das Terminal Ausgabe verarbeitet (Meilenstein M0).
+          {t(
+            'Misst in einem eigenen Tab, wie schnell das Terminal Ausgabe verarbeitet (Meilenstein M0).',
+          )}
         </p>
-        <button onClick={onRunM0}>Durchsatz messen</button>
+        <button onClick={onRunM0}>{t('Durchsatz messen')}</button>
       </details>
     </div>
   );
@@ -919,11 +992,12 @@ export function SettingsDialog({
   onImport,
   onChanged,
 }: Props) {
+  useLanguage();
   const [section, setSection] = useState<SettingsSection>(initial);
   return (
-    <Modal title="Einstellungen" size="wide" onCancel={onClose}>
+    <Modal title={t('Einstellungen')} size="wide" onCancel={onClose}>
       <div className="settings">
-        <nav className="settings-nav" aria-label="Bereiche">
+        <nav className="settings-nav" aria-label={t('Bereiche')}>
           {SECTIONS.map(({ id, label }) => (
             <button
               key={id}
@@ -931,7 +1005,7 @@ export function SettingsDialog({
               aria-current={section === id ? 'page' : undefined}
               onClick={() => setSection(id)}
             >
-              {label}
+              {t(label)}
             </button>
           ))}
         </nav>
@@ -951,7 +1025,7 @@ export function SettingsDialog({
           {section === 'about' && <About onRunM0={onRunM0} />}
         </div>
       </div>
-      <button className="settings-close icon-button" onClick={onClose} aria-label="Schließen">
+      <button className="settings-close icon-button" onClick={onClose} aria-label={t('Schließen')}>
         ×
       </button>
     </Modal>

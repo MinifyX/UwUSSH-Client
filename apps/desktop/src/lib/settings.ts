@@ -9,9 +9,12 @@
 
 import { useSyncExternalStore } from 'react';
 import pkg from '../../package.json';
+import { language, t } from './i18n';
 import type { Workspace } from './session';
 
 export type ThemeSetting = 'system' | 'light' | 'dark';
+/** German or English; "system" follows the language Windows prefers. */
+export type LanguageSetting = 'system' | 'de' | 'en';
 /** Animations: follow the system's reduced-motion setting, or override it. */
 export type MotionSetting = 'system' | 'on' | 'off';
 export type CursorStyle = 'block' | 'bar' | 'underline';
@@ -41,6 +44,7 @@ export type HighlightSettings = {
 };
 
 export type Settings = {
+  language: LanguageSetting;
   theme: ThemeSetting;
   motion: MotionSetting;
   fontSize: number;
@@ -79,6 +83,7 @@ export const HIGHLIGHT_COLORS: readonly HighlightColor[] = [
 ];
 
 export const DEFAULT_SETTINGS: Settings = {
+  language: 'system',
   theme: 'dark',
   motion: 'system',
   fontSize: 13,
@@ -147,6 +152,7 @@ export function sanitize(raw: unknown): Settings {
       ? Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, input.fontSize))
       : d.fontSize;
   return {
+    language: oneOf(input.language, ['system', 'de', 'en'] as const, d.language),
     theme: oneOf(input.theme, ['system', 'light', 'dark'] as const, d.theme),
     motion: oneOf(input.motion, ['system', 'on', 'off'] as const, d.motion),
     fontSize,
@@ -226,7 +232,7 @@ export function useSettings(): Settings {
 export function workspaceName(workspace: Workspace, settings: Settings): string {
   const own = settings.workspaceNames[workspace].trim();
   if (own) return own;
-  return workspace === 'private' ? 'Privat' : 'Business';
+  return workspace === 'private' ? t('Privat') : t('Business');
 }
 
 const darkQuery = () => window.matchMedia('(prefers-color-scheme: dark)');
@@ -244,6 +250,7 @@ export function applyAppearance() {
     const { theme } = current;
     const dark = theme === 'dark' || (theme === 'system' && darkQuery().matches);
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    document.documentElement.lang = language(current);
     if (motionAllowed()) delete document.documentElement.dataset.motion;
     else document.documentElement.dataset.motion = 'reduced';
   };

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { asBackupFailure, exportHosts, type BackupSummary } from '../lib/backup';
+import { t, useLanguage } from '../lib/i18n';
 import { Modal } from './Modal';
 import { useCloseGuard } from './CloseGuard';
 import { NyuScene } from './nyu/scenes';
@@ -11,6 +12,7 @@ import { VaultDialog } from './VaultDialog';
  * file's own. Read back with Importieren → UwUSSH-Export.
  */
 export function ExportDialog({ onClose }: { onClose: () => void }) {
+  useLanguage();
   const [secrets, setSecrets] = useState(true);
   const [password, setPassword] = useState('');
   const [repeat, setRepeat] = useState('');
@@ -21,7 +23,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
   const guard = useCloseGuard(
     !done && password.length > 0,
     onClose,
-    'Das eingegebene Passwort für die Datei geht dabei verloren.',
+    t('Das eingegebene Passwort für die Datei geht dabei verloren.'),
   );
 
   const mismatch = secrets && repeat.length > 0 && password !== repeat;
@@ -41,7 +43,10 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
     } catch (e) {
       const failure = asBackupFailure(e);
       if (failure.kind === 'vault-locked') setVault(true);
-      else setError(failure.kind === 'error' ? failure.message : `Fehler (${failure.kind})`);
+      else
+        setError(
+          failure.kind === 'error' ? failure.message : t('Fehler ({kind})', { kind: failure.kind }),
+        );
     } finally {
       setBusy(false);
     }
@@ -50,7 +55,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
   if (vault) {
     return (
       <VaultDialog
-        reason="Um Passwörter und Keys mitzunehmen, muss der Tresor offen sein."
+        reason={t('Um Passwörter und Keys mitzunehmen, muss der Tresor offen sein.')}
         onDone={() => {
           setVault(false);
           void run();
@@ -64,13 +69,13 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
     const { summary } = done;
     return (
       <Modal
-        title="Export gespeichert ✧"
+        title={t('Export gespeichert ✧')}
         onCancel={onClose}
         footer={
           <>
             <span className="spacer" />
             <button className="primary" onClick={onClose}>
-              Fertig
+              {t('Fertig')}
             </button>
           </>
         }
@@ -82,11 +87,11 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
         <ul className="import-counts">
           {(
             [
-              ['Hosts', summary.hosts],
-              ['Gruppen', summary.groups],
-              ['Passwörter', summary.passwords],
-              ['Keys', summary.keys],
-              ['Host-Keys', summary.knownHosts],
+              [t('Hosts'), summary.hosts],
+              [t('Gruppen'), summary.groups],
+              [t('Passwörter'), summary.passwords],
+              [t('Keys'), summary.keys],
+              [t('Host-Keys'), summary.knownHosts],
             ] as const
           ).map(([label, count]) => (
             <li key={label}>
@@ -101,16 +106,16 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <Modal
-      title="Exportieren"
+      title={t('Exportieren')}
       onCancel={guard.request}
       footer={
         <>
           <span className="spacer" />
           <button data-secondary onClick={guard.request} disabled={busy}>
-            Abbrechen
+            {t('Abbrechen')}
           </button>
           <button className="primary" onClick={() => void run()} disabled={!ready}>
-            {busy ? 'Exportiere…' : 'Speichern unter…'}
+            {busy ? t('Exportiere…') : t('Speichern unter…')}
           </button>
         </>
       }
@@ -123,23 +128,25 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
         }}
       >
         <p className="dialog-lead">
-          Alle Hosts mit Bereichen, Gruppen und bekannten Host-Keys in eine Datei – zum Sichern oder
-          für einen anderen Rechner.
+          {t(
+            'Alle Hosts mit Bereichen, Gruppen und bekannten Host-Keys in eine Datei – zum Sichern oder für einen anderen Rechner.',
+          )}
         </p>
         <label className="check">
           <input type="checkbox" checked={secrets} onChange={(e) => setSecrets(e.target.checked)} />
           <span>
-            <b>Passwörter und Keys mitnehmen</b>
+            <b>{t('Passwörter und Keys mitnehmen')}</b>
             <small>
-              Die ganze Datei wird dann mit einem eigenen Passwort verschlüsselt (Argon2id,
-              XChaCha20-Poly1305).
+              {t(
+                'Die ganze Datei wird dann mit einem eigenen Passwort verschlüsselt (Argon2id, XChaCha20-Poly1305).',
+              )}
             </small>
           </span>
         </label>
         {secrets && (
           <div className="form-row">
             <label className="field grow">
-              <span>Passwort für die Datei</span>
+              <span>{t('Passwort für die Datei')}</span>
               <input
                 type="password"
                 data-autofocus
@@ -148,11 +155,11 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
                 onChange={(e) => setPassword(e.target.value)}
               />
               {password.length > 0 && password.length < 8 && (
-                <em className="field-hint">Mindestens 8 Zeichen.</em>
+                <em className="field-hint">{t('Mindestens 8 Zeichen.')}</em>
               )}
             </label>
             <label className="field grow">
-              <span>Wiederholen</span>
+              <span>{t('Wiederholen')}</span>
               <input
                 type="password"
                 value={repeat}
@@ -160,14 +167,15 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
                 aria-invalid={mismatch}
                 onChange={(e) => setRepeat(e.target.value)}
               />
-              {mismatch && <em className="field-error">Stimmt nicht überein.</em>}
+              {mismatch && <em className="field-error">{t('Stimmt nicht überein.')}</em>}
             </label>
           </div>
         )}
         {!secrets && (
           <p className="field-hint">
-            Ohne Geheimnisse ist die Datei lesbares JSON. Hosts mit gespeichertem Passwort fragen
-            nach dem Import wieder beim Verbinden.
+            {t(
+              'Ohne Geheimnisse ist die Datei lesbares JSON. Hosts mit gespeichertem Passwort fragen nach dem Import wieder beim Verbinden.',
+            )}
           </p>
         )}
         {error && (

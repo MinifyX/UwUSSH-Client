@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { t, useLanguage } from '../lib/i18n';
 import { createVault, unlockVault, vaultState } from '../lib/session';
 import { Modal } from './Modal';
 import { NyuScene } from './nyu/scenes';
@@ -19,7 +20,8 @@ type Props = {
  * place that needs the vault: app start, a host with a stored password, the
  * host form, an import, keys.
  */
-export function VaultDialog({ reason, cancelLabel = 'Abbrechen', onDone, onCancel }: Props) {
+export function VaultDialog({ reason, cancelLabel = t('Abbrechen'), onDone, onCancel }: Props) {
+  useLanguage();
   const [mode, setMode] = useState<'loading' | 'create' | 'unlock'>('loading');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -60,7 +62,9 @@ export function VaultDialog({ reason, cancelLabel = 'Abbrechen', onDone, onCance
       onDone();
     } catch (e) {
       setError(
-        mode === 'unlock' ? 'Das Master-Passwort war falsch.' : `Hat nicht geklappt: ${String(e)}`,
+        mode === 'unlock'
+          ? t('Das Master-Passwort war falsch.')
+          : t('Hat nicht geklappt: {error}', { error: String(e) }),
       );
       setPassword('');
       passwordRef.current?.focus();
@@ -72,7 +76,11 @@ export function VaultDialog({ reason, cancelLabel = 'Abbrechen', onDone, onCance
   return (
     <Modal
       title={
-        mode === 'create' ? 'Tresor anlegen' : mode === 'unlock' ? 'Tresor entsperren' : 'Tresor'
+        mode === 'create'
+          ? t('Tresor anlegen')
+          : mode === 'unlock'
+            ? t('Tresor entsperren')
+            : t('Tresor')
       }
       onCancel={onCancel}
       footer={
@@ -84,11 +92,11 @@ export function VaultDialog({ reason, cancelLabel = 'Abbrechen', onDone, onCance
           <button className="primary" onClick={() => void submit()} disabled={!ready}>
             {busy
               ? mode === 'create'
-                ? 'Lege an…'
-                : 'Entsperre…'
+                ? t('Lege an…')
+                : t('Entsperre…')
               : mode === 'create'
-                ? 'Anlegen'
-                : 'Entsperren'}
+                ? t('Anlegen')
+                : t('Entsperren')}
           </button>
         </>
       }
@@ -99,11 +107,13 @@ export function VaultDialog({ reason, cancelLabel = 'Abbrechen', onDone, onCance
           <p className="dialog-lead">
             {reason ??
               (mode === 'create'
-                ? 'Passwörter und Keys liegen verschlüsselt im Tresor. Dafür brauchst du einmal ein Master-Passwort.'
-                : 'Passwörter und Keys liegen verschlüsselt im Tresor.')}
+                ? t(
+                    'Passwörter und Keys liegen verschlüsselt im Tresor. Dafür brauchst du einmal ein Master-Passwort.',
+                  )
+                : t('Passwörter und Keys liegen verschlüsselt im Tresor.'))}
           </p>
           <label className="field">
-            <span>Master-Passwort</span>
+            <span>{t('Master-Passwort')}</span>
             <input
               ref={passwordRef}
               type="password"
@@ -115,7 +125,7 @@ export function VaultDialog({ reason, cancelLabel = 'Abbrechen', onDone, onCance
           </label>
           {mode === 'create' && (
             <label className="field">
-              <span>Wiederholen</span>
+              <span>{t('Wiederholen')}</span>
               <input
                 type="password"
                 value={confirm}
@@ -123,7 +133,9 @@ export function VaultDialog({ reason, cancelLabel = 'Abbrechen', onDone, onCance
                 onChange={(e) => setConfirm(e.target.value)}
                 aria-invalid={mismatch}
               />
-              {mismatch && <em className="field-error">Die Passwörter stimmen nicht überein.</em>}
+              {mismatch && (
+                <em className="field-error">{t('Die Passwörter stimmen nicht überein.')}</em>
+              )}
             </label>
           )}
           <label className="check">
@@ -133,10 +145,11 @@ export function VaultDialog({ reason, cancelLabel = 'Abbrechen', onDone, onCance
               onChange={(e) => setRemember(e.target.checked)}
             />
             <span>
-              <b>Auf diesem Gerät merken</b>
+              <b>{t('Auf diesem Gerät merken')}</b>
               <small>
-                Windows öffnet den Tresor für dein Benutzerkonto automatisch – du gibst das
-                Master-Passwort hier nicht noch einmal ein.
+                {t(
+                  'Windows öffnet den Tresor für dein Benutzerkonto automatisch – du gibst das Master-Passwort hier nicht noch einmal ein.',
+                )}
               </small>
             </span>
           </label>
@@ -147,8 +160,9 @@ export function VaultDialog({ reason, cancelLabel = 'Abbrechen', onDone, onCance
           )}
           {mode === 'create' && (
             <p className="import-warning">
-              Es gibt noch keine Wiederherstellung: Vergisst du das Master-Passwort, kommst du auf
-              einem neuen Gerät nicht mehr an die gespeicherten Passwörter.
+              {t(
+                'Es gibt noch keine Wiederherstellung: Vergisst du das Master-Passwort, kommst du auf einem neuen Gerät nicht mehr an die gespeicherten Passwörter.',
+              )}
             </p>
           )}
           <button type="submit" hidden disabled={!ready} />

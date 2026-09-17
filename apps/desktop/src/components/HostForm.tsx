@@ -1,4 +1,5 @@
 import { useRef, useEffect, useState, type FormEvent } from 'react';
+import { N_, t } from '../lib/i18n';
 import { keyPublicLine, listKeys, type KeyRecord } from '../lib/keys';
 import {
   deleteHost,
@@ -32,18 +33,21 @@ type Props = {
 /** What the store's validation codes mean, next to the field they belong to. */
 const PROBLEMS: Record<string, Record<string, string>> = {
   address: {
-    required: 'Adresse fehlt',
-    whitespace: 'Die Adresse darf keine Leerzeichen enthalten',
+    required: N_('Adresse fehlt'),
+    whitespace: N_('Die Adresse darf keine Leerzeichen enthalten'),
   },
   username: {
-    required: 'Benutzername fehlt',
-    whitespace: 'Der Benutzername darf keine Leerzeichen enthalten',
+    required: N_('Benutzername fehlt'),
+    whitespace: N_('Der Benutzername darf keine Leerzeichen enthalten'),
   },
-  keyPath: { required: 'Pfad zur Key-Datei fehlt' },
-  keyId: { unknown: 'Diesen Key gibt es nicht mehr', required: 'Wähle einen Key' },
-  port: { 'out-of-range': 'Port zwischen 1 und 65535' },
-  password: { required: 'Das Passwort ist leer' },
-  groupPath: { 'too-long': 'Der Gruppenname ist zu lang', control: 'Ungültiger Gruppenname' },
+  keyPath: { required: N_('Pfad zur Key-Datei fehlt') },
+  keyId: { unknown: N_('Diesen Key gibt es nicht mehr'), required: N_('Wähle einen Key') },
+  port: { 'out-of-range': N_('Port zwischen 1 und 65535') },
+  password: { required: N_('Das Passwort ist leer') },
+  groupPath: {
+    'too-long': N_('Der Gruppenname ist zu lang'),
+    control: N_('Ungültiger Gruppenname'),
+  },
 };
 
 type Field =
@@ -110,8 +114,8 @@ export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, o
     snapshot !== opened.current,
     onCancel,
     host
-      ? 'Deine Änderungen an diesem Host gehen dabei verloren.'
-      : 'Der neue Host ist noch nicht gespeichert und geht dabei verloren.',
+      ? t('Deine Änderungen an diesem Host gehen dabei verloren.')
+      : t('Der neue Host ist noch nicht gespeichert und geht dabei verloren.'),
   );
 
   const loadKeys = (select?: string) =>
@@ -207,29 +211,32 @@ export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, o
   const selectedKey = keys.find((k) => k.id === keyId) ?? null;
   const groupNames = [...new Set(groups.filter((g) => g.workspace === space).map((g) => g.name))];
   const storedPassword = Boolean(host?.hasPassword) && !forget && password === null;
+  const [storedBefore, storedAfter] = t('{label} ist im Tresor gespeichert').split('{label}');
 
   const passwordBlock = (label: string, hint: string) =>
     storedPassword ? (
       <div className="stored-secret">
         <Icon name="lock" size={15} />
         <span>
-          <b>{label}</b> ist im Tresor gespeichert
+          {storedBefore}
+          <b>{label}</b>
+          {storedAfter}
         </span>
         <span className="spacer" />
         <button type="button" className="quiet" onClick={() => setPassword('')}>
-          Ändern
+          {t('Ändern')}
         </button>
         <button type="button" className="quiet" onClick={() => setForget(true)}>
-          Entfernen
+          {t('Entfernen')}
         </button>
       </div>
     ) : forget ? (
       <div className="stored-secret" data-forgotten>
         <Icon name="unlock" size={15} />
-        <span>Das gespeicherte Passwort wird beim Speichern entfernt.</span>
+        <span>{t('Das gespeicherte Passwort wird beim Speichern entfernt.')}</span>
         <span className="spacer" />
         <button type="button" className="quiet" onClick={() => setForget(false)}>
-          Rückgängig
+          {t('Rückgängig')}
         </button>
       </div>
     ) : (
@@ -240,7 +247,7 @@ export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, o
             type={showPassword ? 'text' : 'password'}
             value={password ?? ''}
             onChange={edit('password', (value) => setPassword(value))}
-            placeholder="leer lassen: beim Verbinden fragen"
+            placeholder={t('leer lassen: beim Verbinden fragen')}
             autoComplete="new-password"
             aria-invalid={Boolean(errors.password)}
           />
@@ -248,13 +255,13 @@ export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, o
             type="button"
             className="icon-button"
             onClick={() => setShowPassword((v) => !v)}
-            aria-label={showPassword ? 'Passwort verbergen' : 'Passwort anzeigen'}
+            aria-label={showPassword ? t('Passwort verbergen') : t('Passwort anzeigen')}
           >
             <Icon name="eye" size={15} />
           </button>
         </span>
         {errors.password ? (
-          <em className="field-error">{errors.password}</em>
+          <em className="field-error">{t(errors.password)}</em>
         ) : (
           <em className="field-hint">{hint}</em>
         )}
@@ -264,21 +271,21 @@ export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, o
   return (
     <>
       <Modal
-        title={host ? `${host.name} bearbeiten` : 'Neuer Host'}
+        title={host ? t('{name} bearbeiten', { name: host.name }) : t('Neuer Host')}
         onCancel={guard.request}
         footer={
           <>
             {host && (
               <button className="danger" data-secondary onClick={remove} disabled={busy}>
-                {confirmDelete ? 'Wirklich löschen' : 'Löschen'}
+                {confirmDelete ? t('Wirklich löschen') : t('Löschen')}
               </button>
             )}
             <span className="spacer" />
             <button data-secondary onClick={guard.request} disabled={busy}>
-              Abbrechen
+              {t('Abbrechen')}
             </button>
             <button className="primary" onClick={() => void submit()} disabled={busy}>
-              Speichern
+              {t('Speichern')}
             </button>
           </>
         }
@@ -286,32 +293,32 @@ export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, o
         <form className="form" onSubmit={submit}>
           <div className="form-row">
             <label className="field grow">
-              <span>Adresse</span>
+              <span>{t('Adresse')}</span>
               <input
                 value={address}
                 onChange={edit('address', setAddress)}
-                placeholder="10.0.0.12 oder prox-1.lan"
+                placeholder={t('10.0.0.12 oder prox-1.lan')}
                 aria-invalid={Boolean(errors.address)}
                 autoComplete="off"
                 spellCheck={false}
               />
-              {errors.address && <em className="field-error">{errors.address}</em>}
+              {errors.address && <em className="field-error">{t(errors.address)}</em>}
             </label>
             <label className="field port">
-              <span>Port</span>
+              <span>{t('Port')}</span>
               <input
                 value={port}
                 onChange={edit('port', setPort)}
                 inputMode="numeric"
                 aria-invalid={Boolean(errors.port)}
               />
-              {errors.port && <em className="field-error">{errors.port}</em>}
+              {errors.port && <em className="field-error">{t(errors.port)}</em>}
             </label>
           </div>
 
           <div className="form-row">
             <label className="field grow">
-              <span>Benutzer</span>
+              <span>{t('Benutzer')}</span>
               <input
                 value={username}
                 onChange={edit('username', setUsername)}
@@ -320,29 +327,29 @@ export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, o
                 autoComplete="off"
                 spellCheck={false}
               />
-              {errors.username && <em className="field-error">{errors.username}</em>}
+              {errors.username && <em className="field-error">{t(errors.username)}</em>}
             </label>
             <label className="field grow">
-              <span>Name</span>
+              <span>{t('Name')}</span>
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder={address || 'wie die Adresse'}
+                placeholder={address || t('wie die Adresse')}
                 autoComplete="off"
               />
             </label>
           </div>
 
           <fieldset className="field">
-            <span>Anmeldung</span>
-            <div className="segmented" role="radiogroup" aria-label="Anmeldung">
+            <span>{t('Anmeldung')}</span>
+            <div className="segmented" role="radiogroup" aria-label={t('Anmeldung')}>
               <button
                 type="button"
                 role="radio"
                 aria-checked={auth === 'password'}
                 onClick={() => setAuth('password')}
               >
-                Passwort
+                {t('Passwort')}
               </button>
               <button
                 type="button"
@@ -350,27 +357,29 @@ export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, o
                 aria-checked={auth === 'key'}
                 onClick={() => setAuth('key')}
               >
-                SSH-Key
+                {t('SSH-Key')}
               </button>
             </div>
           </fieldset>
 
           {auth === 'password' &&
             passwordBlock(
-              'Passwort',
-              'Gespeichert wird es verschlüsselt im Tresor – UwUSSH verbindet dann ohne zu fragen und tippt es auf Wunsch für sudo.',
+              t('Passwort'),
+              t(
+                'Gespeichert wird es verschlüsselt im Tresor – UwUSSH verbindet dann ohne zu fragen und tippt es auf Wunsch für sudo.',
+              ),
             )}
 
           {auth === 'key' && (
             <div className="key-choice">
-              <div className="segmented" role="radiogroup" aria-label="Woher der Key kommt">
+              <div className="segmented" role="radiogroup" aria-label={t('Woher der Key kommt')}>
                 <button
                   type="button"
                   role="radio"
                   aria-checked={keySource === 'vault'}
                   onClick={() => setKeySource('vault')}
                 >
-                  Aus dem Tresor
+                  {t('Aus dem Tresor')}
                 </button>
                 <button
                   type="button"
@@ -378,14 +387,14 @@ export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, o
                   aria-checked={keySource === 'file'}
                   onClick={() => setKeySource('file')}
                 >
-                  Key-Datei
+                  {t('Key-Datei')}
                 </button>
               </div>
 
               {keySource === 'vault' ? (
                 <>
                   <label className="field">
-                    <span>Key</span>
+                    <span>{t('Key')}</span>
                     <select
                       className="select"
                       value={keyId}
@@ -393,7 +402,7 @@ export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, o
                       aria-invalid={Boolean(errors.keyId)}
                     >
                       <option value="">
-                        {keys.length === 0 ? 'Noch keine Keys im Tresor' : 'Key wählen…'}
+                        {keys.length === 0 ? t('Noch keine Keys im Tresor') : t('Key wählen…')}
                       </option>
                       {keys.map((key) => (
                         <option key={key.id} value={key.id}>
@@ -401,16 +410,16 @@ export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, o
                         </option>
                       ))}
                     </select>
-                    {errors.keyId && <em className="field-error">{errors.keyId}</em>}
+                    {errors.keyId && <em className="field-error">{t(errors.keyId)}</em>}
                   </label>
                   <div className="key-buttons">
                     <button type="button" onClick={() => setKeygen(true)}>
                       <Icon name="sparkles" size={15} />
-                      Neuen Key erzeugen…
+                      {t('Neuen Key erzeugen…')}
                     </button>
                     <button type="button" onClick={() => setKeyImport(true)}>
                       <Icon name="import" size={15} />
-                      Key-Datei importieren…
+                      {t('Key-Datei importieren…')}
                     </button>
                     {selectedKey && (
                       <button
@@ -425,17 +434,17 @@ export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, o
                             })
                             .catch(() => setVault(true))
                         }
-                        title="Für ~/.ssh/authorized_keys auf dem Server"
+                        title={t('Für ~/.ssh/authorized_keys auf dem Server')}
                       >
                         <Icon name={copied ? 'check' : 'copy'} size={15} />
-                        {copied ? 'Kopiert' : 'Public Key kopieren'}
+                        {copied ? t('Kopiert') : t('Public Key kopieren')}
                       </button>
                     )}
                   </div>
                 </>
               ) : (
                 <label className="field">
-                  <span>Key-Datei</span>
+                  <span>{t('Key-Datei')}</span>
                   <input
                     value={keyPath}
                     onChange={edit('keyPath', setKeyPath)}
@@ -445,18 +454,20 @@ export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, o
                     spellCheck={false}
                   />
                   {errors.keyPath ? (
-                    <em className="field-error">{errors.keyPath}</em>
+                    <em className="field-error">{t(errors.keyPath)}</em>
                   ) : (
                     <em className="field-hint">
-                      OpenSSH, PEM oder PuTTY-.ppk. Die Datei bleibt, wo sie ist.
+                      {t('OpenSSH, PEM oder PuTTY-.ppk. Die Datei bleibt, wo sie ist.')}
                     </em>
                   )}
                 </label>
               )}
 
               {passwordBlock(
-                'Passwort für sudo',
-                'Optional. Wenn sudo im Terminal fragt, tippt UwUSSH es auf Knopfdruck ein – und nutzt es für Dateien als root.',
+                t('Passwort für sudo'),
+                t(
+                  'Optional. Wenn sudo im Terminal fragt, tippt UwUSSH es auf Knopfdruck ein – und nutzt es für Dateien als root.',
+                ),
               )}
             </div>
           )}
@@ -464,8 +475,8 @@ export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, o
           <div className="form-row">
             {settings.workspaces && (
               <fieldset className="field">
-                <span>Bereich</span>
-                <div className="segmented" role="radiogroup" aria-label="Bereich">
+                <span>{t('Bereich')}</span>
+                <div className="segmented" role="radiogroup" aria-label={t('Bereich')}>
                   {(['private', 'business'] as const).map((id) => (
                     <button
                       key={id}
@@ -481,11 +492,11 @@ export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, o
               </fieldset>
             )}
             <label className="field grow">
-              <span>Gruppe</span>
+              <span>{t('Gruppe')}</span>
               <input
                 value={groupPath}
                 onChange={edit('groupPath', setGroupPath)}
-                placeholder="optional, z. B. homelab"
+                placeholder={t('optional, z. B. homelab')}
                 autoComplete="off"
                 list="host-form-groups"
                 aria-invalid={Boolean(errors.groupPath)}
@@ -495,7 +506,7 @@ export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, o
                   <option key={groupName} value={groupName} />
                 ))}
               </datalist>
-              {errors.groupPath && <em className="field-error">{errors.groupPath}</em>}
+              {errors.groupPath && <em className="field-error">{t(errors.groupPath)}</em>}
             </label>
           </div>
 
@@ -508,7 +519,7 @@ export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, o
       {guard.dialog}
       {vault && (
         <VaultDialog
-          reason="Das Passwort wird verschlüsselt im Tresor gespeichert."
+          reason={t('Das Passwort wird verschlüsselt im Tresor gespeichert.')}
           onDone={() => {
             setVault(false);
             void submit();
@@ -519,7 +530,7 @@ export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, o
       {keygen && (
         <KeygenDialog
           comment={username && address ? `${username}@${address}` : undefined}
-          storeLabel="Für diesen Host verwenden"
+          storeLabel={t('Für diesen Host verwenden')}
           onStored={(key) => {
             loadKeys(key.id);
             setKeySource('vault');

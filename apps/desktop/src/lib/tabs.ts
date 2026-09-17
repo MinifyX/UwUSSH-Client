@@ -4,6 +4,7 @@
  * doing and what to tell the user.
  */
 
+import { t } from './i18n';
 import type { Settings } from './settings';
 import type { HostRecord } from './session';
 
@@ -65,12 +66,15 @@ export function describe(kind: TabKind): { title: string; subtitle: string | nul
     }
     case 'files': {
       const { host } = kind;
-      return { title: host.name, subtitle: `Dateien · ${host.username}@${host.address}` };
+      return {
+        title: host.name,
+        subtitle: t('Dateien · {login}', { login: `${host.username}@${host.address}` }),
+      };
     }
     case 'm0':
-      return { title: 'Durchsatz-Messung', subtitle: null };
+      return { title: t('Durchsatz-Messung'), subtitle: null };
     case 'shell':
-      return { title: 'Lokale Shell', subtitle: null };
+      return { title: t('Lokale Shell'), subtitle: null };
   }
 }
 

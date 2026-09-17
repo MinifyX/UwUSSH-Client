@@ -369,6 +369,40 @@ check(
   ),
 );
 await shot('10d-settings');
+
+// ── English: the whole app switches at once, and back ─────────────────────
+const topTitle = `[...document.querySelectorAll('.modal-title')].pop()?.textContent`;
+await page.click('.settings-nav button', 'Darstellung');
+await page.click('.segmented button', 'English');
+await page.waitFor(`${topTitle} === 'Settings'`, { what: 'settings in English' });
+check(
+  'switching to English translates the open dialog right away',
+  await page.eval(
+    `document.documentElement.lang === 'en' && [...document.querySelectorAll('.settings-nav button')].some(b => b.textContent.includes('Appearance'))`,
+  ),
+);
+await shot('10e-english-settings');
+await page.key('Escape');
+await page.waitFor(`!document.querySelector('.modal')`, { what: 'English settings closed' });
+check(
+  'the window behind it speaks English too',
+  await page.eval(
+    `!!document.querySelector('.titlebar-action[aria-label="Settings"]') && !!document.querySelector('.sidebar-head [aria-label="Add host"]')`,
+  ),
+);
+await shot('10f-english-main');
+await page.click('.sidebar-head [aria-label="Add host"]');
+await page.waitFor(`${topTitle} === 'New host'`, { what: 'host form in English' });
+check('the host form is in English', true);
+await shot('10g-english-form');
+await page.key('Escape');
+await page.waitFor(`!document.querySelector('.modal')`, { what: 'English host form closed' });
+await page.click('.titlebar-action[aria-label="Settings"]');
+await page.waitFor(`${topTitle} === 'Settings'`, { what: 'settings again' });
+await page.click('.settings-nav button', 'Appearance');
+await page.click('.segmented button', 'Deutsch');
+await page.waitFor(`${topTitle} === 'Einstellungen'`, { what: 'settings back in German' });
+check('and back to German', await page.eval(`document.documentElement.lang === 'de'`));
 await page.key('Escape');
 await page.waitFor(`!document.querySelector('.modal')`, { what: 'settings closed' });
 

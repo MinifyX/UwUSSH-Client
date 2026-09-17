@@ -9,6 +9,7 @@
  */
 
 import type { ReactNode } from 'react';
+import { N_, t, useLanguage } from '../lib/i18n';
 import { NYU } from './nyu/Nyu';
 
 export type OsId =
@@ -69,7 +70,7 @@ export function isOsId(value: unknown): value is OsId {
   return typeof value === 'string' && Object.hasOwn(OS_LABELS, value);
 }
 
-const UNKNOWN_LABEL = 'Unbekanntes System';
+const UNKNOWN_LABEL = N_('Unbekanntes System');
 
 // All drawing happens on a 40 × 40 canvas. The outline is 2.4 units, which is
 // 1.1–1.2 px at list size (18–20 px) and grows with the icon like a sticker.
@@ -516,9 +517,10 @@ type OsIconProps = {
  * unknown → a neutral little terminal glyph.
  */
 export function OsIcon({ os, size = 20, title, className }: OsIconProps) {
+  useLanguage();
   const id = isOsId(os) ? os : null;
   const icon = id ? ICONS[id] : UNKNOWN;
-  const label = title ?? (id ? OS_LABELS[id] : UNKNOWN_LABEL);
+  const label = title ?? (id ? OS_LABELS[id] : t(UNKNOWN_LABEL));
   return (
     <svg
       viewBox="0 0 40 40"

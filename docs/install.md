@@ -4,8 +4,8 @@
 
 UwUSSH is in beta. It runs on **Windows 10 and 11 (64-bit)**; macOS and Linux
 come later. It installs for your Windows user only — no admin rights — and
-takes about 25 MB. The installer speaks English on an English Windows; the app
-itself is German for now, so menu names below come with their German label.
+takes about 25 MB. UwUSSH speaks English or German, following Windows;
+**Settings → Appearance → Language** switches.
 
 ## 1. Download
 
@@ -45,14 +45,13 @@ Then start UwUSSH from the setup, the Start menu or the desktop.
 
 ## 3. First steps
 
-- **Add a host** with `+` in the sidebar (Host hinzufügen): address, user,
-  and a password or a key.
-- **Or bring your hosts along**: the import button next to it (Importieren)
-  reads Termius, PuTTY, KiTTY and `~/.ssh/config`.
-- **Passwords and keys** go into an encrypted vault (Tresor). The first time
-  you save one, you pick a master password. Tick **Auf diesem Gerät merken**
-  (remember on this device) if your Windows account should open the vault on
-  its own.
+- **Add a host** with `+` in the sidebar: address, user, and a password or a
+  key.
+- **Or bring your hosts along**: the import button next to it reads Termius,
+  PuTTY, KiTTY and `~/.ssh/config`.
+- **Passwords and keys** go into an encrypted vault. The first time you save
+  one, you pick a master password. Tick "remember on this device" if your
+  Windows account should open the vault on its own.
 - On first contact with a server you are shown its host key fingerprint. Trust
   it only if it is the one you expect.
 
@@ -60,8 +59,8 @@ Then start UwUSSH from the setup, the Start menu or the desktop.
 
 UwUSSH updates itself: about 20 seconds after it starts, and every six hours,
 it looks for a newer version, downloads it quietly (signed and checked) and
-offers a restart. **Settings → Updates** (Einstellungen → Updates) switches
-between the Beta and Stable (Stabil) channels. As long as there are only betas, stay on Beta.
+offers a restart. **Settings → Updates** switches between the Beta and Stable
+channels. As long as there are only betas, stay on Beta.
 
 A newer setup can also simply be run over an installed UwUSSH. Hosts, the vault
 and settings stay.
@@ -82,8 +81,7 @@ deleted too.
 | The program                                 | `%LOCALAPPDATA%\Programs\UwUSSH\`    |
 
 Passwords and private keys are only stored encrypted. To move to another
-computer: **Settings → Import & Export** (Einstellungen → Import & Export)
-writes everything into one `.uwussh`
+computer: **Settings → Import & Export** writes everything into one `.uwussh`
 file, sealed with a password of its own, which UwUSSH on the other computer
 reads back in.
 
@@ -107,7 +105,8 @@ Building it yourself instead: [Development](../README.md#development).
 
 UwUSSH ist in der Beta. Es läuft unter **Windows 10 und 11 (64 Bit)**; macOS und
 Linux kommen später. Es wird nur für deinen Windows-Benutzer installiert — ohne
-Adminrechte — und braucht etwa 25 MB.
+Adminrechte — und braucht etwa 25 MB. UwUSSH spricht Deutsch oder Englisch, je
+nach Windows; **Einstellungen → Darstellung → Sprache** schaltet um.
 
 ## 1. Herunterladen
 

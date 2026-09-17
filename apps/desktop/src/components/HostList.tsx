@@ -1,5 +1,6 @@
 import { useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { beginDrag, edgeByHalf, type DropTarget } from '../lib/dnd';
+import { t } from '../lib/i18n';
 import {
   createGroup,
   deleteGroup,
@@ -71,8 +72,8 @@ function matches(host: HostRecord, query: string): boolean {
 function errorText(error: unknown): string {
   if (typeof error === 'object' && error !== null && 'kind' in error) {
     const failure = error as { kind: string; problem?: string; message?: string };
-    if (failure.problem === 'exists') return 'Eine Gruppe mit diesem Namen gibt es schon.';
-    if (failure.problem === 'required') return 'Die Gruppe braucht einen Namen.';
+    if (failure.problem === 'exists') return t('Eine Gruppe mit diesem Namen gibt es schon.');
+    if (failure.problem === 'required') return t('Die Gruppe braucht einen Namen.');
     if (failure.message) return failure.message;
   }
   return String(error);
@@ -194,14 +195,16 @@ export function HostList(props: Props) {
       x,
       y,
       items: [
-        { label: 'Verbinden', icon: 'terminal', onSelect: () => props.onConnect(host) },
-        { label: 'Dateien öffnen', icon: 'files', onSelect: () => props.onOpenFiles(host) },
-        { label: 'Bearbeiten', icon: 'pencil', onSelect: () => props.onEdit(host) },
+        { label: t('Verbinden'), icon: 'terminal', onSelect: () => props.onConnect(host) },
+        { label: t('Dateien öffnen'), icon: 'files', onSelect: () => props.onOpenFiles(host) },
+        { label: t('Bearbeiten'), icon: 'pencil', onSelect: () => props.onEdit(host) },
         'separator',
         ...(settings.workspaces
           ? [
               {
-                label: `Nach ${workspaceName(other, settings)} verschieben`,
+                label: t('Nach {workspace} verschieben', {
+                  workspace: workspaceName(other, settings),
+                }),
                 icon: other === 'private' ? ('house' as const) : ('briefcase' as const),
                 onSelect: () => run(() => moveHost(host.id, other, host.groupPath, null)),
               },
@@ -210,7 +213,7 @@ export function HostList(props: Props) {
         ...(host.groupPath
           ? [
               {
-                label: 'Aus der Gruppe nehmen',
+                label: t('Aus der Gruppe nehmen'),
                 icon: 'up' as const,
                 onSelect: () => run(() => moveHost(host.id, host.workspace, null, null)),
               },
@@ -225,19 +228,21 @@ export function HostList(props: Props) {
       y,
       items: [
         {
-          label: 'Host hier hinzufügen',
+          label: t('Host hier hinzufügen'),
           icon: 'plus',
           onSelect: () => props.onAdd(workspace, name),
         },
         {
-          label: 'Umbenennen',
+          label: t('Umbenennen'),
           icon: 'pencil',
           onSelect: () => setEditing({ from: name, value: name }),
         },
         ...(settings.workspaces
           ? [
               {
-                label: `Nach ${workspaceName(other, settings)} verschieben`,
+                label: t('Nach {workspace} verschieben', {
+                  workspace: workspaceName(other, settings),
+                }),
                 icon: other === 'private' ? ('house' as const) : ('briefcase' as const),
                 onSelect: () => run(() => moveGroup(workspace, name, other, null)),
               },
@@ -245,7 +250,7 @@ export function HostList(props: Props) {
           : []),
         'separator',
         {
-          label: 'Gruppe auflösen (Hosts bleiben)',
+          label: t('Gruppe auflösen (Hosts bleiben)'),
           icon: 'trash',
           danger: true,
           onSelect: () => run(() => deleteGroup(workspace, name)),
@@ -298,7 +303,11 @@ export function HostList(props: Props) {
             hostMenu(event.clientX, event.clientY, host);
           }}
           onKeyDown={(event) => menuKey(event, (x, y) => hostMenu(x, y, host))}
-          title={`${host.username}@${host.address}:${host.port} · öffnet einen neuen Tab`}
+          title={t('{user}@{address}:{port} · öffnet einen neuen Tab', {
+            user: host.username,
+            address: host.address,
+            port: host.port,
+          })}
         >
           <span className="host-icon">
             <OsIcon os={host.os} size={20} title="" />
@@ -311,7 +320,7 @@ export function HostList(props: Props) {
             <span className="host-name">{host.name}</span>
             <span className="meta">
               {connecting
-                ? 'verbindet…'
+                ? t('verbindet…')
                 : host.port === 22
                   ? `${host.username}@${host.address}`
                   : `${host.username}@${host.address}:${host.port}`}
@@ -322,16 +331,16 @@ export function HostList(props: Props) {
           <button
             className="icon-button"
             onClick={() => props.onOpenFiles(host)}
-            title={`Dateien auf ${host.name}`}
-            aria-label={`Dateien auf ${host.name}`}
+            title={t('Dateien auf {name}', { name: host.name })}
+            aria-label={t('Dateien auf {name}', { name: host.name })}
           >
             <Icon name="files" size={15} />
           </button>
           <button
             className="icon-button"
             onClick={() => props.onEdit(host)}
-            title={`${host.name} bearbeiten`}
-            aria-label={`${host.name} bearbeiten`}
+            title={t('{name} bearbeiten', { name: host.name })}
+            aria-label={t('{name} bearbeiten', { name: host.name })}
           >
             <Icon name="pencil" size={15} />
           </button>
@@ -345,36 +354,36 @@ export function HostList(props: Props) {
   return (
     <aside className="sidebar" data-dragging={dragging || undefined}>
       <div className="sidebar-head">
-        <h2>Hosts</h2>
+        <h2>{t('Hosts')}</h2>
         <span className="spacer" />
         <button
           className="icon-button"
           onClick={props.onImport}
-          title="Importieren"
-          aria-label="Importieren"
+          title={t('Importieren')}
+          aria-label={t('Importieren')}
         >
           <Icon name="import" />
         </button>
         <button
           className="icon-button"
           onClick={() => setEditing({ from: null, value: '' })}
-          title="Neue Gruppe"
-          aria-label="Neue Gruppe"
+          title={t('Neue Gruppe')}
+          aria-label={t('Neue Gruppe')}
         >
           <Icon name="folderPlus" />
         </button>
         <button
           className="icon-button"
           onClick={() => props.onAdd(workspace, null)}
-          title="Host hinzufügen"
-          aria-label="Host hinzufügen"
+          title={t('Host hinzufügen')}
+          aria-label={t('Host hinzufügen')}
         >
           <Icon name="plus" />
         </button>
       </div>
 
       {settings.workspaces && (
-        <div className="workspace-switch" role="radiogroup" aria-label="Bereich">
+        <div className="workspace-switch" role="radiogroup" aria-label={t('Bereich')}>
           {WORKSPACES.map((id) => (
             <button
               key={id}
@@ -384,7 +393,9 @@ export function HostList(props: Props) {
               data-drop="workspace"
               data-workspace={id}
               onClick={() => updateSettings({ activeWorkspace: id })}
-              title={`${workspaceName(id, settings)} · Hosts hierher ziehen, um sie zu verschieben`}
+              title={t('{workspace} · Hosts hierher ziehen, um sie zu verschieben', {
+                workspace: workspaceName(id, settings),
+              })}
             >
               <Icon name={id === 'private' ? 'house' : 'briefcase'} size={15} />
               <span className="workspace-name">{workspaceName(id, settings)}</span>
@@ -398,10 +409,10 @@ export function HostList(props: Props) {
         <input
           className="search"
           type="search"
-          placeholder="Suchen"
+          placeholder={t('Suchen')}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          aria-label="Hosts durchsuchen"
+          aria-label={t('Hosts durchsuchen')}
         />
       )}
 
@@ -416,7 +427,7 @@ export function HostList(props: Props) {
               <span className="host-icon host-glyph" aria-hidden>
                 <Icon name="terminal" size={17} />
               </span>
-              <span className="host-name">Lokale Shell</span>
+              <span className="host-name">{t('Lokale Shell')}</span>
             </button>
           </li>
         </ul>
@@ -424,7 +435,9 @@ export function HostList(props: Props) {
         {query.trim() ? (
           <>
             <ul className="host-list">{found.map((host) => hostRow(host, undefined, false))}</ul>
-            {found.length === 0 && <p className="sidebar-note">Kein Host passt zu „{query}".</p>}
+            {found.length === 0 && (
+              <p className="sidebar-note">{t('Kein Host passt zu „{query}".', { query })}</p>
+            )}
           </>
         ) : (
           <>
@@ -432,7 +445,7 @@ export function HostList(props: Props) {
               <input
                 className="group-input"
                 autoFocus
-                placeholder="Name der neuen Gruppe"
+                placeholder={t('Name der neuen Gruppe')}
                 value={editing.value}
                 onChange={(e) => setEditing({ from: null, value: e.target.value })}
                 onBlur={saveGroupName}
@@ -440,7 +453,7 @@ export function HostList(props: Props) {
                   if (event.key === 'Enter') saveGroupName();
                   if (event.key === 'Escape') setEditing(null);
                 }}
-                aria-label="Name der neuen Gruppe"
+                aria-label={t('Name der neuen Gruppe')}
               />
             )}
 
@@ -497,7 +510,7 @@ export function HostList(props: Props) {
                           if (event.key === 'Enter') saveGroupName();
                           if (event.key === 'Escape') setEditing(null);
                         }}
-                        aria-label={`${name} umbenennen`}
+                        aria-label={t('{name} umbenennen', { name })}
                       />
                     ) : (
                       <button
@@ -506,7 +519,9 @@ export function HostList(props: Props) {
                         onClick={() => toggle(name)}
                         onDoubleClick={() => setEditing({ from: name, value: name })}
                         onKeyDown={(event) => menuKey(event, (x, y) => groupMenu(x, y, name))}
-                        title="Klicken zum Auf-/Zuklappen, doppelklicken zum Umbenennen, ziehen zum Sortieren"
+                        title={t(
+                          'Klicken zum Auf-/Zuklappen, doppelklicken zum Umbenennen, ziehen zum Sortieren',
+                        )}
                       >
                         <Icon name="chevron" size={12} className="group-chevron" />
                         <h3>{name}</h3>
@@ -519,7 +534,7 @@ export function HostList(props: Props) {
                         const rect = event.currentTarget.getBoundingClientRect();
                         groupMenu(rect.left, rect.bottom, name);
                       }}
-                      aria-label={`Menü für ${name}`}
+                      aria-label={t('Menü für {name}', { name })}
                     >
                       <Icon name="more" size={15} />
                     </button>
@@ -528,7 +543,7 @@ export function HostList(props: Props) {
                     <ul className="host-list">
                       {section.hosts.map((host, i) => hostRow(host, section.hosts[i + 1], true))}
                       {section.hosts.length === 0 && (
-                        <li className="group-empty">Hosts hierher ziehen</li>
+                        <li className="group-empty">{t('Hosts hierher ziehen')}</li>
                       )}
                     </ul>
                   )}
@@ -543,16 +558,18 @@ export function HostList(props: Props) {
             <Nyu size={72} mood={hosts.length === 0 ? 'uwu' : 'sleepy'} />
             <p>
               {hosts.length === 0
-                ? 'Noch keine Hosts.'
-                : `Noch keine Hosts in ${workspaceName(workspace, settings)}.`}
+                ? t('Noch keine Hosts.')
+                : t('Noch keine Hosts in {workspace}.', {
+                    workspace: workspaceName(workspace, settings),
+                  })}
             </p>
             <button className="primary" onClick={() => props.onAdd(workspace, null)}>
-              Host hinzufügen
+              {t('Host hinzufügen')}
             </button>
             <button className="quiet" onClick={props.onImport}>
               {hosts.length === 0
-                ? 'Aus Termius, PuTTY, KiTTY, ssh_config oder einer UwUSSH-Datei importieren'
-                : 'Hosts aus dem anderen Bereich hierher ziehen'}
+                ? t('Aus Termius, PuTTY, KiTTY, ssh_config oder einer UwUSSH-Datei importieren')
+                : t('Hosts aus dem anderen Bereich hierher ziehen')}
             </button>
           </div>
         )}
@@ -563,7 +580,7 @@ export function HostList(props: Props) {
           x={menu.x}
           y={menu.y}
           items={menu.items}
-          label="Aktionen"
+          label={t('Aktionen')}
           onClose={() => setMenu(null)}
         />
       )}

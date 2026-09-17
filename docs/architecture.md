@@ -432,6 +432,19 @@ keyboards), and tab shortcuts add Shift, because plain Ctrl+W belongs to bash.
 Paste keys are passed to the webview instead of xterm.js, so pasting uses the
 browser's own paste event — no clipboard permission, bracketed paste intact.
 
+## Languages
+
+The app and UwUKeygen speak German and English. German is the source: every
+string is written in German where it is shown and wrapped in `t()`
+(`lib/i18n.ts`), and `src/i18n/en/*.json` maps each German string to its
+English one, a file per area of the app. Placeholders are `{name}`; strings in
+module-level constants are marked with `N_()` and translated where they are
+shown. The language follows Windows until Settings → Appearance → Language
+picks one, and switches at once: components that show text subscribe to the
+setting. `pnpm lint` runs `scripts/check-i18n.mjs`, which fails when a German
+string has no English. Error messages that come from Rust stay English. The
+installer has its own two languages.
+
 ## Window
 
 The window has no system frame (`decorations: false`), so the title bar draws

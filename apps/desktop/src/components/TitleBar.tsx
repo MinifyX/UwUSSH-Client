@@ -1,5 +1,6 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useEffect, useState, type ReactNode } from 'react';
+import { t, useLanguage } from '../lib/i18n';
 import { Nyu } from './nyu/Nyu';
 
 type Props = {
@@ -18,6 +19,7 @@ const ICONS = {
  * here. Double-clicking the empty bar maximizes, as everywhere on Windows.
  */
 export function TitleBar({ onSettings, children }: Props) {
+  useLanguage();
   const [maximized, setMaximized] = useState(false);
 
   useEffect(() => {
@@ -58,8 +60,8 @@ export function TitleBar({ onSettings, children }: Props) {
       <button
         className="titlebar-action"
         onClick={onSettings}
-        title="Einstellungen (Strg+,)"
-        aria-label="Einstellungen"
+        title={t('Einstellungen (Strg+,)')}
+        aria-label={t('Einstellungen')}
       >
         <svg viewBox="0 0 24 24" aria-hidden>
           <path d={ICONS.settings} />
@@ -69,8 +71,8 @@ export function TitleBar({ onSettings, children }: Props) {
         <button
           className="window-control"
           onClick={() => void window().minimize()}
-          title="Minimieren"
-          aria-label="Minimieren"
+          title={t('Minimieren')}
+          aria-label={t('Minimieren')}
         >
           <svg viewBox="0 0 10 10" aria-hidden>
             <path d="M0 5.5h10" />
@@ -79,8 +81,8 @@ export function TitleBar({ onSettings, children }: Props) {
         <button
           className="window-control"
           onClick={() => void window().toggleMaximize()}
-          title={maximized ? 'Verkleinern' : 'Maximieren'}
-          aria-label={maximized ? 'Verkleinern' : 'Maximieren'}
+          title={maximized ? t('Verkleinern') : t('Maximieren')}
+          aria-label={maximized ? t('Verkleinern') : t('Maximieren')}
         >
           {maximized ? (
             <svg viewBox="0 0 10 10" aria-hidden>
@@ -95,8 +97,8 @@ export function TitleBar({ onSettings, children }: Props) {
         <button
           className="window-control close"
           onClick={() => void window().close()}
-          title="Schließen"
-          aria-label="Schließen"
+          title={t('Schließen')}
+          aria-label={t('Schließen')}
         >
           <svg viewBox="0 0 10 10" aria-hidden>
             <path d="M.5.5l9 9 M9.5.5l-9 9" />

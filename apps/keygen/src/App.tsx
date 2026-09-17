@@ -2,13 +2,14 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { KeygenPanel, type Step } from '@desktop/components/keygen/KeygenPanel';
 import { updateSettings, useSettings } from '@desktop/lib/settings';
 import { useCloseGuard } from '@desktop/components/CloseGuard';
+import { N_, t } from '@desktop/lib/i18n';
 import { useState } from 'react';
 
 const TITLES: Record<Step, string> = {
-  settings: 'Neuer SSH-Schlüssel',
-  entropy: 'Zufall sammeln',
-  generating: 'Zufall sammeln',
-  done: 'Dein neuer Schlüssel',
+  settings: N_('Neuer SSH-Schlüssel'),
+  entropy: N_('Zufall sammeln'),
+  generating: N_('Zufall sammeln'),
+  done: N_('Dein neuer Schlüssel'),
 };
 
 /**
@@ -25,8 +26,8 @@ export function App() {
     step !== 'settings',
     () => void window().close(),
     step === 'done'
-      ? 'Der neue Schlüssel ist noch nicht gespeichert und geht dabei verloren.'
-      : 'Der gesammelte Zufall geht dabei verloren.',
+      ? t('Der neue Schlüssel ist noch nicht gespeichert und geht dabei verloren.')
+      : t('Der gesammelte Zufall geht dabei verloren.'),
   );
 
   return (
@@ -42,8 +43,8 @@ export function App() {
         <button
           className="titlebar-action"
           onClick={() => updateSettings({ theme: dark ? 'light' : 'dark' })}
-          title={dark ? 'Helles Farbschema' : 'Dunkles Farbschema'}
-          aria-label={dark ? 'Helles Farbschema' : 'Dunkles Farbschema'}
+          title={dark ? t('Helles Farbschema') : t('Dunkles Farbschema')}
+          aria-label={dark ? t('Helles Farbschema') : t('Dunkles Farbschema')}
         >
           <svg viewBox="0 0 24 24" aria-hidden>
             {dark ? (
@@ -57,8 +58,8 @@ export function App() {
           <button
             className="window-control"
             onClick={() => void window().minimize()}
-            title="Minimieren"
-            aria-label="Minimieren"
+            title={t('Minimieren')}
+            aria-label={t('Minimieren')}
           >
             <svg viewBox="0 0 10 10" aria-hidden>
               <path d="M0 5.5h10" />
@@ -67,8 +68,8 @@ export function App() {
           <button
             className="window-control close"
             onClick={guard.request}
-            title="Schließen"
-            aria-label="Schließen"
+            title={t('Schließen')}
+            aria-label={t('Schließen')}
           >
             <svg viewBox="0 0 10 10" aria-hidden>
               <path d="M.5.5l9 9 M9.5.5l-9 9" />
@@ -80,13 +81,15 @@ export function App() {
       <main className="keygen-app-main">
         <section className="keygen-card" aria-labelledby="keygen-title">
           <h1 id="keygen-title" className="modal-title">
-            {TITLES[step]}
+            {t(TITLES[step])}
           </h1>
           <KeygenPanel onStep={setStep} />
           {guard.dialog}
         </section>
         <p className="keygen-app-note">
-          Teil von UwUSSH · Keys entstehen nur auf diesem Rechner und werden nirgends hochgeladen.
+          {t(
+            'Teil von UwUSSH · Keys entstehen nur auf diesem Rechner und werden nirgends hochgeladen.',
+          )}
         </p>
       </main>
     </div>

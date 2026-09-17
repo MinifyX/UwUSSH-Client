@@ -51,9 +51,11 @@ import {
   type UpdateInfo,
   type Workspace,
 } from './lib/session';
+import { language, t } from './lib/i18n';
 import { getSettings, useSettings } from './lib/settings';
 import {
   createTab,
+  describe,
   isPasteKey,
   neighbourAfterClose,
   newTabId,
@@ -96,27 +98,39 @@ type Negotiated<T> = { ok: true; value: T } | { ok: false; notice: Notice | null
 function describeFailure(failure: ConnectFailure, host: HostRecord): string {
   switch (failure.kind) {
     case 'unreachable':
-      return `${host.address} ist nicht erreichbar: ${failure.reason}`;
+      return t('{address} ist nicht erreichbar: {reason}', {
+        address: host.address,
+        reason: failure.reason,
+      });
     case 'key-unreadable':
-      return `Der Key ${failure.keyPath === '<vault>' ? 'aus dem Tresor' : failure.keyPath} ließ sich nicht lesen: ${failure.reason}`;
+      return failure.keyPath === '<vault>'
+        ? t('Der Key aus dem Tresor ließ sich nicht lesen: {reason}', { reason: failure.reason })
+        : t('Der Key {path} ließ sich nicht lesen: {reason}', {
+            path: failure.keyPath,
+            reason: failure.reason,
+          });
     case 'auth-rejected':
       return failure.remaining.length > 0
-        ? `Der Server hat die Anmeldung abgelehnt. Er würde akzeptieren: ${failure.remaining.join(', ')}.`
-        : 'Der Server hat die Anmeldung abgelehnt.';
+        ? t('Der Server hat die Anmeldung abgelehnt. Er würde akzeptieren: {methods}.', {
+            methods: failure.remaining.join(', '),
+          })
+        : t('Der Server hat die Anmeldung abgelehnt.');
     case 'session-refused':
-      return `Angemeldet, aber der Server hat kein Terminal geöffnet: ${failure.reason}`;
+      return t('Angemeldet, aber der Server hat kein Terminal geöffnet: {reason}', {
+        reason: failure.reason,
+      });
     case 'protocol':
-      return `SSH-Fehler: ${failure.reason}`;
+      return t('SSH-Fehler: {reason}', { reason: failure.reason });
     case 'refused':
-      return `Der Server erlaubt keinen Dateizugriff: ${failure.reason}`;
+      return t('Der Server erlaubt keinen Dateizugriff: {reason}', { reason: failure.reason });
     case 'sudo-refused':
-      return `sudo hat abgelehnt: ${failure.message}`;
+      return t('sudo hat abgelehnt: {message}', { message: failure.message });
     case 'no-sftp-server':
-      return 'Auf dem Server gibt es kein sftp-server, das als root laufen könnte.';
+      return t('Auf dem Server gibt es kein sftp-server, das als root laufen könnte.');
     case 'internal':
       return failure.message;
     default:
-      return `Verbindung fehlgeschlagen (${failure.kind}).`;
+      return t('Verbindung fehlgeschlagen ({kind}).', { kind: failure.kind });
   }
 }
 
@@ -209,7 +223,10 @@ export function App() {
         }),
       );
     } catch (e) {
-      setAppNotice({ tone: 'error', text: `Hosts konnten nicht geladen werden: ${String(e)}` });
+      setAppNotice({
+        tone: 'error',
+        text: t('Hosts konnten nicht geladen werden: {error}', { error: String(e) }),
+      });
     }
   }, []);
 
@@ -257,7 +274,7 @@ export function App() {
     let save = false;
     let sudo: string | null = null;
     let lastKind: ConnectFailure['kind'] | null = null;
-    const reconnect = { label: 'Neu verbinden', run: () => void restart(id) };
+    const reconnect = { label: t('Neu verbinden'), run: () => void restart(id) };
     const stop = (notice: Notice | null): Negotiated<T> => ({ ok: false, notice });
 
     const askSecret = async (kind: SecretKind, retry: boolean) => {
@@ -289,13 +306,16 @@ export function App() {
                 if (failure?.kind !== 'vault-locked') throw error;
                 const opened = await unlock(
                   id,
-                  'Das Passwort wird verschlüsselt im Tresor gespeichert.',
+                  t('Das Passwort wird verschlüsselt im Tresor gespeichert.'),
                 );
                 if (!opened) return;
               }
             }
           })().catch((e) =>
-            setAppNotice({ tone: 'error', text: `Passwort nicht gespeichert: ${String(e)}` }),
+            setAppNotice({
+              tone: 'error',
+              text: t('Passwort nicht gespeichert: {error}', { error: String(e) }),
+            }),
           );
         }
         return { ok: true, value };
@@ -326,7 +346,7 @@ export function App() {
             if (!trusted) {
               return stop({
                 tone: 'info',
-                text: 'Nicht verbunden: Der Host-Key wurde nicht bestätigt.',
+                text: t('Nicht verbunden: Der Host-Key wurde nicht bestätigt.'),
                 action: reconnect,
               });
             }
@@ -344,18 +364,23 @@ export function App() {
             if (!accepted) {
               return stop({
                 tone: 'error',
-                text: `Nicht verbunden: Der Host-Key von ${host.address} hat sich geändert.`,
+                text: t('Nicht verbunden: Der Host-Key von {address} hat sich geändert.', {
+                  address: host.address,
+                }),
               });
             }
             await trustHostKey(host.address, host.port, failure.observed.fingerprint, true);
             continue;
           }
           case 'vault-locked': {
-            const opened = await unlock(id, `Die Anmeldedaten für ${host.name} liegen im Tresor.`);
+            const opened = await unlock(
+              id,
+              t('Die Anmeldedaten für {name} liegen im Tresor.', { name: host.name }),
+            );
             if (!opened) {
               return stop({
                 tone: 'info',
-                text: 'Nicht verbunden: Der Tresor ist gesperrt.',
+                text: t('Nicht verbunden: Der Tresor ist gesperrt.'),
                 action: reconnect,
               });
             }
@@ -370,7 +395,7 @@ export function App() {
             );
             if (!answer) {
               void cancelConnect(id);
-              return stop({ tone: 'info', text: 'Nicht verbunden.', action: reconnect });
+              return stop({ tone: 'info', text: t('Nicht verbunden.'), action: reconnect });
             }
             secret = answer.value;
             save = answer.save;
@@ -383,7 +408,7 @@ export function App() {
               const answer = await askSecret('password', true);
               if (!answer) {
                 void cancelConnect(id);
-                return stop({ tone: 'info', text: 'Nicht verbunden.', action: reconnect });
+                return stop({ tone: 'info', text: t('Nicht verbunden.'), action: reconnect });
               }
               secret = answer.value;
               save = answer.save;
@@ -395,7 +420,7 @@ export function App() {
             const answer = await askSecret('sudo', failure.kind === 'sudo-password-rejected');
             if (!answer) {
               void cancelConnect(id);
-              return stop({ tone: 'info', text: 'Nicht als root geöffnet.' });
+              return stop({ tone: 'info', text: t('Nicht als root geöffnet.') });
             }
             sudo = answer.value;
             continue;
@@ -404,7 +429,7 @@ export function App() {
             return stop({
               tone: 'error',
               text: describeFailure(failure, host),
-              action: retry ? undefined : { label: 'Nochmal', run: () => void restart(id) },
+              action: retry ? undefined : { label: t('Nochmal'), run: () => void restart(id) },
             });
         }
       }
@@ -418,7 +443,7 @@ export function App() {
    * login's password — a prompt that names another user wants another one.
    */
   const asksForLogin = (id: string, prompt: PasswordPrompt | null) => {
-    const tab = tabsRef.current.find((t) => t.id === id);
+    const tab = tabsRef.current.find((candidate) => candidate.id === id);
     return (
       tab?.kind === 'ssh' &&
       prompt !== null &&
@@ -442,8 +467,8 @@ export function App() {
             status: 'ended',
             notice: {
               tone: 'info',
-              text: 'Die lokale Shell wurde beendet.',
-              action: { label: 'Neu starten', run: () => void restart(id) },
+              text: t('Die lokale Shell wurde beendet.'),
+              action: { label: t('Neu starten'), run: () => void restart(id) },
             },
           }),
       );
@@ -455,7 +480,10 @@ export function App() {
       if (alive(id, driver)) {
         patchTab(id, {
           status: 'failed',
-          notice: { tone: 'error', text: `Die lokale Shell startet nicht: ${String(e)}` },
+          notice: {
+            tone: 'error',
+            text: t('Die lokale Shell startet nicht: {error}', { error: String(e) }),
+          },
         });
       }
     }
@@ -463,7 +491,7 @@ export function App() {
 
   const runConnect = async (id: string, driver: TerminalDriver, host: HostRecord) => {
     patchTab(id, { status: 'connecting', notice: null, prompt: false, canTypePassword: false });
-    const reconnect = { label: 'Neu verbinden', run: () => void restart(id) };
+    const reconnect = { label: t('Neu verbinden'), run: () => void restart(id) };
     try {
       const result = await negotiate(
         id,
@@ -480,7 +508,7 @@ export function App() {
                 canTypePassword: false,
                 notice: {
                   tone: 'info',
-                  text: `Die Verbindung zu ${host.name} wurde beendet.`,
+                  text: t('Die Verbindung zu {name} wurde beendet.', { name: host.name }),
                   action: reconnect,
                 },
               }),
@@ -651,12 +679,15 @@ export function App() {
       void type().catch((error) => {
         const failure = error as { kind?: string };
         if (failure?.kind === 'vault-locked') {
-          void unlock(id, 'Das gespeicherte Passwort liegt im Tresor.').then(
+          void unlock(id, t('Das gespeicherte Passwort liegt im Tresor.')).then(
             (opened) => opened && void type(),
           );
         } else {
           patchTab(id, {
-            notice: { tone: 'error', text: `Passwort nicht eingegeben: ${String(error)}` },
+            notice: {
+              tone: 'error',
+              text: t('Passwort nicht eingegeben: {error}', { error: String(error) }),
+            },
           });
         }
       });
@@ -708,6 +739,15 @@ export function App() {
       get: () => (activeRef.current ? drivers.current.get(activeRef.current) : undefined),
     });
   }, []);
+
+  // Tab names follow the language.
+  const lang = language(settings);
+  const tabsLanguage = useRef(lang);
+  useEffect(() => {
+    if (tabsLanguage.current === lang) return;
+    tabsLanguage.current = lang;
+    setTabs((current) => current.map((tab) => ({ ...tab, ...describe(tab) }) as Tab));
+  }, [lang]);
 
   // ── Updates ───────────────────────────────────────────────────────────────
 
@@ -872,6 +912,7 @@ export function App() {
   const notice = activeTab?.notice ?? appNotice;
   const showM0 = activeTab !== null && activeTab.id === m0TabId;
   const helperOn = settings.passwordHelper;
+  const [helperBefore, helperAfter] = t('Passwort für {login} eintippen?').split('{login}');
 
   return (
     <div className="shell">
@@ -909,7 +950,7 @@ export function App() {
                 <span className="session-title">
                   <b>{activeTab.title}</b>
                   {activeTab.status === 'connecting' && activeTab.kind === 'ssh' ? (
-                    <span className="meta">verbindet…</span>
+                    <span className="meta">{t('verbindet…')}</span>
                   ) : (
                     activeTab.subtitle && <span className="meta">{activeTab.subtitle}</span>
                   )}
@@ -921,20 +962,22 @@ export function App() {
                     <button
                       className="quiet toolbar-button"
                       onClick={() => typePassword(activeTab.id)}
-                      title="Das Passwort des Hosts ins Terminal tippen (Strg+Umschalt+P). Enter kommt nur dazu, wenn gerade etwas nach einer Eingabe fragt."
+                      title={t(
+                        'Das Passwort des Hosts ins Terminal tippen (Strg+Umschalt+P). Enter kommt nur dazu, wenn gerade etwas nach einer Eingabe fragt.',
+                      )}
                     >
                       <Icon name="key" size={15} />
-                      Passwort eintippen
+                      {t('Passwort eintippen')}
                     </button>
                   )}
                 {activeTab.kind === 'ssh' && (
                   <button
                     className="quiet toolbar-button"
                     onClick={() => openFilesTab(activeTab.host)}
-                    title="Dateien dieses Hosts in einem neuen Tab (Strg+Umschalt+F)"
+                    title={t('Dateien dieses Hosts in einem neuen Tab (Strg+Umschalt+F)')}
                   >
                     <Icon name="files" size={15} />
-                    Dateien
+                    {t('Dateien')}
                   </button>
                 )}
                 {showM0 && (
@@ -966,7 +1009,7 @@ export function App() {
                       ? patchTab(activeTab.id, { notice: null })
                       : setAppNotice(null)
                   }
-                  aria-label="Hinweis schließen"
+                  aria-label={t('Hinweis schließen')}
                 >
                   ×
                 </button>
@@ -1003,15 +1046,15 @@ export function App() {
                     !dialogs.some((d) => d.tabId === tab.id) && (
                       <div className="pane-overlay" aria-live="polite">
                         <NyuScene name="connecting" className="pane-scene" />
-                        <p>Verbinde mit {tab.host.name}…</p>
+                        <p>{t('Verbinde mit {name}…', { name: tab.host.name })}</p>
                       </div>
                     )}
                   {tab.kind === 'ssh' && tab.status === 'failed' && (
                     <div className="pane-overlay" data-tone="failed">
                       <NyuScene name="loadError" className="pane-scene" />
-                      <p>Nicht verbunden.</p>
+                      <p>{t('Nicht verbunden.')}</p>
                       <button className="primary" onClick={() => restart(tab.id)}>
-                        Neu verbinden
+                        {t('Neu verbinden')}
                       </button>
                     </div>
                   )}
@@ -1023,23 +1066,23 @@ export function App() {
                       <div className="password-helper" role="status">
                         <Icon name="key" size={16} />
                         <span>
-                          Passwort für{' '}
+                          {helperBefore}
                           <code>
                             {tab.host.username}@{tab.host.address}
-                          </code>{' '}
-                          eintippen?
+                          </code>
+                          {helperAfter}
                         </span>
                         <button className="primary" onClick={() => typePassword(tab.id)}>
-                          Eintippen
+                          {t('Eintippen')}
                         </button>
-                        <kbd>Strg+Umschalt+P</kbd>
+                        <kbd>{t('Strg+Umschalt+P')}</kbd>
                         <button
                           className="icon-button"
                           onClick={() => {
                             patchTab(tab.id, { prompt: false });
                             drivers.current.get(tab.id)?.term.focus();
                           }}
-                          aria-label="Nicht eintippen"
+                          aria-label={t('Nicht eintippen')}
                         >
                           ×
                         </button>
@@ -1050,13 +1093,14 @@ export function App() {
               {tabs.length === 0 && (
                 <div className="no-tabs">
                   <NyuScene name="pick" className="no-tabs-scene" />
-                  <p className="no-tabs-title">Kein Tab offen</p>
+                  <p className="no-tabs-title">{t('Kein Tab offen')}</p>
                   <p className="no-tabs-text">
-                    Klick links einen Host an – jede Verbindung bekommt ihren eigenen Tab, auch
-                    mehrere zum selben Server.
+                    {t(
+                      'Klick links einen Host an – jede Verbindung bekommt ihren eigenen Tab, auch mehrere zum selben Server.',
+                    )}
                   </p>
                   <button className="primary" onClick={openShell}>
-                    Lokale Shell öffnen
+                    {t('Lokale Shell öffnen')}
                   </button>
                 </div>
               )}
@@ -1121,8 +1165,10 @@ export function App() {
 
       {startupVault && !dialog && (
         <VaultDialog
-          reason="Einmal entsperren – dann verbinden alle Hosts mit gespeicherten Passwörtern und Keys, ohne weiter zu fragen."
-          cancelLabel="Später"
+          reason={t(
+            'Einmal entsperren – dann verbinden alle Hosts mit gespeicherten Passwörtern und Keys, ohne weiter zu fragen.',
+          )}
+          cancelLabel={t('Später')}
           onDone={() => {
             setStartupVault(false);
             void refreshHosts();
@@ -1133,20 +1179,20 @@ export function App() {
 
       {confirmClose && (
         <Modal
-          title="UwUSSH schließen?"
+          title={t('UwUSSH schließen?')}
           onCancel={() => setConfirmClose(false)}
           footer={
             <>
               <span className="spacer" />
               <button data-autofocus onClick={() => setConfirmClose(false)}>
-                Abbrechen
+                {t('Abbrechen')}
               </button>
               <button
                 className="primary"
                 data-secondary
                 onClick={() => void getCurrentWindow().destroy()}
               >
-                Schließen
+                {t('Schließen')}
               </button>
             </>
           }
@@ -1154,8 +1200,10 @@ export function App() {
           <NyuScene name="goodbye" className="dialog-scene" />
           <p className="dialog-lead">
             {liveConnections === 1
-              ? 'Eine Verbindung ist noch offen und wird getrennt.'
-              : `${liveConnections} Verbindungen sind noch offen und werden getrennt.`}
+              ? t('Eine Verbindung ist noch offen und wird getrennt.')
+              : t('{count} Verbindungen sind noch offen und werden getrennt.', {
+                  count: liveConnections,
+                })}
           </p>
         </Modal>
       )}

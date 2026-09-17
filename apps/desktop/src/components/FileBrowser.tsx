@@ -31,6 +31,7 @@ import {
   type Place,
   type TransferEvent,
 } from '../lib/files';
+import { locale, t, useLanguage } from '../lib/i18n';
 import type { HostRecord } from '../lib/session';
 import { Icon } from './Icon';
 import { Modal } from './Modal';
@@ -91,7 +92,14 @@ type Ask =
 
 function modified(ms: number | null) {
   if (!ms) return '';
-  return new Date(ms).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' });
+  return new Date(ms).toLocaleString(locale(), { dateStyle: 'short', timeStyle: 'short' });
+}
+
+function withCode(text: string, codes: Record<string, string>) {
+  return text.split(/(\{\w+\})/).map((part, index) => {
+    const code = codes[part.slice(1, -1)];
+    return /^\{\w+\}$/.test(part) && code !== undefined ? <code key={index}>{code}</code> : part;
+  });
 }
 
 /** Local paths use backslashes on Windows, remote ones slashes; SMB shares are local paths. */
@@ -100,6 +108,7 @@ function isLocalStyle(side: Side, remote: Remote | null) {
 }
 
 export function FileBrowser({ host, open, onLive }: Props) {
+  useLanguage();
   const [places, setPlaces] = useState<Place[]>([]);
   const [local, setLocal] = useState<PaneState>(emptyPane());
   const [remotePane, setRemotePane] = useState<PaneState>(emptyPane());
@@ -235,29 +244,32 @@ export function FileBrowser({ host, open, onLive }: Props) {
 
   const track = (item: Transfer, event: TransferEvent) => {
     setTransfers((list) =>
-      list.map((t) => {
-        if (t.id !== item.id) return t;
+      list.map((job) => {
+        if (job.id !== item.id) return job;
         switch (event.kind) {
           case 'started':
-            return { ...t, total: event.totalBytes };
+            return { ...job, total: event.totalBytes };
           case 'progress':
-            return { ...t, done: event.doneBytes };
+            return { ...job, done: event.doneBytes };
           case 'item':
-            return { ...t, item: event.name };
+            return { ...job, item: event.name };
           case 'done':
-            return { ...t, state: 'done', done: Math.max(t.done, t.total) };
+            return { ...job, state: 'done', done: Math.max(job.done, job.total) };
           case 'failed':
             return event.error.kind === 'cancelled'
-              ? { ...t, state: 'cancelled' }
-              : { ...t, state: 'failed', error: describeFilesFailure(event.error) };
+              ? { ...job, state: 'cancelled' }
+              : { ...job, state: 'failed', error: describeFilesFailure(event.error) };
         }
-        return t;
+        return job;
       }),
     );
     if (event.kind === 'done' || event.kind === 'failed') {
       refresh(item.refresh);
       window.setTimeout(
-        () => setTransfers((list) => list.filter((t) => t.id !== item.id || t.state === 'failed')),
+        () =>
+          setTransfers((list) =>
+            list.filter((job) => job.id !== item.id || job.state === 'failed'),
+          ),
         event.kind === 'done' ? 2600 : 0,
       );
     }
@@ -272,7 +284,7 @@ export function FileBrowser({ host, open, onLive }: Props) {
     if (sources.length === 0 || !folder) return;
     const id = newTransferId();
     const names = sources.map((s) => s.split(/[\\/]/).filter(Boolean).pop() ?? s);
-    const label = names.length === 1 ? names[0]! : `${names.length} Elemente`;
+    const label = names.length === 1 ? names[0]! : t('{n} Elemente', { n: names.length });
     const viaSftp = target?.kind === 'sftp' && from !== to;
     const item: Transfer = {
       id,
@@ -288,7 +300,7 @@ export function FileBrowser({ host, open, onLive }: Props) {
     const onEvent = (event: TransferEvent) => {
       if (!overwrite && event.kind === 'failed' && event.error.kind === 'already-exists') {
         const path = event.error.path;
-        setTransfers((list) => list.filter((t) => t.id !== id));
+        setTransfers((list) => list.filter((job) => job.id !== id));
         setAsk({ kind: 'overwrite', path, retry: () => copy(from, sources, to, folder, true) });
         return;
       }
@@ -427,7 +439,7 @@ export function FileBrowser({ host, open, onLive }: Props) {
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  const running = transfers.filter((t) => t.state === 'running');
+  const running = transfers.filter((job) => job.state === 'running');
   const remoteReady = remote !== null;
   const remoteTitle =
     remote?.kind === 'smb'
@@ -443,7 +455,7 @@ export function FileBrowser({ host, open, onLive }: Props) {
           <button
             className="icon-button"
             onClick={() => setNotice(null)}
-            aria-label="Hinweis schließen"
+            aria-label={t('Hinweis schließen')}
           >
             ×
           </button>
@@ -453,7 +465,7 @@ export function FileBrowser({ host, open, onLive }: Props) {
       <div className="file-panes">
         <FilePane
           side="local"
-          title="Dieser Computer"
+          title={t('Dieser Computer')}
           icon="drive"
           pane={local}
           dropping={dropSide === 'local'}
@@ -462,9 +474,9 @@ export function FileBrowser({ host, open, onLive }: Props) {
               className="select places"
               value=""
               onChange={(event) => event.target.value && void list('local', event.target.value)}
-              aria-label="Ort wählen"
+              aria-label={t('Ort wählen')}
             >
-              <option value="">Orte…</option>
+              <option value="">{t('Orte…')}</option>
               {places.map((place) => (
                 <option key={place.path} value={place.path}>
                   {place.kind === 'drive' ? place.label : placeLabel(place)}
@@ -482,7 +494,7 @@ export function FileBrowser({ host, open, onLive }: Props) {
           onTransfer={() =>
             remoteReady && copy('local', selectedPaths('local'), 'remote', remotePane.path)
           }
-          transferLabel="Hochladen"
+          transferLabel={t('Hochladen')}
           transferIcon="upload"
           canTransfer={remoteReady}
           onDragOut={(sources, target) => copy('local', sources, target.side, target.folder)}
@@ -502,8 +514,8 @@ export function FileBrowser({ host, open, onLive }: Props) {
                 <button
                   className="icon-button"
                   onClick={() => void list('remote', remote.root ? '/' : remote.home)}
-                  title={remote.root ? 'Zum Wurzelverzeichnis /' : 'Zum Home-Verzeichnis'}
-                  aria-label="Start"
+                  title={remote.root ? t('Zum Wurzelverzeichnis /') : t('Zum Home-Verzeichnis')}
+                  aria-label={t('Start')}
                 >
                   <Icon name="home" size={15} />
                 </button>
@@ -512,8 +524,8 @@ export function FileBrowser({ host, open, onLive }: Props) {
                 <button
                   className="icon-button"
                   onClick={() => void list('remote', '/')}
-                  title="Dateisystem-Wurzel /"
-                  aria-label="Wurzelverzeichnis"
+                  title={t('Dateisystem-Wurzel /')}
+                  aria-label={t('Wurzelverzeichnis')}
                 >
                   /
                 </button>
@@ -523,10 +535,10 @@ export function FileBrowser({ host, open, onLive }: Props) {
                 data-on={remote?.kind === 'sftp' && remote.root}
                 disabled={opening}
                 onClick={() => void connect(!(remote?.kind === 'sftp' && remote.root))}
-                title="Die Dateien des Servers als root öffnen, über sudo"
+                title={t('Die Dateien des Servers als root öffnen, über sudo')}
               >
                 <Icon name="crown" size={14} />
-                {remote?.kind === 'sftp' && remote.root ? 'root' : 'Als root'}
+                {remote?.kind === 'sftp' && remote.root ? 'root' : t('Als root')}
               </button>
               <button
                 className="quiet smb-button"
@@ -538,8 +550,8 @@ export function FileBrowser({ host, open, onLive }: Props) {
                 }
                 title={
                   remote?.kind === 'smb'
-                    ? 'Zurück zu SFTP'
-                    : 'Eine SMB-Freigabe auf diesem Host öffnen'
+                    ? t('Zurück zu SFTP')
+                    : t('Eine SMB-Freigabe auf diesem Host öffnen')
                 }
               >
                 {remote?.kind === 'smb' ? 'SFTP' : 'SMB'}
@@ -564,7 +576,7 @@ export function FileBrowser({ host, open, onLive }: Props) {
               : undefined
           }
           onTransfer={() => copy('remote', selectedPaths('remote'), 'local', local.path)}
-          transferLabel="Herunterladen"
+          transferLabel={t('Herunterladen')}
           transferIcon="download"
           canTransfer={remoteReady}
           onDragOut={(sources, target) => copy('remote', sources, target.side, target.folder)}
@@ -572,14 +584,14 @@ export function FileBrowser({ host, open, onLive }: Props) {
             opening ? (
               <div className="file-pane-empty">
                 <NyuScene name="connecting" className="file-scene" />
-                <p>Verbinde mit {host.name}…</p>
+                <p>{t('Verbinde mit {name}…', { name: host.name })}</p>
               </div>
             ) : !remoteReady ? (
               <div className="file-pane-empty">
                 <NyuScene name="puzzled" className="file-scene" />
-                <p>Nicht verbunden.</p>
+                <p>{t('Nicht verbunden.')}</p>
                 <button className="primary" onClick={() => void connect(false)}>
-                  Verbinden
+                  {t('Verbinden')}
                 </button>
               </div>
             ) : null
@@ -591,50 +603,50 @@ export function FileBrowser({ host, open, onLive }: Props) {
         <div className="transfers" aria-live="polite">
           {running.length > 0 && <NyuScene name="files" className="transfer-scene" />}
           <ul>
-            {transfers.map((t) => (
-              <li key={t.id} data-state={t.state}>
+            {transfers.map((job) => (
+              <li key={job.id} data-state={job.state}>
                 <Icon
                   name={
-                    t.direction === 'upload'
+                    job.direction === 'upload'
                       ? 'upload'
-                      : t.direction === 'download'
+                      : job.direction === 'download'
                         ? 'download'
                         : 'copy'
                   }
                   size={15}
                 />
-                <span className="transfer-name" title={t.item}>
-                  {t.label}
+                <span className="transfer-name" title={job.item}>
+                  {job.label}
                 </span>
                 <span className="transfer-bar">
                   <span
                     style={{
-                      width: `${t.total ? Math.min(100, (t.done / t.total) * 100) : t.state === 'done' ? 100 : 4}%`,
+                      width: `${job.total ? Math.min(100, (job.done / job.total) * 100) : job.state === 'done' ? 100 : 4}%`,
                     }}
                   />
                 </span>
                 <span className="transfer-meta">
-                  {t.state === 'failed'
-                    ? t.error
-                    : t.state === 'cancelled'
-                      ? 'abgebrochen'
-                      : t.state === 'done'
-                        ? 'fertig ✧'
-                        : `${formatSize(t.done)} / ${formatSize(t.total)}`}
+                  {job.state === 'failed'
+                    ? job.error
+                    : job.state === 'cancelled'
+                      ? t('abgebrochen')
+                      : job.state === 'done'
+                        ? t('fertig ✧')
+                        : `${formatSize(job.done)} / ${formatSize(job.total)}`}
                 </span>
-                {t.state === 'running' ? (
+                {job.state === 'running' ? (
                   <button
                     className="icon-button"
-                    onClick={() => void cancelTransfer(t.id)}
-                    aria-label={`${t.label} abbrechen`}
+                    onClick={() => void cancelTransfer(job.id)}
+                    aria-label={t('{label} abbrechen', { label: job.label })}
                   >
                     <Icon name="stop" size={14} />
                   </button>
                 ) : (
                   <button
                     className="icon-button"
-                    onClick={() => setTransfers((list) => list.filter((x) => x.id !== t.id))}
-                    aria-label="Ausblenden"
+                    onClick={() => setTransfers((list) => list.filter((x) => x.id !== job.id))}
+                    aria-label={t('Ausblenden')}
                   >
                     ×
                   </button>
@@ -649,18 +661,18 @@ export function FileBrowser({ host, open, onLive }: Props) {
         <Modal
           title={
             ask.kind === 'mkdir'
-              ? 'Neuer Ordner'
+              ? t('Neuer Ordner')
               : ask.kind === 'rename'
-                ? `${ask.entry.name} umbenennen`
+                ? t('{name} umbenennen', { name: ask.entry.name })
                 : ask.kind === 'chmod'
-                  ? `Rechte von ${ask.entry.name}`
+                  ? t('Rechte von {name}', { name: ask.entry.name })
                   : ask.kind === 'smb'
-                    ? 'SMB-Freigabe öffnen'
+                    ? t('SMB-Freigabe öffnen')
                     : ask.kind === 'overwrite'
-                      ? 'Ersetzen?'
+                      ? t('Ersetzen?')
                       : ask.side === 'local'
-                        ? 'In den Papierkorb legen?'
-                        : 'Endgültig löschen?'
+                        ? t('In den Papierkorb legen?')
+                        : t('Endgültig löschen?')
           }
           tone={ask.kind === 'delete' && ask.side === 'remote' ? 'warning' : 'default'}
           onCancel={() => setAsk(null)}
@@ -668,7 +680,7 @@ export function FileBrowser({ host, open, onLive }: Props) {
             <>
               <span className="spacer" />
               <button data-secondary onClick={() => setAsk(null)}>
-                Abbrechen
+                {t('Abbrechen')}
               </button>
               <button
                 className={ask.kind === 'delete' || ask.kind === 'overwrite' ? 'danger' : 'primary'}
@@ -677,12 +689,12 @@ export function FileBrowser({ host, open, onLive }: Props) {
               >
                 {ask.kind === 'delete'
                   ? ask.side === 'local'
-                    ? 'In den Papierkorb'
-                    : 'Löschen'
+                    ? t('In den Papierkorb')
+                    : t('Löschen')
                   : ask.kind === 'smb'
-                    ? 'Öffnen'
+                    ? t('Öffnen')
                     : ask.kind === 'overwrite'
-                      ? 'Ersetzen'
+                      ? t('Ersetzen')
                       : 'OK'}
               </button>
             </>
@@ -690,19 +702,30 @@ export function FileBrowser({ host, open, onLive }: Props) {
         >
           {ask.kind === 'overwrite' ? (
             <p className="dialog-lead">
-              <code>{ask.path.split(/[\\/]/).filter(Boolean).pop() ?? ask.path}</code> gibt es dort
-              schon. Beim Ersetzen werden Dateien überschrieben und Ordner zusammengeführt.
+              {withCode(
+                t(
+                  '{name} gibt es dort schon. Beim Ersetzen werden Dateien überschrieben und Ordner zusammengeführt.',
+                ),
+                { name: ask.path.split(/[\\/]/).filter(Boolean).pop() ?? ask.path },
+              )}
             </p>
           ) : ask.kind === 'delete' ? (
             <p className="dialog-lead">
-              {ask.entries.length === 1 ? (
-                <code>{ask.entries[0]!.name}</code>
-              ) : (
-                `${ask.entries.length} Elemente`
-              )}
-              {ask.side === 'local'
-                ? ' landet im Papierkorb.'
-                : ' wird auf dem Server gelöscht, Ordner mit allem darin. Das lässt sich nicht rückgängig machen.'}
+              {ask.entries.length === 1
+                ? withCode(
+                    ask.side === 'local'
+                      ? t('{name} landet im Papierkorb.')
+                      : t(
+                          '{name} wird auf dem Server gelöscht, Ordner mit allem darin. Das lässt sich nicht rückgängig machen.',
+                        ),
+                    { name: ask.entries[0]!.name },
+                  )
+                : ask.side === 'local'
+                  ? t('{n} Elemente landet im Papierkorb.', { n: ask.entries.length })
+                  : t(
+                      '{n} Elemente wird auf dem Server gelöscht, Ordner mit allem darin. Das lässt sich nicht rückgängig machen.',
+                      { n: ask.entries.length },
+                    )}
             </p>
           ) : (
             <form
@@ -715,20 +738,22 @@ export function FileBrowser({ host, open, onLive }: Props) {
               {ask.kind === 'smb' ? (
                 <>
                   <p className="dialog-lead">
-                    Windows meldet sich an <code>\\{host.address}\…</code> mit dem Benutzer{' '}
-                    <code>{host.username}</code> an.
+                    {withCode(t('Windows meldet sich an {share} mit dem Benutzer {user} an.'), {
+                      share: `\\\\${host.address}\\…`,
+                      user: host.username,
+                    })}
                   </p>
                   <label className="field">
-                    <span>Freigabe</span>
+                    <span>{t('Freigabe')}</span>
                     <input
                       data-autofocus
                       value={ask.share}
-                      placeholder="z. B. daten"
+                      placeholder={t('z. B. daten')}
                       onChange={(e) => setAsk({ ...ask, share: e.target.value })}
                     />
                   </label>
                   <label className="field">
-                    <span>Passwort für die Freigabe</span>
+                    <span>{t('Passwort für die Freigabe')}</span>
                     <input
                       type="password"
                       value={ask.password}
@@ -736,15 +761,16 @@ export function FileBrowser({ host, open, onLive }: Props) {
                       onChange={(e) => setAsk({ ...ask, password: e.target.value })}
                     />
                     <em className="field-hint">
-                      Leer lassen für Gastzugriff. Das gespeicherte SSH-Passwort wird hier nie
-                      verwendet: SMB prüft keinen Host-Key.
+                      {t(
+                        'Leer lassen für Gastzugriff. Das gespeicherte SSH-Passwort wird hier nie verwendet: SMB prüft keinen Host-Key.',
+                      )}
                     </em>
                   </label>
                 </>
               ) : (
                 <label className="field">
                   <span>
-                    {ask.kind === 'chmod' ? 'Rechte, oktal (z. B. 644 oder 755)' : 'Name'}
+                    {ask.kind === 'chmod' ? t('Rechte, oktal (z. B. 644 oder 755)') : t('Name')}
                   </span>
                   <input
                     data-autofocus
@@ -756,7 +782,7 @@ export function FileBrowser({ host, open, onLive }: Props) {
                     <em className="field-hint">
                       {/^[0-7]{3,4}$/.test(ask.value)
                         ? formatMode(Number.parseInt(ask.value, 8), ask.entry.kind)
-                        : 'Drei oder vier Ziffern von 0 bis 7'}
+                        : t('Drei oder vier Ziffern von 0 bis 7')}
                     </em>
                   )}
                 </label>
@@ -772,9 +798,12 @@ export function FileBrowser({ host, open, onLive }: Props) {
 
 function placeLabel(place: Place) {
   return (
-    { home: 'Benutzerordner', desktop: 'Desktop', documents: 'Dokumente', downloads: 'Downloads' }[
-      place.kind as 'home'
-    ] ?? place.label
+    {
+      home: t('Benutzerordner'),
+      desktop: t('Desktop'),
+      documents: t('Dokumente'),
+      downloads: t('Downloads'),
+    }[place.kind as 'home'] ?? place.label
   );
 }
 
@@ -806,6 +835,7 @@ type PaneProps = {
 };
 
 function FilePane(props: PaneProps) {
+  useLanguage();
   const { side, pane } = props;
   const [pathInput, setPathInput] = useState<string | null>(null);
   const selectedEntries = pane.entries.filter((e) => pane.selected.has(e.name));
@@ -837,7 +867,7 @@ function FilePane(props: PaneProps) {
   const startDrag = (event: React.PointerEvent, entry: Entry) => {
     const dragged = pane.selected.has(entry.name) ? selectedEntries : [entry];
     beginDrag(event, {
-      label: dragged.length === 1 ? dragged[0]!.name : `${dragged.length} Elemente`,
+      label: dragged.length === 1 ? dragged[0]!.name : t('{n} Elemente', { n: dragged.length }),
       accept: (element) => {
         const kind = element.dataset.drop;
         if (kind === 'file-pane') return element.dataset.side !== side ? 'inside' : null;
@@ -885,8 +915,8 @@ function FilePane(props: PaneProps) {
           className="icon-button"
           onClick={props.onUp}
           disabled={props.disabled}
-          title="Ein Verzeichnis nach oben"
-          aria-label="Nach oben"
+          title={t('Ein Verzeichnis nach oben')}
+          aria-label={t('Nach oben')}
         >
           <Icon name="up" size={15} />
         </button>
@@ -895,7 +925,7 @@ function FilePane(props: PaneProps) {
             className="file-path"
             disabled={props.disabled}
             onClick={() => setPathInput(pane.path)}
-            title="Klicken, um einen Pfad einzugeben"
+            title={t('Klicken, um einen Pfad einzugeben')}
           >
             <bdi>{pane.path || '—'}</bdi>
           </button>
@@ -914,15 +944,15 @@ function FilePane(props: PaneProps) {
               }
               if (event.key === 'Escape') setPathInput(null);
             }}
-            aria-label="Pfad"
+            aria-label={t('Pfad')}
           />
         )}
         <button
           className="icon-button"
           onClick={props.onRefresh}
           disabled={props.disabled}
-          title="Neu laden"
-          aria-label="Neu laden"
+          title={t('Neu laden')}
+          aria-label={t('Neu laden')}
         >
           <Icon name="refresh" size={15} />
         </button>
@@ -930,8 +960,8 @@ function FilePane(props: PaneProps) {
           className="icon-button"
           onClick={props.onMkdir}
           disabled={props.disabled}
-          title="Neuer Ordner"
-          aria-label="Neuer Ordner"
+          title={t('Neuer Ordner')}
+          aria-label={t('Neuer Ordner')}
         >
           <Icon name="folderPlus" size={15} />
         </button>
@@ -959,19 +989,19 @@ function FilePane(props: PaneProps) {
           }}
         >
           <div className="file-row file-row-head" role="row">
-            <span role="columnheader">Name</span>
-            <span role="columnheader">Größe</span>
-            <span role="columnheader">Geändert</span>
-            {side === 'remote' && <span role="columnheader">Rechte</span>}
+            <span role="columnheader">{t('Name')}</span>
+            <span role="columnheader">{t('Größe')}</span>
+            <span role="columnheader">{t('Geändert')}</span>
+            {side === 'remote' && <span role="columnheader">{t('Rechte')}</span>}
           </div>
-          {pane.loading && pane.entries.length === 0 && <p className="file-note">Lade…</p>}
+          {pane.loading && pane.entries.length === 0 && <p className="file-note">{t('Lade…')}</p>}
           {pane.error && (
             <p className="file-note" data-tone="error">
               {pane.error}
             </p>
           )}
           {!pane.loading && !pane.error && pane.entries.length === 0 && (
-            <p className="file-note">Leerer Ordner</p>
+            <p className="file-note">{t('Leerer Ordner')}</p>
           )}
           {pane.entries.slice(0, 3000).map((entry) => (
             <div
@@ -995,7 +1025,7 @@ function FilePane(props: PaneProps) {
                 <Icon name={entry.kind === 'dir' ? 'folder' : 'file'} size={15} />
                 <span>{entry.name}</span>
                 {entry.link && (
-                  <i className="file-link" title="Symbolischer Link" aria-label="Link">
+                  <i className="file-link" title={t('Symbolischer Link')} aria-label={t('Link')}>
                     ↪
                   </i>
                 )}
@@ -1011,8 +1041,9 @@ function FilePane(props: PaneProps) {
           ))}
           {pane.entries.length > 3000 && (
             <p className="file-note">
-              {pane.entries.length - 3000} weitere Einträge – bitte in einem Unterordner
-              weitersuchen.
+              {t('{n} weitere Einträge – bitte in einem Unterordner weitersuchen.', {
+                n: pane.entries.length - 3000,
+              })}
             </p>
           )}
         </div>
@@ -1021,16 +1052,18 @@ function FilePane(props: PaneProps) {
       <footer className="file-actions">
         <span className="file-count">
           {selectedEntries.length > 0
-            ? `${selectedEntries.length} ausgewählt`
-            : `${pane.entries.length} ${pane.entries.length === 1 ? 'Eintrag' : 'Einträge'}`}
+            ? t('{n} ausgewählt', { n: selectedEntries.length })
+            : pane.entries.length === 1
+              ? t('1 Eintrag')
+              : t('{n} Einträge', { n: pane.entries.length })}
         </span>
         <span className="spacer" />
         <button
           className="icon-button"
           disabled={selectedEntries.length !== 1}
           onClick={() => props.onRename(selectedEntries[0]!)}
-          title="Umbenennen (F2)"
-          aria-label="Umbenennen"
+          title={t('Umbenennen (F2)')}
+          aria-label={t('Umbenennen')}
         >
           <Icon name="pencil" size={15} />
         </button>
@@ -1039,8 +1072,10 @@ function FilePane(props: PaneProps) {
             className="icon-button"
             disabled={selectedEntries.length !== 1 || selectedEntries[0]!.link}
             onClick={() => props.onChmod?.(selectedEntries[0]!)}
-            title={selectedEntries[0]?.link ? 'Ein Link hat keine eigenen Rechte' : 'Rechte ändern'}
-            aria-label="Rechte ändern"
+            title={
+              selectedEntries[0]?.link ? t('Ein Link hat keine eigenen Rechte') : t('Rechte ändern')
+            }
+            aria-label={t('Rechte ändern')}
           >
             <Icon name="shield" size={15} />
           </button>
@@ -1049,8 +1084,8 @@ function FilePane(props: PaneProps) {
           className="icon-button"
           disabled={selectedEntries.length === 0}
           onClick={() => props.onDelete(selectedEntries)}
-          title="Löschen (Entf)"
-          aria-label="Löschen"
+          title={t('Löschen (Entf)')}
+          aria-label={t('Löschen')}
         >
           <Icon name="trash" size={15} />
         </button>

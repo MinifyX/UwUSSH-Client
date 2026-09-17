@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react';
+import { t, useLanguage } from '../lib/i18n';
 import { Modal } from './Modal';
 
 /**
@@ -10,13 +11,14 @@ import { Modal } from './Modal';
 export function useCloseGuard(
   unsaved: boolean,
   close: () => void,
-  loss = 'Was du bisher eingegeben hast, geht dabei verloren.',
+  loss = t('Was du bisher eingegeben hast, geht dabei verloren.'),
 ): { request: () => void; dialog: ReactNode } {
+  useLanguage();
   const [asking, setAsking] = useState(false);
   const request = () => (unsaved ? setAsking(true) : close());
   const dialog = asking ? (
     <Modal
-      title="Wirklich schließen?"
+      title={t('Wirklich schließen?')}
       onCancel={() => setAsking(false)}
       footer={
         <>
@@ -29,10 +31,10 @@ export function useCloseGuard(
               close();
             }}
           >
-            Schließen
+            {t('Schließen')}
           </button>
           <button className="primary" data-autofocus onClick={() => setAsking(false)}>
-            Weiter bearbeiten
+            {t('Weiter bearbeiten')}
           </button>
         </>
       }

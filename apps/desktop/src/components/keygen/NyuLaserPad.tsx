@@ -21,6 +21,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from 'react';
+import { t, useLanguage } from '../../lib/i18n';
 import { NYU, NyuFigure, Paw, Sticker, type NyuMood } from '../nyu/Nyu';
 import { Heart, Star } from '../nyu/scenes';
 import './nyu-laser.css';
@@ -426,9 +427,10 @@ export function NyuLaserPad({
   active,
   hint,
   className,
-  label = 'Zufallsfeld',
-  progressLabel = 'Gesammelter Zufall',
+  label = t('Zufallsfeld'),
+  progressLabel = t('Gesammelter Zufall'),
 }: NyuLaserPadProps): JSX.Element {
+  useLanguage();
   const hintId = useId();
   const padRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<SVGSVGElement>(null);
@@ -674,9 +676,9 @@ export function NyuLaserPad({
           else if (now - sim.stillSince > 600 && sim.dist < 200) setPhase('crouch', now);
           break;
         case 'crouch': {
-          const t = now - sim.phaseAt;
+          const crouched = now - sim.phaseAt;
           if (sim.dist > 240) setPhase('watch', now);
-          else if (t > 800 || (t > 150 && sim.speed > CHASE_SPEED)) launch(now);
+          else if (crouched > 800 || (crouched > 150 && sim.speed > CHASE_SPEED)) launch(now);
           break;
         }
         case 'pounce':
@@ -748,14 +750,14 @@ export function NyuLaserPad({
 
         let lift = 0;
         if (sim.hopping) {
-          const t = (now - sim.hopStart) / sim.hopDuration;
-          if (t >= 1) {
+          const hopped = (now - sim.hopStart) / sim.hopDuration;
+          if (hopped >= 1) {
             sim.hopping = false;
             sim.lift = 0;
             measure();
             land(now);
           } else {
-            lift = Math.sin(Math.PI * t) * sim.hopHeight;
+            lift = Math.sin(Math.PI * hopped) * sim.hopHeight;
           }
         } else if (
           Math.hypot(sim.vx, sim.vy) > 12 &&
@@ -1308,7 +1310,7 @@ export function NyuLaserPad({
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={pct}
-        aria-valuetext={`${pct} %`}
+        aria-valuetext={t('{pct} %', { pct })}
       />
       {hint && (
         <p id={hintId} className="nyu-laser-hint">

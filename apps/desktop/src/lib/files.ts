@@ -4,6 +4,7 @@
  */
 
 import { Channel, invoke } from '@tauri-apps/api/core';
+import { locale, t } from './i18n';
 import type { ConnectFailure, SessionId } from './session';
 
 export type EntryKind = 'file' | 'dir' | 'link' | 'other';
@@ -42,34 +43,39 @@ export function asFilesFailure(error: unknown): FilesFailure {
 export function describeFilesFailure(failure: FilesFailure): string {
   switch (failure.kind) {
     case 'not-found':
-      return `${failure.path} gibt es nicht.`;
+      return t('{path} gibt es nicht.', { path: failure.path });
     case 'permission-denied':
-      return `Keine Berechtigung für ${failure.path}.`;
+      return t('Keine Berechtigung für {path}.', { path: failure.path });
     case 'already-exists':
-      return `${failure.path} gibt es schon.`;
+      return t('{path} gibt es schon.', { path: failure.path });
     case 'unsafe-name':
-      return `Der Name „${failure.name}“ vom Server ist hier kein gültiger Dateiname, die Übertragung wurde abgebrochen.`;
+      return t(
+        'Der Name „{name}“ vom Server ist hier kein gültiger Dateiname, die Übertragung wurde abgebrochen.',
+        { name: failure.name },
+      );
     case 'link':
-      return `${failure.path} ist ein Link. Seine Rechte sind die seines Ziels – ändere sie dort.`;
+      return t('{path} ist ein Link. Seine Rechte sind die seines Ziels – ändere sie dort.', {
+        path: failure.path,
+      });
     case 'cancelled':
-      return 'Abgebrochen.';
+      return t('Abgebrochen.');
     case 'local':
     case 'failed':
       return failure.message;
     case 'refused':
-      return `Der Server erlaubt keinen Dateizugriff: ${failure.reason}`;
+      return t('Der Server erlaubt keinen Dateizugriff: {reason}', { reason: failure.reason });
     case 'sudo-refused':
-      return `sudo hat abgelehnt: ${failure.message}`;
+      return t('sudo hat abgelehnt: {message}', { message: failure.message });
     case 'no-sftp-server':
-      return 'Auf dem Server wurde kein sftp-server gefunden, der als root laufen könnte.';
+      return t('Auf dem Server wurde kein sftp-server gefunden, der als root laufen könnte.');
     case 'sudo-password-rejected':
-      return 'sudo hat das Passwort nicht angenommen.';
+      return t('sudo hat das Passwort nicht angenommen.');
     case 'sudo-password-required':
-      return 'sudo braucht ein Passwort.';
+      return t('sudo braucht ein Passwort.');
     case 'internal':
       return failure.message;
     default:
-      return `Fehler (${failure.kind}).`;
+      return t('Fehler ({kind}).', { kind: failure.kind });
   }
 }
 
@@ -237,7 +243,7 @@ export function formatSize(bytes: number): string {
     unit += 1;
   }
   const digits = unit === 0 || value >= 100 ? 0 : 1;
-  return `${value.toLocaleString('de-DE', { maximumFractionDigits: digits })} ${UNITS[unit]}`;
+  return `${value.toLocaleString(locale(), { maximumFractionDigits: digits })} ${UNITS[unit]}`;
 }
 
 /** `rwxr-xr-x` from mode bits. */

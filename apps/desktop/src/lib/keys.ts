@@ -6,6 +6,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
+import { t } from './i18n';
 
 export type KeyRecord = {
   id: string;
@@ -80,10 +81,12 @@ export type PrivateFormat = 'openssh' | 'putty-v3' | 'putty-v2' | 'pem';
  * times a second — worth saying before someone relies on it.
  */
 export function passphraseNote(format: PrivateFormat, passphrase: boolean): string {
-  if (!passphrase) return 'Unverschlüsselt – wer die Datei hat, hat den Schlüssel.';
+  if (!passphrase) return t('Unverschlüsselt – wer die Datei hat, hat den Schlüssel.');
   if (format === 'putty-v2')
-    return 'Verschlüsselt, aber schwach: .ppk v2 schützt die Passphrase kaum gegen Raten. Nimm .ppk v3, wenn das Programm es kann.';
-  return 'Verschlüsselt mit deiner Passphrase.';
+    return t(
+      'Verschlüsselt, aber schwach: .ppk v2 schützt die Passphrase kaum gegen Raten. Nimm .ppk v3, wenn das Programm es kann.',
+    );
+  return t('Verschlüsselt mit deiner Passphrase.');
 }
 
 export const FORMAT_LABELS: Record<PrivateFormat, string> = {

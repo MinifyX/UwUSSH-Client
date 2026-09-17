@@ -1,3 +1,4 @@
+import { t, useLanguage } from '../lib/i18n';
 import type { Tab } from '../lib/tabs';
 import { Icon } from './Icon';
 import { OsIcon } from './OsIcon';
@@ -22,11 +23,13 @@ function stateOf(tab: Tab): 'online' | 'connecting' | 'idle' {
  * name tells them apart. Middle click closes, like in a browser.
  */
 export function TabBar({ tabs, activeId, onSelect, onClose, onNewShell }: Props) {
+  useLanguage();
   return (
     <div className="tabbar">
-      <div className="tabs" role="tablist" aria-label="Offene Sitzungen">
+      <div className="tabs" role="tablist" aria-label={t('Offene Sitzungen')}>
         {tabs.map((tab, index) => {
           const active = tab.id === activeId;
+          const name = tab.subtitle ? `${tab.title} · ${tab.subtitle}` : tab.title;
           return (
             <div
               key={tab.id}
@@ -45,9 +48,11 @@ export function TabBar({ tabs, activeId, onSelect, onClose, onNewShell }: Props)
                 role="tab"
                 className="tab-select"
                 aria-selected={active}
-                title={`${tab.subtitle ? `${tab.title} · ${tab.subtitle}` : tab.title}${
-                  index < 9 ? ` (Strg+Umschalt+${index + 1})` : ''
-                }`}
+                title={
+                  index < 9
+                    ? t('{name} (Strg+Umschalt+{number})', { name, number: index + 1 })
+                    : name
+                }
                 onClick={() => onSelect(tab.id)}
               >
                 <span className="tab-icon" aria-hidden>
@@ -66,8 +71,8 @@ export function TabBar({ tabs, activeId, onSelect, onClose, onNewShell }: Props)
               <button
                 className="tab-close"
                 onClick={() => onClose(tab.id)}
-                title="Tab schließen (Strg+Umschalt+W)"
-                aria-label={`${tab.title} schließen`}
+                title={t('Tab schließen (Strg+Umschalt+W)')}
+                aria-label={t('{name} schließen', { name: tab.title })}
               >
                 ×
               </button>
@@ -78,8 +83,8 @@ export function TabBar({ tabs, activeId, onSelect, onClose, onNewShell }: Props)
       <button
         className="icon-button tab-new"
         onClick={onNewShell}
-        title="Neue lokale Shell (Strg+Umschalt+T)"
-        aria-label="Neue lokale Shell"
+        title={t('Neue lokale Shell (Strg+Umschalt+T)')}
+        aria-label={t('Neue lokale Shell')}
       >
         +
       </button>

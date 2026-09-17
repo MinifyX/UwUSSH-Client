@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from 'react';
+import { Fragment, useState, type FormEvent, type ReactNode } from 'react';
+import { N_, t, useLanguage } from '../lib/i18n';
 import type { HostRecord, ObservedHostKey } from '../lib/session';
 import { Modal } from './Modal';
 
@@ -9,6 +10,15 @@ import { Modal } from './Modal';
  * are plain. No kaomoji, no Nyu, no jokes — a possible man in the middle is the
  * one moment the app must not sound like it is playing.
  */
+
+/** `text` with its `{name}` placeholders replaced by elements. */
+function withElements(text: string, elements: Record<string, ReactNode>): ReactNode[] {
+  return text
+    .split(/\{(\w+)\}/)
+    .map((piece, index) =>
+      index % 2 === 0 ? piece : <Fragment key={index}>{elements[piece]}</Fragment>,
+    );
+}
 
 // ── Password / passphrase ───────────────────────────────────────────────────
 
@@ -26,9 +36,9 @@ type SecretPromptProps = {
 };
 
 const SECRET_TITLES: Record<SecretKind, string> = {
-  password: 'Passwort',
-  passphrase: 'Passphrase',
-  sudo: 'sudo-Passwort',
+  password: N_('Passwort'),
+  passphrase: N_('Passphrase'),
+  sudo: N_('sudo-Passwort'),
 };
 
 export function SecretPrompt({
@@ -39,6 +49,7 @@ export function SecretPrompt({
   onSubmit,
   onCancel,
 }: SecretPromptProps) {
+  useLanguage();
   const [value, setValue] = useState('');
   const [save, setSave] = useState(true);
 
@@ -51,52 +62,57 @@ export function SecretPrompt({
   };
 
   const errorText: Record<SecretKind, string> = {
-    password: 'Der Server hat das Passwort abgelehnt.',
-    passphrase: 'Die Passphrase passt nicht zu diesem Key.',
-    sudo: 'sudo hat das Passwort nicht angenommen.',
+    password: t('Der Server hat das Passwort abgelehnt.'),
+    passphrase: t('Die Passphrase passt nicht zu diesem Key.'),
+    sudo: t('sudo hat das Passwort nicht angenommen.'),
   };
 
   return (
     <Modal
-      title={SECRET_TITLES[secret]}
+      title={t(SECRET_TITLES[secret])}
       onCancel={onCancel}
       footer={
         <>
           <span className="spacer" />
           <button data-secondary onClick={onCancel}>
-            Abbrechen
+            {t('Abbrechen')}
           </button>
           <button className="primary" onClick={() => submit()}>
-            {secret === 'sudo' ? 'Als root öffnen' : 'Verbinden'}
+            {secret === 'sudo' ? t('Als root öffnen') : t('Verbinden')}
           </button>
         </>
       }
     >
       <form className="form" onSubmit={submit}>
         <p className="dialog-lead">
-          {secret === 'passphrase' ? (
-            <>
-              für den Key <code>{host.keyLabel ?? host.keyPath}</code>
-            </>
-          ) : secret === 'sudo' ? (
-            <>
-              <code>sudo</code> auf{' '}
-              <code>
-                {host.username}@{host.address}
-              </code>{' '}
-              fragt nach dem Passwort, um die Dateien als root zu öffnen.
-            </>
-          ) : (
-            <>
-              für{' '}
-              <code>
-                {host.username}@{host.address}
-              </code>
-            </>
-          )}
+          {secret === 'passphrase'
+            ? withElements(t('für den Key {key}'), {
+                key: <code>{host.keyLabel ?? host.keyPath}</code>,
+              })
+            : secret === 'sudo'
+              ? withElements(
+                  t(
+                    '{sudo} auf {target} fragt nach dem Passwort, um die Dateien als root zu öffnen.',
+                  ),
+                  {
+                    sudo: <code>sudo</code>,
+                    target: (
+                      <code>
+                        {host.username}@{host.address}
+                      </code>
+                    ),
+                  },
+                )
+              : withElements(t('für {target}'), {
+                  target: (
+                    <code>
+                      {host.username}@{host.address}
+                    </code>
+                  ),
+                })}
         </p>
         <label className="field">
-          <span className="sr-only">{SECRET_TITLES[secret]}</span>
+          <span className="sr-only">{t(SECRET_TITLES[secret])}</span>
           <input
             type="password"
             value={value}
@@ -110,14 +126,14 @@ export function SecretPrompt({
           <label className="check">
             <input type="checkbox" checked={save} onChange={(e) => setSave(e.target.checked)} />
             <span>
-              <b>Im Tresor speichern</b>
+              <b>{t('Im Tresor speichern')}</b>
               <small>
-                Beim nächsten Mal verbindet UwUSSH ohne zu fragen, und tippt es für sudo.
+                {t('Beim nächsten Mal verbindet UwUSSH ohne zu fragen, und tippt es für sudo.')}
               </small>
             </span>
           </label>
         ) : (
-          <p className="field-hint">Wird nur für diese Verbindung verwendet.</p>
+          <p className="field-hint">{t('Wird nur für diese Verbindung verwendet.')}</p>
         )}
         <button type="submit" hidden />
       </form>
@@ -130,17 +146,18 @@ export function SecretPrompt({
 type KeyFactsProps = { observed: ObservedHostKey };
 
 function KeyFacts({ observed }: KeyFactsProps) {
+  useLanguage();
   return (
     <div className="key-facts">
-      <pre className="randomart" aria-label="Randomart des Schlüssels">
+      <pre className="randomart" aria-label={t('Randomart des Schlüssels')}>
         {observed.randomart}
       </pre>
       <dl>
-        <dt>Typ</dt>
+        <dt>{t('Typ')}</dt>
         <dd>
           <code>{observed.algorithm}</code>
         </dd>
-        <dt>Fingerprint</dt>
+        <dt>{t('Fingerprint')}</dt>
         <dd>
           <code className="fingerprint">{observed.fingerprint}</code>
         </dd>
@@ -157,34 +174,43 @@ type TrustProps = {
 };
 
 export function TrustHostKey({ host, observed, onTrust, onCancel }: TrustProps) {
+  useLanguage();
   return (
     <Modal
-      title="Unbekannter Host-Key"
+      title={t('Unbekannter Host-Key')}
       onCancel={onCancel}
       footer={
         <>
           <span className="spacer" />
           <button data-secondary onClick={onCancel}>
-            Abbrechen
+            {t('Abbrechen')}
           </button>
           <button className="primary" data-secondary onClick={onTrust}>
-            Vertrauen und verbinden
+            {t('Vertrauen und verbinden')}
           </button>
         </>
       }
     >
       <p className="dialog-lead">
-        Erste Verbindung zu{' '}
-        <code>
-          {host.address}:{host.port}
-        </code>
-        . Bisher wurde nichts gesendet — auch kein Passwort.
+        {withElements(
+          t('Erste Verbindung zu {address}. Bisher wurde nichts gesendet — auch kein Passwort.'),
+          {
+            address: (
+              <code>
+                {host.address}:{host.port}
+              </code>
+            ),
+          },
+        )}
       </p>
       <KeyFacts observed={observed} />
       <p className="field-hint">
-        Vergleiche den Fingerprint mit dem, was der Server über sich selbst sagt, etwa per{' '}
-        <code>ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub</code> auf dem Server. Stimmt er,
-        merkt sich UwUSSH den Schlüssel und fragt beim nächsten Mal nicht mehr.
+        {withElements(
+          t(
+            'Vergleiche den Fingerprint mit dem, was der Server über sich selbst sagt, etwa per {command} auf dem Server. Stimmt er, merkt sich UwUSSH den Schlüssel und fragt beim nächsten Mal nicht mehr.',
+          ),
+          { command: <code>ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub</code> },
+        )}
       </p>
     </Modal>
   );
@@ -212,40 +238,48 @@ export function HostKeyChanged({
   onAccept,
   onReject,
 }: ChangedProps) {
+  useLanguage();
   return (
     <Modal
-      title="Der Host-Key hat sich geändert"
+      title={t('Der Host-Key hat sich geändert')}
       tone="warning"
       onCancel={onReject}
       footer={
         <>
           <button className="danger" data-secondary onClick={onAccept}>
-            Neuen Schlüssel akzeptieren
+            {t('Neuen Schlüssel akzeptieren')}
           </button>
           <span className="spacer" />
           <button className="primary" data-autofocus onClick={onReject}>
-            Ablehnen
+            {t('Ablehnen')}
           </button>
         </>
       }
     >
       <p className="dialog-lead">
-        <code>
-          {host.address}:{host.port}
-        </code>{' '}
-        zeigt einen anderen Schlüssel als beim letzten Mal. Das kann ein neu aufgesetzter Server
-        sein — oder jemand, der sich zwischen dich und den Server schaltet.
+        {withElements(
+          t(
+            '{address} zeigt einen anderen Schlüssel als beim letzten Mal. Das kann ein neu aufgesetzter Server sein — oder jemand, der sich zwischen dich und den Server schaltet.',
+          ),
+          {
+            address: (
+              <code>
+                {host.address}:{host.port}
+              </code>
+            ),
+          },
+        )}
       </p>
       <p className="dialog-lead">
-        <strong>Die Verbindung wurde abgebrochen. Es wurde nichts gesendet.</strong>
+        <strong>{t('Die Verbindung wurde abgebrochen. Es wurde nichts gesendet.')}</strong>
       </p>
 
       <dl className="key-compare">
-        <dt>Bisher vertraut</dt>
+        <dt>{t('Bisher vertraut')}</dt>
         <dd>
           <code className="fingerprint">{trustedFingerprint}</code>
         </dd>
-        <dt>Jetzt präsentiert</dt>
+        <dt>{t('Jetzt präsentiert')}</dt>
         <dd>
           <code className="fingerprint">{observed.fingerprint}</code>
         </dd>
@@ -253,8 +287,9 @@ export function HostKeyChanged({
       <pre className="randomart">{observed.randomart}</pre>
 
       <p className="field-hint">
-        Akzeptiere nur, wenn du weißt, dass der Server neu aufgesetzt wurde oder seinen Schlüssel
-        gewechselt hat. Im Zweifel: ablehnen und nachfragen.
+        {t(
+          'Akzeptiere nur, wenn du weißt, dass der Server neu aufgesetzt wurde oder seinen Schlüssel gewechselt hat. Im Zweifel: ablehnen und nachfragen.',
+        )}
       </p>
     </Modal>
   );

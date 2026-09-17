@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { t, useLanguage } from '../../lib/i18n';
 import {
   passphraseNote,
   asKeyFailure,
@@ -84,6 +85,7 @@ async function copy(text: string) {
 }
 
 export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onStep }: Props) {
+  useLanguage();
   const [step, setStepState] = useState<Step>('settings');
   const [advanced, setAdvanced] = useState(false);
   const [choice, setChoice] = useState<KindChoice>('rsa');
@@ -178,7 +180,7 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
       setMessage({
         tone: 'error',
         text:
-          failure.kind === 'error' ? failure.message : 'Der Schlüssel ließ sich nicht erzeugen.',
+          failure.kind === 'error' ? failure.message : t('Der Schlüssel ließ sich nicht erzeugen.'),
       });
       setStep('entropy');
     }
@@ -200,10 +202,10 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
         tone: 'error',
         text:
           failure.kind === 'vault-locked'
-            ? 'Der Tresor ist gesperrt.'
+            ? t('Der Tresor ist gesperrt.')
             : failure.kind === 'error'
               ? failure.message
-              : `Fehler (${failure.kind})`,
+              : t('Fehler ({kind})', { kind: failure.kind }),
       });
     } finally {
       setBusy(false);
@@ -213,27 +215,31 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
   const pass = passphrase || null;
 
   if (step === 'settings') {
+    const [leadBefore = '', leadAfter = ''] = t(
+      'Ein neuer SSH-Schlüssel, erzeugt auf diesem Rechner. Standard ist {default} – den nimmt jeder Server.',
+    ).split('{default}');
     return (
       <div className="keygen" data-step="settings">
         <div className="keygen-intro">
           <NyuScene name="keys" className="keygen-scene" />
           <div>
             <p className="dialog-lead">
-              Ein neuer SSH-Schlüssel, erzeugt auf diesem Rechner. Standard ist{' '}
-              <b>RSA mit 2048 Bit</b> – den nimmt jeder Server.
+              {leadBefore}
+              <b>{t('RSA mit 2048 Bit')}</b>
+              {leadAfter}
             </p>
-            <p className="field-hint">Alles andere findest du unter „Erweitert“.</p>
+            <p className="field-hint">{t('Alles andere findest du unter „Erweitert“.')}</p>
           </div>
         </div>
 
-        <div className="segmented keygen-tabs" role="tablist" aria-label="Ansicht">
+        <div className="segmented keygen-tabs" role="tablist" aria-label={t('Ansicht')}>
           <button
             role="tab"
             aria-selected={!advanced}
             aria-checked={!advanced}
             onClick={() => setAdvanced(false)}
           >
-            Einfach
+            {t('Einfach')}
           </button>
           <button
             role="tab"
@@ -241,15 +247,15 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
             aria-checked={advanced}
             onClick={() => setAdvanced(true)}
           >
-            Erweitert
+            {t('Erweitert')}
           </button>
         </div>
 
         {advanced && (
           <div className="keygen-advanced">
             <fieldset className="field">
-              <span>Schlüsseltyp</span>
-              <div className="segmented" role="radiogroup" aria-label="Schlüsseltyp">
+              <span>{t('Schlüsseltyp')}</span>
+              <div className="segmented" role="radiogroup" aria-label={t('Schlüsseltyp')}>
                 {(
                   [
                     ['rsa', 'RSA'],
@@ -271,8 +277,8 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
             </fieldset>
             {choice === 'rsa' && (
               <fieldset className="field">
-                <span>Schlüssellänge</span>
-                <div className="segmented" role="radiogroup" aria-label="Schlüssellänge">
+                <span>{t('Schlüssellänge')}</span>
+                <div className="segmented" role="radiogroup" aria-label={t('Schlüssellänge')}>
                   {[1024, 2048, 3072, 4096].map((value) => (
                     <button
                       key={value}
@@ -287,15 +293,15 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
                 </div>
                 {bits === 1024 && (
                   <em className="field-error">
-                    1024 Bit gelten als zu schwach – nur für sehr alte Geräte.
+                    {t('1024 Bit gelten als zu schwach – nur für sehr alte Geräte.')}
                   </em>
                 )}
               </fieldset>
             )}
             {choice === 'ecdsa' && (
               <fieldset className="field">
-                <span>Kurve</span>
-                <div className="segmented" role="radiogroup" aria-label="Kurve">
+                <span>{t('Kurve')}</span>
+                <div className="segmented" role="radiogroup" aria-label={t('Kurve')}>
                   {[256, 384, 521].map((value) => (
                     <button
                       key={value}
@@ -312,27 +318,27 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
             )}
             {choice === 'ed25519' && (
               <p className="field-hint">
-                Kurz, schnell und modern – von OpenSSH ab 6.5 und PuTTY ab 0.68 unterstützt.
+                {t('Kurz, schnell und modern – von OpenSSH ab 6.5 und PuTTY ab 0.68 unterstützt.')}
               </p>
             )}
             <p className="field-hint">
-              Speicherformate (OpenSSH, PuTTY .ppk v3/v2, PEM) wählst du nach dem Erzeugen.
+              {t('Speicherformate (OpenSSH, PuTTY .ppk v3/v2, PEM) wählst du nach dem Erzeugen.')}
             </p>
           </div>
         )}
 
         <label className="field">
-          <span>Kommentar</span>
+          <span>{t('Kommentar')}</span>
           <input
             value={keyComment}
-            placeholder="z. B. lorin@laptop"
+            placeholder={t('z. B. lorin@laptop')}
             spellCheck={false}
             onChange={(e) => setKeyComment(e.target.value)}
           />
         </label>
         <div className="form-row">
           <label className="field grow">
-            <span>Passphrase (optional)</span>
+            <span>{t('Passphrase (optional)')}</span>
             <input
               type="password"
               value={passphrase}
@@ -341,7 +347,7 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
             />
           </label>
           <label className="field grow">
-            <span>Wiederholen</span>
+            <span>{t('Wiederholen')}</span>
             <input
               type="password"
               value={repeat}
@@ -351,13 +357,13 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
             />
           </label>
         </div>
-        {mismatch && <p className="field-error">Die Passphrasen stimmen nicht überein.</p>}
+        {mismatch && <p className="field-error">{t('Die Passphrasen stimmen nicht überein.')}</p>}
 
         <div className="keygen-actions">
           <span className="keygen-summary">{describeKind(choice, bits, curve)}</span>
           <span className="spacer" />
           <button className="primary" disabled={!settingsReady} onClick={() => setStep('entropy')}>
-            Weiter
+            {t('Weiter')}
           </button>
         </div>
       </div>
@@ -368,7 +374,9 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
     return (
       <div className="keygen" data-step="entropy">
         <p className="dialog-lead">
-          Für einen guten Schlüssel braucht Nyu ein bisschen Zufall. Lass sie den Laserpunkt jagen!
+          {t(
+            'Für einen guten Schlüssel braucht Nyu ein bisschen Zufall. Lass sie den Laserpunkt jagen!',
+          )}
         </p>
         <NyuLaserPad
           progress={progress}
@@ -376,10 +384,10 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
           onEntropy={onEntropy}
           hint={
             step === 'generating'
-              ? 'Nyu schmiedet deinen Schlüssel …'
+              ? t('Nyu schmiedet deinen Schlüssel …')
               : progress >= 1
-                ? 'Genug Zufall gesammelt ✧'
-                : 'Bewege die Maus über das Feld'
+                ? t('Genug Zufall gesammelt ✧')
+                : t('Bewege die Maus über das Feld')
           }
         />
         {message && (
@@ -393,7 +401,7 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
             onClick={() => setStep('settings')}
             disabled={step === 'generating'}
           >
-            Zurück
+            {t('Zurück')}
           </button>
           <span className="spacer" />
           {progress < 1 && (
@@ -401,9 +409,11 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
               className="link-button keygen-skip"
               onClick={() => void generate()}
               disabled={step === 'generating'}
-              title="Der Zufall des Betriebssystems reicht für einen sicheren Schlüssel; die Mausbewegung kommt nur obendrauf."
+              title={t(
+                'Der Zufall des Betriebssystems reicht für einen sicheren Schlüssel; die Mausbewegung kommt nur obendrauf.',
+              )}
             >
-              Ohne Maus erzeugen
+              {t('Ohne Maus erzeugen')}
             </button>
           )}
           <button
@@ -411,7 +421,7 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
             disabled={progress < 1 || step === 'generating'}
             onClick={() => void generate()}
           >
-            {step === 'generating' ? 'Erzeuge …' : 'Schlüssel erzeugen'}
+            {step === 'generating' ? t('Erzeuge …') : t('Schlüssel erzeugen')}
           </button>
         </div>
       </div>
@@ -420,6 +430,7 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
 
   const info = generated?.info;
   if (!generated || !info) return null;
+  const [readyBefore = '', readyAfter = ''] = t('{key} ist fertig ✧').split('{key}');
 
   return (
     <div className="keygen" data-step="done">
@@ -427,17 +438,19 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
         <NyuScene name="done" className="keygen-scene" />
         <div>
           <p className="keygen-title">
-            {info.label} <span>ist fertig ✧</span>
+            {readyBefore}
+            {info.label} <span>{readyAfter.trim()}</span>
           </p>
           <p className="field-hint">
-            {info.comment ? <code>{info.comment}</code> : 'ohne Kommentar'}
-            {passphrase ? ' · mit Passphrase' : ' · ohne Passphrase'}
+            {info.comment ? <code>{info.comment}</code> : t('ohne Kommentar')}
+            {' · '}
+            {passphrase ? t('mit Passphrase') : t('ohne Passphrase')}
           </p>
         </div>
       </div>
 
       <div className="key-facts">
-        <pre className="randomart" aria-label="Randomart des Schlüssels">
+        <pre className="randomart" aria-label={t('Randomart des Schlüssels')}>
           {info.randomart}
         </pre>
         <dl>
@@ -453,30 +466,31 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
       </div>
 
       <label className="field">
-        <span>Public Key – gehört auf den Server in ~/.ssh/authorized_keys</span>
+        <span>{t('Public Key – gehört auf den Server in ~/.ssh/authorized_keys')}</span>
         <textarea className="key-text" readOnly rows={3} value={info.publicOpenssh} />
       </label>
       <div className="keygen-row">
         <button onClick={() => void copy(info.publicOpenssh).then(() => flash('public'))}>
           <Icon name={copied === 'public' ? 'check' : 'copy'} size={15} />
-          {copied === 'public' ? 'Kopiert' : 'Kopieren'}
+          {copied === 'public' ? t('Kopiert') : t('Kopieren')}
         </button>
         <button
           disabled={busy}
           onClick={() =>
             void run(async () => {
               const saved = await keygenSavePublic(generated.token, label || info.label);
-              if (saved) setMessage({ tone: 'info', text: `Gespeichert als ${saved}` });
+              if (saved)
+                setMessage({ tone: 'info', text: t('Gespeichert als {name}', { name: saved }) });
             })
           }
         >
           <Icon name="download" size={15} />
-          Als .pub speichern…
+          {t('Als .pub speichern…')}
         </button>
       </div>
 
       <fieldset className="field keygen-private">
-        <span>Private Key</span>
+        <span>{t('Private Key')}</span>
         <div className="keygen-row">
           <select
             className="select"
@@ -504,7 +518,7 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
             }
           >
             <Icon name="eye" size={15} />
-            {privateText ? 'Verbergen' : 'Anzeigen'}
+            {privateText ? t('Verbergen') : t('Anzeigen')}
           </button>
           <button
             disabled={busy}
@@ -516,19 +530,20 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
             }
           >
             <Icon name={copied === 'private' ? 'check' : 'copy'} size={15} />
-            {copied === 'private' ? 'Kopiert' : 'Kopieren'}
+            {copied === 'private' ? t('Kopiert') : t('Kopieren')}
           </button>
           <button
             disabled={busy}
             onClick={() =>
               void run(async () => {
                 const saved = await keygenSave(generated.token, format, pass, label || info.label);
-                if (saved) setMessage({ tone: 'info', text: `Gespeichert als ${saved}` });
+                if (saved)
+                  setMessage({ tone: 'info', text: t('Gespeichert als {name}', { name: saved }) });
               })
             }
           >
             <Icon name="download" size={15} />
-            Speichern…
+            {t('Speichern…')}
           </button>
         </div>
         {privateText && <textarea className="key-text" readOnly rows={8} value={privateText} />}
@@ -536,15 +551,17 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
           className="field-hint"
           data-tone={format === 'putty-v2' && passphrase ? 'warning' : undefined}
         >
-          {passphraseNote(format, Boolean(passphrase))} Kopiert wird am Verlauf von Windows vorbei,
-          nach einer Minute ist die Zwischenablage wieder leer.
+          {passphraseNote(format, Boolean(passphrase))}{' '}
+          {t(
+            'Kopiert wird am Verlauf von Windows vorbei, nach einer Minute ist die Zwischenablage wieder leer.',
+          )}
         </em>
       </fieldset>
 
       {onStore && (
         <div className="keygen-store">
           <label className="field grow">
-            <span>Name im Tresor</span>
+            <span>{t('Name im Tresor')}</span>
             <input value={label} onChange={(e) => setLabel(e.target.value)} />
           </label>
           <button
@@ -559,7 +576,7 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
             }
           >
             <Icon name="key" size={15} />
-            {storeLabel ?? 'In den Tresor legen'}
+            {storeLabel ?? t('In den Tresor legen')}
           </button>
         </div>
       )}
@@ -582,7 +599,7 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
             setStep('settings');
           }}
         >
-          Noch einen erzeugen
+          {t('Noch einen erzeugen')}
         </button>
       </div>
     </div>

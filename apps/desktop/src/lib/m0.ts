@@ -21,6 +21,7 @@
 
 import type { Renderer, TerminalDriver } from './driver';
 import { trackFrames, type FrameStats } from './frames';
+import { N_ } from './i18n';
 import { sessionMetrics, spawnM0Session, type M0Scenario, type MetricsSnapshot } from './session';
 
 export type ScenarioDef = M0Scenario & { id: string; label: string };
@@ -30,21 +31,21 @@ const PAYLOAD_MIB = 64;
 export const SCENARIOS: ScenarioDef[] = [
   {
     id: 'direct-raw',
-    label: 'Direkt, ohne Flow-Control',
+    label: N_('Direkt, ohne Flow-Control'),
     kind: 'synthetic',
     flowControl: false,
     payloadMib: PAYLOAD_MIB,
   },
   {
     id: 'direct-flow',
-    label: 'Direkt, mit Flow-Control',
+    label: N_('Direkt, mit Flow-Control'),
     kind: 'synthetic',
     flowControl: true,
     payloadMib: PAYLOAD_MIB,
   },
   {
     id: 'conpty-flow',
-    label: 'ConPTY (type), mit Flow-Control',
+    label: N_('ConPTY (type), mit Flow-Control'),
     kind: 'pty',
     flowControl: true,
     payloadMib: PAYLOAD_MIB,
