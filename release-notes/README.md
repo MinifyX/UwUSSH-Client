@@ -12,8 +12,8 @@ without it. The text appears under "Was ist neu?" in UwUSSH's update hint and on
 
 ## Releasing a version
 
-1. Set the version in `Cargo.toml` (workspace), `apps/desktop/src-tauri/tauri.conf.json`,
-   `apps/setup/src-tauri/tauri.conf.json` and the `package.json` files.
+1. Set the version in `Cargo.toml` (workspace), the `tauri.conf.json` of `apps/desktop`, `apps/setup` and
+   `apps/keygen`, and the `package.json` files.
 2. Add `release-notes/<version>.json`.
 3. Commit, tag `v<version>` and push both.
 4. Run `pnpm release` on Windows, with the tag checked out.

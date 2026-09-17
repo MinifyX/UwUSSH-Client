@@ -48,6 +48,20 @@ The point where I can stop using anything else.
   [architecture](architecture.md#tabs).
 - **Settings are done**: theme and animations, terminal font size, cursor,
   scrollback, copy and paste keys, locking the vault, the update channel.
+- **Workspaces and drag and drop are done** (0.1.0-beta.2): Private and
+  Business in one sidebar, groups as records of their own, and hosts and groups
+  sorted by dragging, within a workspace and across.
+- **Keyword highlighting is done**: errors, warnings, success words, addresses,
+  and rules of your own, as xterm.js decorations that never touch the bytes.
+  Ctrl+mouse wheel sets the text size.
+- **The password helper is done**: when a prompt like sudo's shows up in a
+  session that logged in with a password, a pill offers to type it (or
+  Ctrl+Shift+P). It asks every time; nothing is typed on its own.
+- **System detection is done**: after login, one small probe (`uname`,
+  `/etc/os-release`) and the SSH banner tell Ubuntu from Windows from Cisco,
+  and the host list shows it as an icon.
+- **Export and import of UwUSSH's own file are done**: everything in one
+  `.uwussh` file, sealed with a password when it carries secrets.
 - Still to do: splits, agent auth (Pageant, `\\.\pipe\openssh-ssh-agent`,
   1Password), ProxyJump chains
 - Snippets, broadcast input, themes, the command palette
@@ -56,20 +70,35 @@ The point where I can stop using anything else.
   memory, no file on disk — and when the vault is locked the app asks for the
   master password and reconnects. The host key is still checked before any
   secret is sent.
-- First Nyu scenes and the playful/neutral string split
+- **First Nyu scenes are done**: vault, connecting, files, keys, goodbye, the
+  laser pad in UwUKeygen. Still to do: the playful/neutral string split
 
 ## M2 · Vault and sync
 
 - **The vault's local crypto is done, early** — the Termius import had to put
   its secrets somewhere. Master password → Argon2id → wrapped vault key,
-  XChaCha20-Poly1305 per record, created and unlocked from the app. Still to do
-  here: recovery kit, OS keychain and biometric unlock, auto-lock.
+  XChaCha20-Poly1305 per record, created and unlocked from the app.
+- **Passwords and keys per host are done** (0.1.0-beta.2): the host form keeps a
+  password or a vault key, a typed password can be saved on the way in, and
+  keys are generated, imported, exported and assigned from Settings → Vault &
+  Keys.
+- **Unlock with the Windows account is done**: the vault key, sealed with DPAPI
+  for the signed-in user, opens the vault at start — one master password once,
+  then never again on this machine, until you turn it off. Still to do here:
+  recovery kit, Windows Hello and biometric unlock, auto-lock.
 - `UwUSSH-Server` v1: Axum, SQLite, Docker image, admin CLI
 - Device pairing (password and QR), device revocation, conflict resolution
 
 ## M3 · SFTP and tunnels
 
-- SFTP browser, two columns, drag and drop
+- **The file browser is done, early** (0.1.0-beta.2): this computer on the
+  left, the server on the right, over SFTP with the host's login — or an SMB
+  share on the same host. Drag and drop between the panes and from Explorer,
+  transfers with progress and cancel, new folder, rename, delete, permissions.
+  **Root** reconnects the SFTP side through `sudo` and starts at `/`. See
+  [architecture](architecture.md#files).
+- **UwUKeygen is done**: PuTTYgen with Nyu, RSA 2048 by default and everything
+  else under Advanced, in the host form and as its own app the installer adds.
 - Open a remote file in the local editor and write it back
 - Port forwarding manager: local, remote, dynamic, with autostart per host
 

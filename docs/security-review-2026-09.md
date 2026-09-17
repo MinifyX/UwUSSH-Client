@@ -1,5 +1,8 @@
 # Security review, September 2026
 
+Two rounds: the first [before the first beta](#the-trust-boundary), the second
+[before the second](#second-round-before-010-beta2).
+
 Done before the first beta (0.1.0-beta.1), across the whole client: the vault
 and store, the SSH engine, the importers, the Tauri commands, the new installer
 and updater, and the web page. What was found, what was fixed, and what is left
@@ -79,3 +82,75 @@ Found and fixed while building the beta, before this review:
   for the same address, port and user.
 - The setup deletes only files it names and removes folders only when empty.
 - `ssh_config` includes can't loop: canonical paths and a depth limit.
+
+## Second round: before 0.1.0-beta.2
+
+The second beta brought a lot of new surface: file access over SFTP and SMB,
+root through `sudo`, the password helper, passwords and keys per host, the
+vault remembered with DPAPI, export files, UwUKeygen and its place in the
+installer. Three independent reviews went over it, split by area — files and
+the command surface, store and crypto, installer and key generation — against
+the same trust boundary as above. Nothing High was left standing; one High
+(shared logins) was found while it was already being fixed.
+
+### Fixed
+
+| Severity | Where           | What                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| -------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| High     | Store           | Logins a Termius import shares between hosts were changed in place: saving a password for one host gave it to every host with that login — and connecting to one of them sent it there — and deleting a host took the others' login with it. A shared login is now copied before it changes, and a password or login goes only when no host uses it. The upgrade to schema 3 repairs logins the first beta tombstoned. |
+| Medium   | Files, root     | Deleting a folder as root walked the tree over SFTP. A user on the server could swap a listed subfolder for a link to `/etc` between listing and deleting, and the delete went on in there, as root. Root deletes now run the server's own `rm -rf` through `sudo`, which never follows a link; the path is quoted and must be absolute, not `/`, without `..`.                                                        |
+| Medium   | Files, root     | Links to folders listed as plain folders, chmod followed links (SETSTAT does), and uploads followed a link in the target's place. Links are shown as links, chmod refuses them, and files are created with `O_EXCL`; replacing removes the link itself first.                                                                                                                                                          |
+| Medium   | Files, SMB      | Opening an SMB share fell back to the host's stored SSH password. SMB has no host key, so a spoofed name (LLMNR on a hotel network) would have received a crackable hash of it. The password is now always typed for the share; the address must be a plain name or IPv4 address.                                                                                                                                      |
+| Medium   | Export          | Reading an export trusted every host key in it, for any address — a shared host list could pre-trust a key for a server the user adds next month — and brought back keys the user had removed, without checking a fingerprint against its key. Only keys for the file's own hosts are taken, only when the fingerprint is that key's, and never over a key that exists or existed.                                     |
+| Low      | Password helper | The button and Ctrl+Shift+P typed the password plus Enter without a prompt on screen — into bash history, if sudo had timed out — and the prompt patterns also matched `user@other-host's password:`, git's `Password for 'https://…'` and a bare `Password:`. The helper now only reacts to sudo or doas asking for the tab's own user, and checks again right before typing.                                         |
+| Low      | Key files       | A key file's own key derivation settings were used as written: a `.ppk` asking for four billion Argon2 passes froze the window once a passphrase was typed, and PKCS#8 asking scrypt for a terabyte ended the app. Costs far beyond any real key file are refused before the passphrase is tried, and opening encrypted keys runs off the UI thread.                                                                   |
+| Low      | Key files       | The network share check for key paths looked at the path as written: `\??\UNC\server\share` and `~/\\server\share` got through. It now checks the path as it will be opened, and only a drive letter counts as local; export files lose key paths that aren't.                                                                                                                                                         |
+| Low      | Files           | Downloads and uploads replaced existing files and merged folders silently — a server-chosen tree could overwrite `.git/config` in a local folder of the same name. Everything now stops before writing and asks.                                                                                                                                                                                                       |
+| Low      | Files           | Opening file access had no timeout; the "copy into itself" check compared path text, so a mapped drive and its share recursed until the stack overflowed; cancel didn't reach the folder walks. Now a 40 second timeout, resolved case-insensitive paths with a depth limit, and a cancel check in every loop; a reloaded page cancels running transfers.                                                              |
+| Low      | Export          | With "take passwords and keys" ticked but nothing secret stored, the file was written in plain JSON despite the password. A password now always seals. Files asking for more than 256 MiB or eight passes of key derivation are refused.                                                                                                                                                                               |
+| Low      | Store           | Forgotten passwords and a forgotten device key stayed in SQLite's free pages and the write-ahead log. `secure_delete` is on and the log is truncated after forgetting; the upgrade wipes passwords of hosts the first beta deleted.                                                                                                                                                                                    |
+| Low      | System probe    | The probe ran on every connect, and a key with a forced command in `authorized_keys` ran that command again each time; on a timeout its channel stayed open. It runs once per host now and always closes its channel.                                                                                                                                                                                                  |
+| Low      | Files, root     | The sudo handshake took the prompt marker anywhere in the output, and could read into the SFTP stream when the ready marker's newline came separately. The prompt counts only at the very end, and the handshake reads byte by byte up to the stream.                                                                                                                                                                  |
+| Low      | Setup           | The setup closed a running UwUKeygen without asking, losing a generated key that wasn't saved yet. It now counts as running, and the question says what is lost.                                                                                                                                                                                                                                                       |
+
+Smaller hardening in the same pass:
+
+- A private key copied from UwUKeygen goes through Rust with the formats that
+  keep it out of Windows' clipboard history and cloud clipboard, and is cleared
+  after a minute if nothing else was copied. Saved private key files get an
+  access list for this user, SYSTEM and Administrators only.
+- Argon2's working memory is wiped after every derivation; secrets inside a
+  sealed export are base64, so the JSON reader never copies them into a buffer
+  nobody wipes, and the file is written into a buffer sized once.
+- More Windows device names are refused for downloaded names (`COM0`, `COM¹`,
+  `CONIN$`, `com1 .txt`); downloads carry the "from the internet" mark.
+- Imports skip hosts the host form would refuse (spaces or control characters
+  in address or user) and take at most 50,000 entries of a kind.
+- `.ppk` v2 with a passphrase carries a warning: one SHA-1 round protects
+  little against guessing.
+- Forgetting a host's password also forgets the copy an open terminal kept;
+  custom highlight rules with nested repetition like `(a+)+` are refused; the
+  master password's and the export's key derivation run off the UI thread; a
+  picked key file is dropped from memory when its dialog closes.
+
+### Accepted, for now
+
+- **The vault can open with the Windows account.** Remembering the vault key
+  with DPAPI makes the vault exactly as strong as the Windows account: anything
+  running as that user can open it, and so can someone with the account's
+  password and a copy of the disk. That is the user the trust boundary already
+  trusts, it is one checkbox, and Settings turns it off.
+- **A changed host key is accepted with one click.** Typing the address
+  protected nothing the warning doesn't; focus sits on Reject.
+- **Listing a huge remote folder is slow.** `russh-sftp` collects directory
+  batches quadratically; a folder with a million entries holds a worker thread
+  for a long time. Cancel reaches everything around it; a streaming listing
+  needs a change in the library.
+- **Uploading as root into a folder another user can write** can still be
+  raced on folders created on the way; only the final name is `O_EXCL`. Deletes,
+  the dangerous part, don't walk at all.
+- **The login password stays in memory while its terminal is open**, for the
+  helper. It is wiped when the tab closes or the password is forgotten.
+- **UwUKeygen's window keeps Tauri's default permissions.** The page is
+  UwUSSH's own code under the same content security policy; trimming the list
+  gains nothing that boundary doesn't already give.

@@ -31,7 +31,11 @@ long version.
 ```
 
 Private keys and passwords from the vault never cross that line. Authentication
-happens entirely in Rust, and the WebView gets terminal bytes and metadata.
+happens entirely in Rust, and the WebView gets terminal bytes and metadata. What
+does cross goes the other way: a password you type into a dialog, on its way to
+Rust. The one private key the page ever sees is one UwUKeygen has just
+generated, and only when you ask to see or copy it; a key already in the vault
+leaves only into a file, written by Rust.
 That boundary keeps secrets out of the page's memory; it does not make the page
 untrusted. The page can open a local shell and type into it, so it sits inside
 the trust boundary, and what protects it is that it only ever runs UwUSSH's own
@@ -97,6 +101,13 @@ Entities: `Host`, `Group`, `Identity`, `Key`, `Snippet`, `PortForward`,
 `KnownHost`, `TerminalProfile`. `SessionLog` stays local and does not sync by
 default.
 
+Hosts also carry a **workspace** (`private` or `business`), a position and
+the detected system. Workspaces are a view — two lists in one sidebar, like
+UwUMail's accounts — not separate vaults; everything shares one vault and one
+database. Groups are records of their own (`host_groups`: workspace, name,
+position), so an empty group survives and groups keep the order they were
+dragged into.
+
 `Host.jump_host_id` is a self-reference, which gives ProxyJump chains for free:
 `laptop → bastion → db-01` is a linked list the SessionManager resolves
 recursively, with a depth limit of 8 and cycle detection.
@@ -121,6 +132,37 @@ by many more eyes than mine.
 Records are encrypted with `XChaCha20-Poly1305`, a fresh nonce each, and
 `record_id || entity_type || vault_id` as associated data — so a malicious
 server can neither swap blobs between records nor reinterpret their type.
+
+### Opening with the Windows account
+
+Typing the master password at every start is what people turn vaults off for.
+So the vault can be remembered on this device: the vault key is sealed with
+DPAPI (`CryptProtectData` for the signed-in user, with UwUSSH's own entropy)
+and kept in `device_unlock`, next to a check value sealed with the vault key.
+At start the app unseals it, opens the vault with it and verifies the check; a
+key that no longer fits — another vault, a restored database — is dropped
+quietly and the app asks as before.
+
+This is a trade-off, made on purpose and switchable in Settings → Vault & Keys:
+anything that runs as the same Windows user can ask DPAPI for the same key, so
+with remembering on, the vault protects against a copied database and another
+account, not against malware already running as you. That matches the trust
+boundary the app already has — such malware could type into your local shell —
+and it is one checkbox — "remember on this device", ticked by default in the vault dialog, off again in Settings with one click.
+
+### Secrets per host
+
+A host keeps a password or a vault key of its own. Identities (user, key,
+password) are separate records, and an import lets several hosts share one, as
+Termius does. Changing one host's login therefore copies a shared identity
+first, and a password or identity goes away only when no host uses it any more
+— so saving a password for one imported host never hands it to another. Saving the host form with a
+password seals it on the way (`PasswordChange`: keep, set, forget), a password
+typed into the connect dialog can be kept with one checkbox once the login
+succeeded, and forgetting overwrites the sealed blob and leaves a tombstone.
+Keys are vault records with a label and a public key that is readable while
+the vault is locked, so a host form can show which key it uses without
+unlocking anything.
 
 ## Sync
 
@@ -148,8 +190,10 @@ possible; those get a three-way merge with conflict markers.
 
 Every importer is an adapter that writes into one neutral `ImportedHost`
 intermediate form. Everything after that — preview with checkboxes, duplicate
-detection on `address:port`, group assignment, then the write — is shared. A new
-source costs one adapter, not a new pipeline.
+detection on `address:port` and user, group assignment, then the write — is
+shared. A new source costs one adapter, not a new pipeline. Identities and keys
+are written lazily, only when a host that is actually imported uses them, so
+importing Termius a second time adds nothing and asks for no vault.
 
 `.ppk` files from PuTTY and KiTTY need no conversion: russh reads PuTTY key files
 natively, encrypted or not, so a session imported from PuTTY logs in with its
@@ -227,8 +271,29 @@ section has the shape), built earlier than the rest of M2 for exactly this
 reason. The store keeps the vault header and, once unlocked, seals each imported
 secret as it is written — SQLite only ever sees ciphertext — so importing
 requires an unlocked vault, and a failure partway rolls the whole import back,
-sealed secrets included. Hosts already present by `address:port` are skipped and
-a host key already trusted is never overwritten, so a second import is safe.
+sealed secrets included. Hosts already present by `address:port` and user are
+skipped and a host key already trusted is never overwritten, so a second import
+is safe. An import that brings no new secret needs no vault at all.
+
+### UwUSSH's own export
+
+Settings → Import & Export writes everything — workspaces, groups, hosts, keys,
+trusted host keys, snippets, and optionally the passwords and private keys — into
+one `.uwussh` file: JSON inside an envelope (`format`, `version`, the app
+version). With secrets, the whole inner document is sealed with a password of
+its own: Argon2id with the vault's parameters, then XChaCha20-Poly1305, with the
+KDF parameters and the salt in the associated data, so a file can't be made to
+open with other settings than it was written with. Without secrets the file is
+plain JSON, and the dialog says so.
+
+Reading one back is the import pipeline again: the file is chosen in a native
+dialog opened by Rust and parsed there (64 MiB at most, no more key derivation
+work than 256 MiB and eight passes), the page gets a token and a preview with
+counts, and the write goes through the same duplicate checks as any other
+source. A file is data from anywhere, so it is taken with care: host keys only
+for the hosts in the same file, only when the fingerprint really is that key's,
+and never over a key that exists or once existed; key paths only when they are
+on this computer; hosts only when the host form would have accepted them.
 
 ## Connecting
 
@@ -252,7 +317,10 @@ caught that; the order above is the fix.
 Trusting a key goes through the Rust side, which only accepts a fingerprint a
 server actually presented in the last attempt, so a compromised webview cannot
 hand in a key of its own choosing. Replacing a key that was already trusted
-additionally needs the address typed out.
+needs `replace` set explicitly, which only the changed-key warning does. That
+warning used to make you type the address; it is two buttons now, with focus on
+Reject — the warning is what protects, and typing an address you can read right
+above it protected nothing.
 
 Where the login comes from is the host's identity, resolved just before
 connecting: a password to ask for, a key file on disk, or a password or key
@@ -263,6 +331,79 @@ unverified server, and key material reaches the engine as bytes rather than a
 file path. If the host needs a vault secret and the vault is locked, connecting
 stops with `vault-locked`, and the app asks for the master password and
 reconnects.
+
+After the first login to a host, the same connection runs one short command on
+an exec channel — `uname`, `/etc/os-release` and a few marker files, 8
+seconds at most, the channel closed on every way out — and together with the
+server's SSH banner (`Cisco-1.25`, `ROSSSH`, `OpenSSH_for_Windows`) that
+names the system. Only while the system is unknown: a key with a forced command
+in `authorized_keys` runs that command for every exec. The result is stored
+locally and shown as an icon; it never syncs and never decides anything.
+
+### The password helper
+
+A session that logged in with a password keeps that password in Rust memory
+for as long as the session lives, or until the host's stored password is
+forgotten. When the cursor's line is sudo's or doas' prompt asking for the very
+user the tab logged in as (`[sudo] password for uwu:`,
+`[sudo] Passwort für uwu:`, `doas (uwu@host) password:`), a pill offers to type
+it; Ctrl+Shift+P does the same. Nothing else counts: a bare `Password:` may be
+su, docker or ftp, `user@other's password:` is another server, and git's
+`Password for 'https://…':` is a website — the password would go somewhere it
+doesn't belong. The page only asks `type_session_password` for its own
+session and never gets the password; Rust writes it into that session and
+nowhere else. Nothing is typed without a click, and the prompt is checked again
+right before typing, so a password never lands in a shell because sudo timed
+out while the vault was being unlocked.
+
+## Files
+
+A file tab opens its own SSH connection with the host's login — the same
+negotiation as a terminal: host key first, then the stored or asked-for
+secret — and speaks SFTP on it (`russh-sftp`). The left pane is this computer,
+read and written by Rust; the right pane is the server. Transfers run in Rust
+with a cancel token, checked in every loop, and report progress over a
+channel. Names that come from the server go through `safe_local_name` before
+they touch the disk, which refuses anything that could leave the target folder
+or mean something else to Windows (`..`, separators, drive letters, device
+names like `COM1 .txt` or `CONOUT$`, alternate data streams). Downloads get
+the same "from the internet" mark a browser gives them (`Zone.Identifier`), so
+SmartScreen and Office's Protected View treat them that way.
+
+**Nothing is overwritten unless you say so.** A transfer whose name is already
+taken stops before writing anything and asks; replacing then overwrites files
+and merges folders. Remote files are created with `O_EXCL`, which also refuses
+a link in their place, and replacing one removes what is there — the link
+itself, never what it points to. Links are shown as links, and permissions
+can't be changed on one, since the server would change its target instead.
+
+**Root.** SFTP has no `sudo`, so UwUSSH does what people do by hand: it runs
+the server's own `sftp-server` through `sudo` on a pseudo-terminal, with a
+prompt marker of its own. The password is written once, only when that marker
+shows up, and a second marker says `sftp-server` started before the terminal
+is switched to raw and the SFTP handshake begins. A missing or wrong password
+keeps the verified connection waiting for the next try, like a login. As root
+the pane starts at `/`, and the password is only taken at sudo's own prompt —
+a marker at the very end of what the server printed, not one inside some echoed
+command line.
+
+Deleting as root doesn't walk the tree over SFTP. From the client that walk can
+be raced: a user on the server swaps a listed folder for a link to `/etc`, and
+the next delete goes in there as root. SFTP can't open a folder without
+following links, so a root delete runs the server's own `rm -rf` through
+`sudo` instead, which walks relative to folders it already opened and never
+follows a link. The path is quoted for the shell and must be absolute, not `/`,
+and free of `..`.
+
+**SMB.** The right pane can also show a share on the same host
+(`\\host\share`), connected by Windows with the host's user and a password
+typed for it (`WNetAddConnection2W`), then browsed like a local folder. Never
+the stored SSH password: SMB has nothing like a host key, so whoever answers to
+the name — a spoofed `nas` on hotel Wi-Fi — would get a crackable hash of it.
+The address must be a plain host name or IPv4 address, nothing Windows reads as
+a port or WebDAV. A local copy never goes into itself, checked on the resolved
+paths (a mapped drive is its share, case doesn't matter), and never deeper than
+128 folders.
 
 ## Tabs
 
@@ -302,7 +443,9 @@ connections asks first (Settings → Terminal can turn that off).
 ## Installer and updates
 
 Windows gets UwUSSH's own setup, the same one UwUMail uses: a small Tauri app in
-`apps/setup` with the release build of the app packed inside (zstd). It installs
+`apps/setup` with the release builds of the app and of UwUKeygen packed inside
+(two zstd payloads; UwUKeygen is optional, ticked by default, and remembered for
+updates). It installs
 per user into `%LOCALAPPDATA%\Programs\UwUSSH` without an admin prompt, adds
 Start menu and desktop shortcuts, registers with "Installed apps", replaces the
 standard NSIS install of 0.0.1 if it finds one, and fetches WebView2 where it is
@@ -325,18 +468,38 @@ running from the same file, nothing hands over, so its connections aren't cut
 off. `pnpm release` builds, signs, verifies and publishes; see
 [release-notes/README.md](../release-notes/README.md).
 
+## UwUKeygen
+
+`crates/uwussh-keygen` generates RSA (1024–4096, 2048 by default), Ed25519
+and ECDSA (P-256, P-384, P-521) keys and writes them as OpenSSH, PuTTY `.ppk`
+v3 and v2, or PKCS#8 PEM, encrypted when there is a passphrase. Randomness
+comes from the operating system; what the mouse adds on Nyu's laser pad is
+mixed in on top, never instead. The UI is `components/keygen`, used by the host
+form, by Settings → Vault & Keys, and by `apps/keygen`, the standalone app,
+which includes the same Rust commands and knows nothing about a vault.
+
+A copied private key goes through Rust, with the clipboard formats that keep it
+out of Windows' clipboard history and cloud clipboard, and is cleared again
+after a minute unless something else was copied. A saved one gets an access
+list for this user, SYSTEM and Administrators only — what Win32-OpenSSH wants
+anyway. Reading a key file checks its own key derivation settings before a
+passphrase is tried (`check_costs`): a `.ppk` asking for four billion Argon2
+passes, or PKCS#8 asking scrypt for a terabyte, is refused rather than run.
+
 ## Storage
 
 `crates/uwussh-store` keeps hosts, identities and trusted host keys in one
 SQLite file — bundled SQLite, WAL — in the app data directory, or wherever
 `UWUSSH_DB` points. Records carry the sync header from the first row on, so sync
-in M2 needs no data migration.
+in M2 needs no data migration. `secure_delete` is on, and the write-ahead log
+is truncated after a secret is forgotten, so an old password's ciphertext
+doesn't linger in free pages.
 
-**Nothing secret is stored outside the vault.** A manually added host still
-asks for its password on every connect and references a key by file path; an
-imported host keeps its password or key in the vault (see
-[Import](#the-vault-an-import-lands-in)), sealed, and reveals it only while the
-vault is unlocked.
+**Nothing secret is stored outside the vault.** A host either asks for its
+password, references a key by file path, or keeps its password or key in the
+vault, sealed, revealed only while the vault is unlocked. The one exception is
+the vault key sealed with DPAPI when the vault is remembered on this device (see
+[above](#opening-with-the-windows-account)).
 
 ## How it is tested
 
@@ -349,7 +512,10 @@ vault is unlocked.
   connection, keystroke order, resize, remote exit, an 8 MiB flood that
   arrives complete under a deliberately slow renderer, two tabs logging in to
   the same server side by side, and a reloaded page closing what the old one
-  left open.
+  left open. `tests/files.rs` does the same for files: browsing, upload,
+  download, rename, delete and cancel against an in-process SFTP server, root
+  through a toy `sudo` with no, a wrong and the right password on one login, and
+  the system probe.
 - **The setup** is tested against a sandbox (`UWUSSH_SETUP_SANDBOX`): files,
   shortcuts and registry entries land in a throwaway folder and key, including
   replacing the old NSIS install and uninstalling with and without the data.
@@ -365,7 +531,12 @@ vault is unlocked.
   database seeded with a vault-key host (via the `seed_vault_key` example) and
   a `dev_sshd` that authorizes the key: connecting unlocks the vault, trusts
   the key and logs in with the vault key, and the server's log confirms an
-  accepted public key and no password.
+  accepted public key and no password. Since 0.1.0-beta.2 the run also checks
+  the detected system and its icon, highlighting, Ctrl+wheel, the sudo helper
+  (typed once, only after the click), saving a password into a new vault this
+  device remembers, dragging hosts between groups and workspaces, a file tab
+  downloading and uploading by drag and drop, and an export that a fourth phase
+  reads back into a fresh database, wrong password first.
 
 The end-to-end run earned its place on its first outing. It found four bugs no
 other test could see: the password asked for before a changed host key was

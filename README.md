@@ -58,33 +58,43 @@ can remember and more than one machine to reach them from.
   Settings → Tone → Neutral. Security warnings are never playful, in either
   tone.
 
-> **Status: first beta.** [UwUSSH 0.1.0-beta.1](https://github.com/MinifyX/UwUSSH-Client/releases)
-> is out for Windows, with its own installer (the same Nyu setup as UwUMail's)
-> and signed automatic updates in a Stable and a Beta channel. Every connection
-> gets its own tab, several to the same server too, and there is a settings page
-> for the look, the terminal, the vault and updates. It is a beta: expect rough
-> edges.
+> **Status: beta.** [UwUSSH 0.1.0-beta.2](https://github.com/MinifyX/UwUSSH-Client/releases)
+> is out for Windows, with its own installer and signed automatic updates in a
+> Stable and a Beta channel. It is a beta: expect rough edges.
 >
-> Milestone 0 is done, and the Termius import works. UwUSSH connects
-> to SSH hosts — password or key file, PuTTY `.ppk` included — keeps a host
-> list, and checks host keys on first contact and every time after. The terminal
-> path is measured: 41–46 MiB/s without a stuttering frame, as long as the
-> renderer acknowledges what it parsed, because without that xterm.js silently
-> drops output ([the spike](docs/m0-spike.md)).
+> **What works.** SSH with a password or a key — OpenSSH, PEM and PuTTY `.ppk` —
+> with host keys checked on first contact and every time after, in tabs, on a
+> terminal path measured at 41–46 MiB/s ([the spike](docs/m0-spike.md)).
 >
-> Termius has no export, so UwUSSH reads its local database directly — hosts,
-> logins, keys with their passphrases, trusted host keys and snippets — and puts
-> the secrets in an encrypted vault ([how](docs/architecture.md#termius-which-has-no-export)).
-> PuTTY and KiTTY sessions come straight out of the registry, and `~/.ssh/config`
-> is read with its `Include` directives followed. Splits, agent login and
-> ProxyJump come next; the [roadmap](docs/roadmap.md) has the order.
+> - Hosts live in two workspaces, **Private and Business**, in groups you sort by
+>   drag and drop, each with a little icon for the system the server runs
+>   (Ubuntu, Debian, Fedora, Windows, Cisco and friends, detected on connect).
+> - Passwords and keys can live in an **encrypted vault**. Unlock it once, or let
+>   this Windows account open it on its own. When `sudo` asks for the password
+>   in the terminal, one click types it.
+> - A **file browser**: your computer on the left, the server on the right, over
+>   SFTP or an SMB share, with drag and drop both ways and a root mode through
+>   `sudo` that starts at `/`.
+> - **UwUKeygen**, a PuTTYgen with Nyu: RSA, Ed25519, ECDSA, OpenSSH, PuTTY and PEM
+>   output, randomness from chasing a laser pointer. Built into the host form, and
+>   as its own small app the installer can add.
+> - Keyword highlighting in the terminal, Ctrl+mouse wheel for the text size,
+>   and an export of everything into one file, sealed with a password when it
+>   carries secrets, that UwUSSH reads back in.
+> - Imports from Termius (its local database, since Termius has no export —
+>   [how](docs/architecture.md#termius-which-has-no-export)), PuTTY and KiTTY
+>   from the registry, and `~/.ssh/config` with its `Include`s.
+>
+> Splits, agent login and ProxyJump come next; the [roadmap](docs/roadmap.md) has
+> the order.
 
 ## Install
 
 Download `UwUSSH-Setup-<version>.exe` from the
 [releases](https://github.com/MinifyX/UwUSSH-Client/releases) and run it. It
 installs for your Windows user only, so no admin prompt, and keeps itself up to
-date. Beta or stable: Settings → Updates.
+date. Beta or stable: Settings → Updates. UwUKeygen comes with it unless you
+untick it in the setup.
 
 ## The sync server
 
@@ -108,21 +118,23 @@ downgrade.
 
 ## Project layout
 
-| Path                   | What lives there                                |
-| ---------------------- | ----------------------------------------------- |
-| `apps/desktop`         | The Tauri 2 app (React UI + Rust shell)         |
-| `apps/setup`           | The Windows installer, updater and uninstaller  |
-| `apps/desktop/e2e`     | End-to-end run against a real SSH server        |
-| `crates/uwussh-core`   | Session engine: SSH, local shells, flow control |
-| `crates/uwussh-store`  | SQLite: hosts, identities, trusted host keys    |
-| `crates/uwussh-vault`  | Key derivation, record encryption               |
-| `crates/uwussh-sync`   | Sync client: clocks, outbox, merging            |
-| `crates/uwussh-import` | PuTTY, KiTTY, `ssh_config`, Termius             |
-| `crates/uwussh-proto`  | Shared types between client and server          |
-| `brand/`               | Nyu: app icon, symbol, mono symbol              |
-| `docs/`                | Vision, architecture, design, roadmap           |
-| `release-notes/`       | What's new, per version                         |
-| `scripts/`             | Building the setup, releasing                   |
+| Path                   | What lives there                                                        |
+| ---------------------- | ----------------------------------------------------------------------- |
+| `apps/desktop`         | The Tauri 2 app (React UI + Rust shell)                                 |
+| `apps/keygen`          | UwUKeygen, the standalone key generator                                 |
+| `apps/setup`           | The Windows installer, updater and uninstaller                          |
+| `apps/desktop/e2e`     | End-to-end run against a real SSH server                                |
+| `crates/uwussh-core`   | Session engine: SSH, SFTP, local shells, flow control, system detection |
+| `crates/uwussh-store`  | SQLite: hosts, groups, keys, trusted host keys, export files            |
+| `crates/uwussh-vault`  | Key derivation, record encryption                                       |
+| `crates/uwussh-keygen` | Key generation: RSA, Ed25519, ECDSA; OpenSSH, PuTTY and PEM output      |
+| `crates/uwussh-sync`   | Sync client: clocks, outbox, merging                                    |
+| `crates/uwussh-import` | PuTTY, KiTTY, `ssh_config`, Termius                                     |
+| `crates/uwussh-proto`  | Shared types between client and server                                  |
+| `brand/`               | Nyu: the UwUSSH and UwUKeygen icons, symbol, mono symbol                |
+| `docs/`                | Vision, architecture, design, roadmap                                   |
+| `release-notes/`       | What's new, per version                                                 |
+| `scripts/`             | Building the setup, releasing                                           |
 
 ## Development
 
@@ -171,7 +183,7 @@ has the steps.
 - [M0 spike](docs/m0-spike.md) — the throughput measurement everything else waits on
 - [Design](docs/design.md) — colors, type, Nyu, tone of voice
 - [Roadmap](docs/roadmap.md) — my wish list, without dates
-- [Security review](docs/security-review-2026-09.md) — what was checked before the first beta, and fixed
+- [Security review](docs/security-review-2026-09.md) — what was checked before each beta, and fixed
 
 ## License
 
