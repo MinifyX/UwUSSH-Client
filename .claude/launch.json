@@ -6,6 +6,12 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--filter", "@uwussh/setup", "dev"],
       "port": 1430
+    },
+    {
+      "name": "uwussh-desktop-ui",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@uwussh/desktop", "dev"],
+      "port": 1420
     }
   ]
 }

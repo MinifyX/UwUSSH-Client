@@ -50,9 +50,12 @@ type KindChoice = 'rsa' | 'ed25519' | 'ecdsa';
  * Moments of play to collect. A moment is a sample at least `MOMENT_MS`
  * after the last one and `MOMENT_MOVE` away from it: a fast mouse sends a
  * thousand samples a second, and counting those filled the bar before Nyu had
- * a chance to pounce. This is a good quarter of a minute of chasing the dot.
+ * a chance to pounce. These are around ten seconds of chasing the dot: long
+ * enough for a proper round of play, short enough that nobody waits it out.
+ * The key's strength never rested on it anyway — the OS provides that, and the
+ * movement only gets hashed in on top.
  */
-const ENTROPY_TARGET = 360;
+const ENTROPY_TARGET = 150;
 const MOMENT_MS = 40;
 /** In 1/16 CSS px, like the samples: 6 px. */
 const MOMENT_MOVE = 96;

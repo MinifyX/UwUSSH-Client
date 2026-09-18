@@ -63,6 +63,15 @@ const REACH = 62;
 const CATCH_RADIUS = 22;
 /** Pad units per second. Faster than this and she gives chase. */
 const CHASE_SPEED = 820;
+/** The dot counts as lying still once it has not really moved for this long. */
+const STILL_MS = 600;
+/** How long she gathers herself before a pounce — shorter mid-stalk, when she is already on the hunt. */
+const CROUCH_MS = 800;
+const STALK_CROUCH_MS = 240;
+/** Hops at a dot she cannot reach before she sits back and watches it instead. */
+const STALK_TRIES = 3;
+/** A dot she has caught, or cannot reach, gets left alone this long before she tries it once more. */
+const AGAIN_MS = 6000;
 const SPARKLE_SPEED = 1100;
 const TRAIL = 6;
 const SPARKS = 4;
@@ -170,6 +179,13 @@ type Sim = {
   caughtX: number;
   caughtY: number;
   cooldownUntil: number;
+  /** Creeping up on a dot that lies still: one hop follows the next. */
+  stalking: boolean;
+  /** Hops that ended short of the dot, and how far away the last one ended. */
+  misses: number;
+  missDist: number;
+  /** She is through with this dot — caught or unreachable; it has to move (or wait) to be worth another go. */
+  lostInterest: boolean;
   frame: number;
   last: number;
 };
@@ -219,6 +235,10 @@ function createSim(): Sim {
     caughtX: 0,
     caughtY: 0,
     cooldownUntil: 0,
+    stalking: false,
+    misses: 0,
+    missDist: 1e6,
+    lostInterest: false,
     frame: 0,
     last: 0,
   };
@@ -508,6 +528,12 @@ export function NyuLaserPad({
       pad.dataset.inside = String(sim.pointerInside || sim.keyboard);
     };
 
+    const stopStalking = () => {
+      sim.stalking = false;
+      sim.misses = 0;
+      sim.missDist = 1e6;
+    };
+
     const goIdle = (wondering: boolean) => {
       clearTimers();
       showInside();
@@ -537,6 +563,8 @@ export function NyuLaserPad({
       sim.stillY = sim.laserY;
       sim.stillSince = now;
       sim.cooldownUntil = now + 300;
+      stopStalking();
+      sim.lostInterest = false;
       setPhase('watch', now);
       wake();
     };
@@ -557,6 +585,8 @@ export function NyuLaserPad({
         sim.stillX = sim.laserX;
         sim.stillY = sim.laserY;
         sim.stillSince = now;
+        // It moved, so it is alive again — worth catching a second time.
+        sim.lostInterest = false;
       }
     };
 
@@ -628,6 +658,7 @@ export function NyuLaserPad({
     };
 
     const catchIt = (now: number) => {
+      stopStalking();
       sim.caughtX = sim.laserX;
       sim.caughtY = sim.laserY;
       setPhase('caught', now);
@@ -635,6 +666,7 @@ export function NyuLaserPad({
     };
 
     const release = (now: number, escaped: boolean) => {
+      stopStalking();
       if (escaped) {
         sim.cooldownUntil = now + 500;
       } else {
@@ -648,6 +680,9 @@ export function NyuLaserPad({
         sim.hopDuration = 260;
         sim.hopHeight = 9;
         sim.cooldownUntil = now + 900;
+        // A dot she caught herself is dealt with: she guards it and waits for
+        // it to move rather than pouncing on the same spot over and over.
+        sim.lostInterest = true;
       }
       setPhase('watch', now);
     };
@@ -657,10 +692,21 @@ export function NyuLaserPad({
       if (sim.phase !== 'pounce') return;
       if (sim.dist < REACH + CATCH_RADIUS) {
         catchIt(now);
-      } else {
-        sim.cooldownUntil = now + (sim.speed > CHASE_SPEED ? 90 : 350);
-        setPhase('watch', now);
+        return;
       }
+      // Short of it. While the dot lies still she stays on the hunt and gathers
+      // herself for the next hop right away — but one she cannot reach at all,
+      // parked in a corner of the mat, is worth a few tries and then a stare.
+      const closer = sim.dist < sim.missDist - 12;
+      sim.missDist = sim.dist;
+      sim.misses = closer ? 0 : sim.misses + 1;
+      const patient = sim.misses < STALK_TRIES;
+      sim.stalking = patient && now - sim.stillSince > STILL_MS;
+      // Out of reach for good: she settles down next to it and only tries
+      // again now and then, until it finally moves.
+      if (!patient) sim.lostInterest = true;
+      sim.cooldownUntil = now + (sim.speed > CHASE_SPEED ? 90 : sim.stalking ? 140 : 350);
+      setPhase('watch', now);
     };
 
     const think = (now: number) => {
@@ -670,15 +716,28 @@ export function NyuLaserPad({
         case 'done':
           setPhase('watch', now);
           break;
-        case 'watch':
+        case 'watch': {
           if (now < sim.cooldownUntil) break;
+          const lying = now - sim.stillSince > STILL_MS;
+          if (!lying) stopStalking();
           if (sim.speed > CHASE_SPEED && sim.dist > REACH) launch(now);
-          else if (now - sim.stillSince > 600 && sim.dist < 200) setPhase('crouch', now);
+          // A dot lying still is fair game from anywhere on the mat: she creeps
+          // up on it, hop after hop, until it is under her paws. A moving one
+          // she leaves to the chase above.
+          else if (lying && (!sim.lostInterest || now - sim.phaseAt > AGAIN_MS))
+            setPhase('crouch', now);
           break;
+        }
         case 'crouch': {
           const crouched = now - sim.phaseAt;
-          if (sim.dist > 240) setPhase('watch', now);
-          else if (crouched > 800 || (crouched > 150 && sim.speed > CHASE_SPEED)) launch(now);
+          const lying = now - sim.stillSince > STILL_MS;
+          if (!lying && sim.dist > 240) setPhase('watch', now);
+          else if (
+            crouched > (sim.stalking ? STALK_CROUCH_MS : CROUCH_MS) ||
+            (crouched > 150 && sim.speed > CHASE_SPEED)
+          ) {
+            launch(now);
+          }
           break;
         }
         case 'pounce':

@@ -145,8 +145,8 @@ has:
 
 **The laser pad.** UwUKeygen collects randomness where PuTTYgen shows an empty
 box: a marked area where the cursor becomes a pink laser dot and Nyu chases it —
-her eyes follow the dot, she crouches, pounces and catches it, and dozes off when
-the mouse rests. A progress ring fills while she plays. With animations off
+her eyes follow the dot, she crouches, pounces and catches it, creeps across the
+mat hop by hop after a dot that lies still, and dozes off when the mouse rests. A progress ring fills while she plays. With animations off
 she stays still and the ring still fills.
 
 **Motion.** Nyu blinks in scenes, twitches her ears on hover, and the cursor on
