@@ -149,6 +149,20 @@ pub fn decrypt_record(
     open(vault_key, &associated_data(id, kind, vault_id), sealed)
 }
 
+/// Seal something under a key that is already strong — a key two devices just
+/// agreed on, say, rather than one derived from a password.
+///
+/// The label is the associated data, so a blob sealed for one purpose cannot
+/// be opened as another. There is no key derivation here on purpose: the
+/// caller brings 32 bytes of real key material.
+pub fn encrypt_keyed(key: &[u8; 32], label: &[u8], plaintext: &[u8]) -> Result<Sealed> {
+    seal(key, label, plaintext)
+}
+
+pub fn decrypt_keyed(key: &[u8; 32], label: &[u8], sealed: &Sealed) -> Result<Vec<u8>> {
+    open(key, label, sealed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

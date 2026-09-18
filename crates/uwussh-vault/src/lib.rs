@@ -17,7 +17,10 @@ pub mod password;
 pub mod vault;
 
 pub use account::AccountKey;
-pub use crypto::{decrypt_record, decrypt_synced, encrypt_record, encrypt_synced, Sealed};
+pub use crypto::{
+    decrypt_keyed, decrypt_record, decrypt_synced, encrypt_keyed, encrypt_record, encrypt_synced,
+    Sealed,
+};
 pub use kdf::{
     derive_master_secrets, derive_master_secrets_for, derive_master_secrets_with, server_auth_key,
     KdfParams, MasterSecrets, KDF_MEMORY_KIB, KDF_PARALLELISM, KDF_TIME_COST,

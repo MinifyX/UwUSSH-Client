@@ -21,11 +21,14 @@
 //!   server whose certificate this device pinned ([`pin`]).
 
 pub mod engine;
+pub mod flow;
 pub mod http;
 pub mod memory;
+pub mod pairing;
 pub mod pin;
 
 pub use engine::{sync_once, SyncError, SyncReport, Transport, TransportError, MAX_ROUNDS};
+pub use flow::{create_account, join, offer_pairing, parse_setup, reconnect, FlowError, Setup};
 pub use http::{from_wire, to_wire, Server};
 pub use memory::MemoryServer;
 pub use uwussh_proto::api;

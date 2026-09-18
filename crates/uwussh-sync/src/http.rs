@@ -396,6 +396,15 @@ fn check(response: Response) -> Result<Response, TransportError> {
     Err(TransportError::Refused(reason))
 }
 
+/// The base64 both halves use: URL-safe, no padding.
+pub fn encode_base64(bytes: impl AsRef<[u8]>) -> String {
+    encode(bytes.as_ref())
+}
+
+pub fn decode_base64(text: &str) -> Option<Vec<u8>> {
+    decode(text)
+}
+
 fn encode(bytes: &[u8]) -> String {
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine;
