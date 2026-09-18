@@ -302,7 +302,7 @@ impl Store {
         let mut newest = None::<Hlc>;
         let mut wiped_a_secret = false;
         for env in order {
-            let outcome = apply_one(&tx, vault, env)?;
+            let outcome = apply_one(&tx, vault, env, self.device)?;
             report.add(outcome.report);
             wiped_a_secret |= outcome.wiped_a_secret;
             if outcome.report.rejected == 0 {
@@ -630,8 +630,14 @@ fn rejected() -> Applied {
     })
 }
 
-/// Apply one pulled record.
-fn apply_one(tx: &Transaction, vault: &UnlockedVault, env: &Envelope) -> Result<Applied> {
+/// Apply one pulled record. `this_device` is this device's own id, which tells
+/// a record another device wrote from one of ours coming back off the server.
+fn apply_one(
+    tx: &Transaction,
+    vault: &UnlockedVault,
+    env: &Envelope,
+    this_device: u32,
+) -> Result<Applied> {
     if env.vault_id != vault.vault_id() {
         tracing::warn!(%env.id, "a record from another vault, dropped");
         return Ok(rejected());
@@ -675,7 +681,7 @@ fn apply_one(tx: &Transaction, vault: &UnlockedVault, env: &Envelope) -> Result<
             // Something we never had was deleted somewhere else.
             return Ok(skipped());
         }
-        return insert_record(tx, vault, env, &payload, seq);
+        return insert_record(tx, vault, env, &payload, seq, this_device);
     };
 
     let decision = resolve(
@@ -708,7 +714,7 @@ fn apply_one(tx: &Transaction, vault: &UnlockedVault, env: &Envelope) -> Result<
             }))
         }
         Resolution::Remote if env.deleted => tombstone_record(tx, env, table, seq),
-        Resolution::Remote => insert_record(tx, vault, env, &payload, seq),
+        Resolution::Remote => insert_record(tx, vault, env, &payload, seq, this_device),
     }
 }
 
@@ -752,6 +758,7 @@ fn insert_record(
     env: &Envelope,
     payload: &[u8],
     seq: i64,
+    this_device: u32,
 ) -> Result<Applied> {
     let vault_id = env.vault_id.to_string();
     let id = env.id.to_string();
@@ -963,7 +970,11 @@ fn insert_record(
                     [&rival_id],
                     |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )?;
-                if fingerprint != known.fingerprint_sha256 {
+                // Worth a word to the user — but only for a record another
+                // device wrote. A pull can hand this device its own record back
+                // in the same pass that brought the rival one, and that is the
+                // same disagreement over again, not a second one.
+                if fingerprint != known.fingerprint_sha256 && env.updated_at.device != this_device {
                     tracing::warn!(
                         %address,
                         port = known.port,

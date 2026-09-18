@@ -321,6 +321,10 @@ fn two_devices_that_trusted_different_keys_for_one_host_end_up_agreeing() {
         "ssh-ed25519 AAAA",
     )
     .unwrap();
+    // A moment later, or the two decisions share a millisecond and the tie
+    // falls to whichever device id is greater — which is not what is under
+    // test here.
+    std::thread::sleep(std::time::Duration::from_millis(2));
     b.trust_host_key(
         "nas.lan",
         22,
