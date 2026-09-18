@@ -7,7 +7,7 @@ use crate::{Result, StoreError};
 use rusqlite::{params, Connection, OptionalExtension};
 use uuid::Uuid;
 
-pub const SCHEMA_VERSION: i64 = 4;
+pub const SCHEMA_VERSION: i64 = 5;
 
 /// The sync header (`id`, `vault_id`, clock, `rev`, `deleted`) is on every
 /// syncable table from the start; see the crate docs for why.
@@ -255,6 +255,22 @@ ALTER TABLE hosts DROP COLUMN group_path;
 CREATE INDEX hosts_by_group ON hosts (group_id) WHERE group_id IS NOT NULL;
 "#;
 
+/// What a synced vault and a paired device need to remember.
+const V5: &str = r#"
+-- Whether opening this vault needs the account key as well as the password.
+-- Written down rather than guessed at, so a device that does not have the key
+-- says so instead of claiming the password is wrong.
+ALTER TABLE vault ADD COLUMN needs_account_key INTEGER NOT NULL DEFAULT 0;
+
+-- What the pairing agreed on. The two secrets are sealed by the operating
+-- system for this user, not by the vault: the account key is needed *to* open
+-- the vault, so it cannot live inside it.
+ALTER TABLE sync_state ADD COLUMN tls_fingerprint       TEXT;
+ALTER TABLE sync_state ADD COLUMN protected_device_key   BLOB;
+ALTER TABLE sync_state ADD COLUMN protected_account_key  BLOB;
+ALTER TABLE sync_state ADD COLUMN paired_ms              INTEGER;
+"#;
+
 pub fn migrate(conn: &mut Connection) -> Result<()> {
     let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
 
@@ -407,6 +423,14 @@ pub fn migrate(conn: &mut Connection) -> Result<()> {
         tx.pragma_update(None, "user_version", 4)?;
         tx.commit()?;
         tracing::info!("store migrated to schema 4");
+    }
+
+    if version < 5 {
+        let tx = conn.transaction()?;
+        tx.execute_batch(V5)?;
+        tx.pragma_update(None, "user_version", 5)?;
+        tx.commit()?;
+        tracing::info!("store migrated to schema 5");
     }
 
     Ok(())
@@ -647,6 +671,27 @@ mod tests {
             })
             .unwrap();
         assert_eq!(cursor, 0);
+    }
+
+    #[test]
+    fn a_v4_database_upgrades_to_v5_with_nothing_paired_and_no_account_key() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrate(&mut conn).unwrap();
+
+        let (needs_key, fingerprint, paired): (i64, Option<String>, Option<i64>) = conn
+            .query_row(
+                "SELECT
+                    (SELECT count(*) FROM pragma_table_info('vault')
+                      WHERE name = 'needs_account_key'),
+                    (SELECT tls_fingerprint FROM sync_state WHERE id = 1),
+                    (SELECT paired_ms FROM sync_state WHERE id = 1)",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(needs_key, 1, "the vault header has the flag");
+        assert_eq!(fingerprint, None, "and nothing is paired yet");
+        assert_eq!(paired, None);
     }
 
     #[test]

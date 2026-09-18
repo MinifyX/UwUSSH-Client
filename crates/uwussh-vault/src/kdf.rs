@@ -1,8 +1,11 @@
 //! Turning a master password into keys.
 
+use crate::account::AccountKey;
 use crate::{Result, VaultError};
 use argon2::{Algorithm, Argon2, Block, Params, Version};
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use hkdf::Hkdf;
+use sha2::Sha256;
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 /// 64 MiB. High enough to make offline guessing expensive, low enough that a
 /// phone can still unlock the vault — which matters, because a KDF nobody can
@@ -71,6 +74,56 @@ impl KdfParams {
 pub fn derive_master_secrets(password: &[u8], salt: &[u8]) -> Result<MasterSecrets> {
     derive_master_secrets_with(password, salt, KdfParams::RECOMMENDED)
 }
+
+/// The same, with the [`AccountKey`] a synced vault mixes in.
+///
+/// Argon2id does the work of making a guess expensive; the account key decides
+/// whether guessing is worth attempting at all. It goes in through HKDF
+/// afterwards rather than into Argon2's own salt, so a vault that gains an
+/// account key later keeps its salt, its parameters and its records — only the
+/// wrapped key is written again.
+pub fn derive_master_secrets_for(
+    password: &[u8],
+    salt: &[u8],
+    kdf: KdfParams,
+    account_key: Option<&AccountKey>,
+) -> Result<MasterSecrets> {
+    let secrets = derive_master_secrets_with(password, salt, kdf)?;
+    let Some(account_key) = account_key else {
+        return Ok(secrets);
+    };
+
+    let mut material = Zeroizing::new([0u8; 64]);
+    material[..32].copy_from_slice(&secrets.master_key);
+    material[32..].copy_from_slice(&secrets.auth_secret);
+
+    let mut out = Zeroizing::new([0u8; 64]);
+    Hkdf::<Sha256>::new(Some(account_key.as_bytes()), material.as_ref())
+        .expand(ACCOUNT_INFO, out.as_mut())
+        .map_err(|_| VaultError::Kdf("could not mix in the account key".into()))?;
+
+    let mut master_key = [0u8; 32];
+    let mut auth_secret = [0u8; 32];
+    master_key.copy_from_slice(&out[..32]);
+    auth_secret.copy_from_slice(&out[32..]);
+    Ok(MasterSecrets {
+        master_key,
+        auth_secret,
+    })
+}
+
+/// What the server is told, derived from the auth secret so that what it
+/// stores is two steps away from anything that opens the vault.
+pub fn server_auth_key(secrets: &MasterSecrets) -> Result<Zeroizing<[u8; 32]>> {
+    let mut key = Zeroizing::new([0u8; 32]);
+    Hkdf::<Sha256>::new(None, &secrets.auth_secret)
+        .expand(AUTH_INFO, key.as_mut())
+        .map_err(|_| VaultError::Kdf("could not derive the login key".into()))?;
+    Ok(key)
+}
+
+const ACCOUNT_INFO: &[u8] = b"uwussh/master/v2";
+const AUTH_INFO: &[u8] = b"uwussh/server-auth/v1";
 
 pub fn derive_master_secrets_with(
     password: &[u8],
@@ -152,6 +205,52 @@ mod tests {
         assert!(derive_master_secrets_with(b"pw", b"salt-one-aaaaaaa", greedy).is_err());
         assert!(KdfParams::RECOMMENDED.within_limits());
         assert!(KdfParams::INSECURE_FOR_TESTS.within_limits());
+    }
+
+    #[test]
+    fn the_account_key_changes_everything_the_password_alone_would_give() {
+        let salt = b"salt-one-aaaaaaa";
+        let fast = KdfParams::INSECURE_FOR_TESTS;
+        let one = AccountKey::from_bytes([1u8; 16]);
+        let two = AccountKey::from_bytes([2u8; 16]);
+
+        let without = derive_master_secrets_for(b"pw", salt, fast, None).unwrap();
+        let with_one = derive_master_secrets_for(b"pw", salt, fast, Some(&one)).unwrap();
+        let with_one_again = derive_master_secrets_for(b"pw", salt, fast, Some(&one)).unwrap();
+        let with_two = derive_master_secrets_for(b"pw", salt, fast, Some(&two)).unwrap();
+
+        assert_eq!(
+            with_one.master_key, with_one_again.master_key,
+            "the same inputs must open the same vault on another device"
+        );
+        assert_ne!(
+            without.master_key, with_one.master_key,
+            "the password alone is not the key any more"
+        );
+        assert_ne!(
+            with_one.master_key, with_two.master_key,
+            "and whoever has the wrong account key has nothing"
+        );
+        assert_ne!(with_one.master_key, with_one.auth_secret);
+    }
+
+    #[test]
+    fn what_the_server_learns_says_nothing_about_the_vault() {
+        let secrets = derive_master_secrets_for(
+            b"pw",
+            b"salt-one-aaaaaaa",
+            KdfParams::INSECURE_FOR_TESTS,
+            None,
+        )
+        .unwrap();
+        let login = server_auth_key(&secrets).unwrap();
+        assert_ne!(login.as_slice(), secrets.master_key);
+        assert_ne!(login.as_slice(), secrets.auth_secret);
+        assert_eq!(
+            server_auth_key(&secrets).unwrap().as_slice(),
+            login.as_slice(),
+            "but it is the same every time this device logs in"
+        );
     }
 
     #[test]

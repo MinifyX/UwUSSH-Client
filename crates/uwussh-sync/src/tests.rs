@@ -135,10 +135,14 @@ fn the_later_of_two_edits_wins_on_both_devices() {
     sync_once(&a, &server).unwrap();
     sync_once(&b, &server).unwrap();
 
-    // Both rename it while neither has synced.
+    // Both rename it while neither has synced. A moment in between, so B's
+    // edit really is the later one: within one millisecond the clocks tie and
+    // the winner comes down to which device id sorts higher, which is a coin
+    // flip and not what this test is about.
     let mut on_a = draft("web-a", "10.0.0.20");
     on_a.id = Some(host.id);
     a.save_host(on_a).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(3));
     let mut on_b = draft("web-b", "10.0.0.20");
     on_b.id = Some(host.id);
     b.save_host(on_b).unwrap();

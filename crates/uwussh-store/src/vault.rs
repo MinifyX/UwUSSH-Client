@@ -44,7 +44,27 @@ impl Store {
         self.create_vault_with(password, KdfParams::RECOMMENDED)
     }
 
+    /// Create the vault for an account that syncs: the account key goes into
+    /// the derivation, so what the server stores is worth nothing without it.
+    pub fn create_synced_vault(
+        &self,
+        password: &[u8],
+        account_key: &uwussh_vault::AccountKey,
+        kdf: KdfParams,
+    ) -> Result<()> {
+        self.create_vault_inner(password, Some(account_key), kdf)
+    }
+
     pub fn create_vault_with(&self, password: &[u8], kdf: KdfParams) -> Result<()> {
+        self.create_vault_inner(password, None, kdf)
+    }
+
+    fn create_vault_inner(
+        &self,
+        password: &[u8],
+        account_key: Option<&uwussh_vault::AccountKey>,
+        kdf: KdfParams,
+    ) -> Result<()> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
         if header_row(&tx)?.is_some() {
@@ -54,7 +74,7 @@ impl Store {
             tx.query_row("SELECT vault_id FROM meta WHERE id = 1", [], |r| r.get(0))?;
         let vault_id = Uuid::parse_str(&vault_id).map_err(|_| StoreError::NoVault)?;
 
-        let (header, unlocked) = uwussh_vault::create(password, vault_id, kdf)?;
+        let (header, unlocked) = uwussh_vault::create_with(password, account_key, vault_id, kdf)?;
         store_header(&tx, &header)?;
         tx.commit()?;
         // Locks are always taken connection first, vault second, and never
@@ -66,12 +86,66 @@ impl Store {
     }
 
     /// Unlock an existing vault. A wrong password is [`StoreError::Vault`].
+    ///
+    /// A vault that also needs its account key says so, rather than failing as
+    /// a wrong password: see [`Self::unlock_vault_with`].
     pub fn unlock_vault(&self, password: &[u8]) -> Result<()> {
         let header = self.load_header()?.ok_or(StoreError::NoVault)?;
         let unlocked = header.unlock(password)?;
         *self.vault.lock() = Some(unlocked);
         tracing::info!("vault unlocked");
         Ok(())
+    }
+
+    /// Unlock with the password and an account key the caller has.
+    pub fn unlock_vault_with(
+        &self,
+        password: &[u8],
+        account_key: Option<&uwussh_vault::AccountKey>,
+    ) -> Result<()> {
+        let header = self.load_header()?.ok_or(StoreError::NoVault)?;
+        let unlocked = header.unlock_with(password, account_key)?;
+        *self.vault.lock() = Some(unlocked);
+        tracing::info!("vault unlocked");
+        Ok(())
+    }
+
+    /// Whether this vault needs the account key at all.
+    pub fn vault_needs_account_key(&self) -> Result<bool> {
+        Ok(self
+            .load_header()?
+            .map(|header| header.needs_account_key)
+            .unwrap_or(false))
+    }
+
+    /// Wrap the vault key again under new inputs and keep the new header.
+    ///
+    /// This is both turning sync on and changing the master password: one key
+    /// is wrapped again, no record is touched. The vault must be unlocked,
+    /// since its key is what gets wrapped.
+    pub fn rewrap_vault(
+        &self,
+        password: &[u8],
+        account_key: Option<&uwussh_vault::AccountKey>,
+    ) -> Result<VaultHeader> {
+        let mut conn = self.conn.lock();
+        let guard = self.vault.lock();
+        let vault = guard.as_ref().ok_or(StoreError::VaultLocked)?;
+        let kdf = self
+            .load_header_locked(&conn)?
+            .map(|header| header.kdf)
+            .unwrap_or(KdfParams::RECOMMENDED);
+        let header = vault.rewrap(password, account_key, kdf)?;
+
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM vault", [])?;
+        store_header(&tx, &header)?;
+        tx.commit()?;
+        tracing::info!(
+            account_key = header.needs_account_key,
+            "the vault key was wrapped again"
+        );
+        Ok(header)
     }
 
     /// Drop the key from memory. Idempotent.
@@ -122,6 +196,10 @@ impl Store {
 
     pub(crate) fn load_header(&self) -> Result<Option<VaultHeader>> {
         header_row(&self.conn.lock())
+    }
+
+    fn load_header_locked(&self, conn: &rusqlite::Connection) -> Result<Option<VaultHeader>> {
+        header_row(conn)
     }
 }
 
@@ -179,8 +257,8 @@ fn store_header(conn: &rusqlite::Connection, header: &VaultHeader) -> Result<()>
     conn.execute(
         "INSERT INTO vault
             (id, vault_id, kdf_memory_kib, kdf_time_cost, kdf_parallelism,
-             salt, wrapped_nonce, wrapped_blob)
-         VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+             salt, wrapped_nonce, wrapped_blob, needs_account_key)
+         VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             header.vault_id.to_string(),
             header.kdf.memory_kib,
@@ -189,6 +267,7 @@ fn store_header(conn: &rusqlite::Connection, header: &VaultHeader) -> Result<()>
             header.salt.to_vec(),
             header.wrapped_key.nonce,
             header.wrapped_key.blob,
+            header.needs_account_key,
         ],
     )?;
     Ok(())
@@ -197,7 +276,7 @@ fn store_header(conn: &rusqlite::Connection, header: &VaultHeader) -> Result<()>
 fn header_row(conn: &rusqlite::Connection) -> Result<Option<VaultHeader>> {
     conn.query_row(
         "SELECT vault_id, kdf_memory_kib, kdf_time_cost, kdf_parallelism,
-                salt, wrapped_nonce, wrapped_blob
+                salt, wrapped_nonce, wrapped_blob, needs_account_key
            FROM vault WHERE id = 1",
         [],
         |row| {
@@ -215,11 +294,12 @@ fn header_row(conn: &rusqlite::Connection) -> Result<Option<VaultHeader>> {
                     nonce: row.get(5)?,
                     blob: row.get(6)?,
                 },
+                row.get::<_, bool>(7)?,
             ))
         },
     )
     .optional()?
-    .map(|(vault_id, kdf, salt, wrapped_key)| {
+    .map(|(vault_id, kdf, salt, wrapped_key, needs_account_key)| {
         let vault_id = Uuid::parse_str(&vault_id).map_err(|_| StoreError::NoVault)?;
         // A header with absurd costs would make every unlock run out of memory.
         if !kdf.within_limits() {
@@ -236,6 +316,7 @@ fn header_row(conn: &rusqlite::Connection) -> Result<Option<VaultHeader>> {
             kdf,
             salt,
             wrapped_key,
+            needs_account_key,
         })
     })
     .transpose()
@@ -297,6 +378,67 @@ mod tests {
         for suffix in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
         }
+    }
+
+    #[test]
+    fn a_synced_vault_says_that_it_needs_its_account_key() {
+        let store = store();
+        let account_key = uwussh_vault::AccountKey::generate();
+        store
+            .create_synced_vault(b"master", &account_key, KdfParams::INSECURE_FOR_TESTS)
+            .unwrap();
+        assert!(store.vault_needs_account_key().unwrap());
+
+        store.lock_vault();
+        assert!(matches!(
+            store.unlock_vault(b"master"),
+            Err(StoreError::Vault(uwussh_vault::VaultError::NeedsAccountKey))
+        ));
+        assert!(store.unlock_vault_with(b"master", None).is_err());
+        store
+            .unlock_vault_with(b"master", Some(&account_key))
+            .unwrap();
+        assert_eq!(store.vault_status().unwrap(), VaultStatus::Unlocked);
+    }
+
+    #[test]
+    fn turning_sync_on_keeps_the_secrets_that_are_already_sealed() {
+        let store = store();
+        create(&store);
+        // A password, sealed under the vault as it is now.
+        let host = store
+            .save_host(crate::hosts::tests::draft("nas", "10.0.0.9"))
+            .unwrap();
+        store
+            .set_host_password(
+                host.id,
+                crate::hosts::PasswordChange::Set {
+                    value: crate::SecretText::new("hunter2"),
+                },
+            )
+            .unwrap();
+
+        let account_key = uwussh_vault::AccountKey::generate();
+        let header = store
+            .rewrap_vault(b"open sesame", Some(&account_key))
+            .unwrap();
+        assert!(header.needs_account_key);
+        assert_eq!(
+            store.reveal_host_password(host.id).unwrap().as_slice(),
+            b"hunter2",
+            "the vault key did not change, so nothing had to be re-encrypted"
+        );
+
+        // And it is the new inputs that open it from now on.
+        store.lock_vault();
+        assert!(store.unlock_vault_with(b"open sesame", None).is_err());
+        store
+            .unlock_vault_with(b"open sesame", Some(&account_key))
+            .unwrap();
+        assert_eq!(
+            store.reveal_host_password(host.id).unwrap().as_slice(),
+            b"hunter2"
+        );
     }
 
     #[test]

@@ -10,11 +10,13 @@
 //! wire: how records are ordered ([`clock`]) and who wins a conflict
 //! ([`merge`]).
 
+pub mod api;
 pub mod clock;
 pub mod entities;
 pub mod merge;
 pub mod sync;
 
+pub use api::{Admitted, NewDevice, WireVault, WireVaultParams};
 pub use clock::{Hlc, MAX_DRIFT_MS};
 pub use entities::*;
 pub use merge::{resolve, Resolution, Version};

@@ -16,3 +16,5 @@ rand.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
 zeroize.workspace = true
+hkdf = "0.13"
+sha2 = "0.11"

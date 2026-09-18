@@ -17,13 +17,16 @@
 //! - [`memory`] is the server's rules as running code, so two devices can be
 //!   held against them without a network.
 //!
-//! The HTTP transport, device enrolment and pairing come with the server
-//! itself; [`Transport`] is the seam they plug into.
+//! - [`http`] is the real transport: one blocking request at a time, against a
+//!   server whose certificate this device pinned ([`pin`]).
 
 pub mod engine;
+pub mod http;
 pub mod memory;
+pub mod pin;
 
 pub use engine::{sync_once, SyncError, SyncReport, Transport, TransportError, MAX_ROUNDS};
+pub use http::Server;
 pub use memory::MemoryServer;
 
 #[cfg(test)]

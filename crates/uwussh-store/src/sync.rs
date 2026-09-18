@@ -39,9 +39,46 @@ pub struct SyncState {
     pub server_url: Option<String>,
     pub account_id: Option<Uuid>,
     pub device_id: Option<Uuid>,
+    /// The fingerprint of the certificate this device pinned when it paired.
+    /// Anything else answering at that address is not this server.
+    pub tls_fingerprint: Option<String>,
     /// The server sequence number everything up to which this device has seen.
     pub cursor: u64,
     pub last_sync_ms: Option<u64>,
+    pub paired_ms: Option<u64>,
+}
+
+impl SyncState {
+    /// Whether this device is set up to sync at all.
+    pub fn paired(&self) -> bool {
+        self.server_url.is_some() && self.account_id.is_some() && self.device_id.is_some()
+    }
+}
+
+/// What a pairing agreed on, on its way into the database.
+#[derive(Debug, Clone)]
+pub struct Enrolment {
+    pub server_url: String,
+    pub account_id: Uuid,
+    pub device_id: Uuid,
+    /// `None` when the server's certificate comes from a real authority and
+    /// there is nothing to pin.
+    pub tls_fingerprint: Option<String>,
+}
+
+/// The two secrets a paired device keeps. Both are needed before the vault is
+/// open — the account key is part of *opening* it — so neither can live inside
+/// it, and both are sealed by the operating system for this user instead.
+pub struct EnrolmentKeys {
+    /// The Ed25519 seed this device signs the server's challenges with.
+    pub device_key: Zeroizing<[u8; 32]>,
+    pub account_key: Option<uwussh_vault::AccountKey>,
+}
+
+impl std::fmt::Debug for EnrolmentKeys {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("EnrolmentKeys(redacted)")
+    }
 }
 
 /// What one record the server accepted is called, so the store can clear the
@@ -148,7 +185,8 @@ impl Store {
     pub fn sync_state(&self) -> Result<SyncState> {
         let conn = self.conn.lock();
         Ok(conn.query_row(
-            "SELECT server_url, account_id, device_id, cursor, last_sync_ms
+            "SELECT server_url, account_id, device_id, cursor, last_sync_ms,
+                    tls_fingerprint, paired_ms
                FROM sync_state WHERE id = 1",
             [],
             |row| {
@@ -156,15 +194,124 @@ impl Store {
                 let device: Option<String> = row.get(2)?;
                 let cursor: i64 = row.get(3)?;
                 let last: Option<i64> = row.get(4)?;
+                let paired: Option<i64> = row.get(6)?;
                 Ok(SyncState {
                     server_url: row.get(0)?,
                     account_id: account.and_then(|id| Uuid::parse_str(&id).ok()),
                     device_id: device.and_then(|id| Uuid::parse_str(&id).ok()),
+                    tls_fingerprint: row.get(5)?,
                     cursor: cursor as u64,
                     last_sync_ms: last.map(|ms| ms as u64),
+                    paired_ms: paired.map(|ms| ms as u64),
                 })
             },
         )?)
+    }
+
+    /// Remember a pairing: where the server is, who this device is there, and
+    /// the two secrets, sealed by `protect` — the same operating-system seal
+    /// the remembered vault key uses.
+    pub fn save_enrolment(
+        &self,
+        enrolment: &Enrolment,
+        device_key: &[u8; 32],
+        account_key: Option<&uwussh_vault::AccountKey>,
+        protect: impl Fn(&[u8]) -> std::io::Result<Vec<u8>>,
+    ) -> Result<()> {
+        let sealed_device =
+            protect(device_key).map_err(|error| StoreError::Device(error.to_string()))?;
+        let sealed_account = account_key
+            .map(|key| protect(key.as_bytes()))
+            .transpose()
+            .map_err(|error| StoreError::Device(error.to_string()))?;
+
+        self.conn.lock().execute(
+            "UPDATE sync_state
+                SET server_url = ?1, account_id = ?2, device_id = ?3, tls_fingerprint = ?4,
+                    protected_device_key = ?5, protected_account_key = ?6, paired_ms = ?7
+              WHERE id = 1",
+            params![
+                enrolment.server_url,
+                enrolment.account_id.to_string(),
+                enrolment.device_id.to_string(),
+                enrolment.tls_fingerprint,
+                sealed_device,
+                sealed_account,
+                now_ms() as i64,
+            ],
+        )?;
+        tracing::info!(
+            account = %enrolment.account_id,
+            device = %enrolment.device_id,
+            "this device is paired with a server"
+        );
+        Ok(())
+    }
+
+    /// The keys a paired device signs and unlocks with. `Ok(None)` when this
+    /// device is not paired, or when what was kept can no longer be unsealed —
+    /// another Windows account, a restored database — in which case the
+    /// pairing is dropped rather than left half-broken.
+    pub fn enrolment_keys(
+        &self,
+        unprotect: impl Fn(&[u8]) -> std::io::Result<Zeroizing<Vec<u8>>>,
+    ) -> Result<Option<EnrolmentKeys>> {
+        /// The two sealed blobs as they come out of the row.
+        type Sealed = (Option<Vec<u8>>, Option<Vec<u8>>);
+        let row: Option<Sealed> = self
+            .conn
+            .lock()
+            .query_row(
+                "SELECT protected_device_key, protected_account_key FROM sync_state WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        let Some((Some(device), account)) = row else {
+            return Ok(None);
+        };
+
+        let opened = (|| {
+            let device_key: [u8; 32] = unprotect(&device).ok()?.as_slice().try_into().ok()?;
+            let account_key = match account {
+                Some(account) => {
+                    let bytes: [u8; 16] = unprotect(&account).ok()?.as_slice().try_into().ok()?;
+                    Some(uwussh_vault::AccountKey::from_bytes(bytes))
+                }
+                None => None,
+            };
+            Some(EnrolmentKeys {
+                device_key: Zeroizing::new(device_key),
+                account_key,
+            })
+        })();
+
+        match opened {
+            Some(keys) => Ok(Some(keys)),
+            None => {
+                tracing::warn!("what this device kept from its pairing no longer opens");
+                self.forget_enrolment()?;
+                Ok(None)
+            }
+        }
+    }
+
+    /// Unpair: forget the server, the device identity and both secrets. The
+    /// records stay — they are this vault's, not the server's.
+    pub fn forget_enrolment(&self) -> Result<()> {
+        let conn = self.conn.lock();
+        conn.execute(
+            "UPDATE sync_state
+                SET server_url = NULL, account_id = NULL, device_id = NULL,
+                    tls_fingerprint = NULL, protected_device_key = NULL,
+                    protected_account_key = NULL, paired_ms = NULL,
+                    cursor = 0, last_sync_ms = NULL
+              WHERE id = 1",
+            [],
+        )?;
+        truncate_wal(&conn);
+        tracing::info!("this device is no longer paired");
+        Ok(())
     }
 
     pub fn set_sync_cursor(&self, cursor: u64) -> Result<()> {

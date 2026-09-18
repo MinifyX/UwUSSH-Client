@@ -36,7 +36,7 @@ pub use keys::{KeyDraft, KeyRecord};
 pub use known_hosts::KnownHostRecord;
 pub use schema::SCHEMA_VERSION;
 pub use secret::SecretText;
-pub use sync::{ApplyReport, Pushed, SyncState};
+pub use sync::{ApplyReport, Enrolment, EnrolmentKeys, Pushed, SyncState};
 pub use vault::{Revealed, VaultStatus};
 
 use parking_lot::Mutex;

@@ -10,18 +10,20 @@
 //!    *wrapped* by the master key. Changing the master password rewraps one
 //!    32-byte key instead of re-encrypting every record you own.
 
+pub mod account;
 pub mod crypto;
 pub mod kdf;
 pub mod password;
 pub mod vault;
 
+pub use account::AccountKey;
 pub use crypto::{decrypt_record, decrypt_synced, encrypt_record, encrypt_synced, Sealed};
 pub use kdf::{
-    derive_master_secrets, derive_master_secrets_with, KdfParams, MasterSecrets, KDF_MEMORY_KIB,
-    KDF_PARALLELISM, KDF_TIME_COST,
+    derive_master_secrets, derive_master_secrets_for, derive_master_secrets_with, server_auth_key,
+    KdfParams, MasterSecrets, KDF_MEMORY_KIB, KDF_PARALLELISM, KDF_TIME_COST,
 };
 pub use password::{open_with_password, seal_with_password, PasswordSealed};
-pub use vault::{create, UnlockedVault, VaultHeader};
+pub use vault::{create, create_with, UnlockedVault, VaultHeader};
 
 #[derive(Debug, thiserror::Error)]
 pub enum VaultError {
@@ -29,6 +31,8 @@ pub enum VaultError {
     Kdf(String),
     #[error("could not decrypt: wrong key, or the record was tampered with")]
     Decrypt,
+    #[error("this vault also needs its account key, from the recovery kit")]
+    NeedsAccountKey,
     #[error("could not encrypt: {0}")]
     Encrypt(String),
 }
