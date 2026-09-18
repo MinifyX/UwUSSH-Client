@@ -274,7 +274,12 @@ fn await_message(
     deadline: Instant,
 ) -> Result<Vec<u8>, TransportError> {
     loop {
-        let messages = postbox.take(after, true)?;
+        // Asking the relay to hold the request open is what keeps a handshake
+        // down to a handful of requests — but not when there is less time
+        // left than it would hold for, or giving up would take longer than
+        // waiting was supposed to.
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let messages = postbox.take(after, remaining > RELAY_HOLD)?;
         if let Some(message) = messages.into_iter().next() {
             return Ok(message);
         }
@@ -289,6 +294,9 @@ fn await_message(
 
 /// How long to pause between asking, when asking did not block.
 const POLL_PAUSE: Duration = Duration::from_millis(200);
+
+/// How long the relay holds a request open before answering with nothing.
+const RELAY_HOLD: Duration = Duration::from_secs(20);
 
 /// The side that is already in: hand the secrets over, once the other side has
 /// proved it knows the code.
