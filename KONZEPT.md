@@ -597,7 +597,7 @@ Gleiche Aufteilung wie bei UwUMail — drei Repos, GPL-3.0:
 | Repo                | Inhalt                                      | Status                                                                                            |
 | ------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------- |
 | **UwUSSH-Client**   | Die App: React-UI, Rust-Engine, Brand, Docs | angelegt                                                                                          |
-| **UwUSSH-Server**   | Der Sync-Server (Axum, Docker)              | kommt mit M2                                                                                      |
+| **UwUSSH-Server**   | Der Sync-Server (Axum, Docker)              | angelegt, erste Hälfte steht                                                                      |
 | ~~UwUSSH-Releases~~ | Downloads und Update-Feed                   | entfällt: Releases und Feeds (Branch `updates`) liegen im Client-Repo, wie inzwischen bei UwUMail |
 
 ```
@@ -679,8 +679,28 @@ gleichzeitige Umbenennungen, die beide Seiten gleich entscheiden, ein Löschen,
 das nicht zurückkommt, ein Gerät, das mit eigenen Hosts beitritt, und ein
 Server, der schwindelt und damit nirgends hinkommt.
 
-Als Nächstes: **der Server selbst** (Axum, SQLite, Kopplung, Docker), danach der
-Rest von **M1** — Splits, Agent-Login, ProxyJump-Ketten (der Import merkt sich
-den Jump-Host, verknüpft die Kette aber noch nicht). Offen: die von PuTTY schon
-vertrauten Host-Keys (eigenes Registry-Format, braucht einen echten Dump zum
-Verifizieren).
+~~Der Server~~ — **steht**, in
+[MinifyX/UwUSSH-Server](https://github.com/MinifyX/UwUSSH-Server) (public,
+GPL-3.0): ein Rust-Binary mit Axum und SQLite, das Sequenznummern vergibt, von
+jedem Record die neueste Version hält und einen Schreibvorgang mit falscher
+Version ablehnt — lesen kann es keinen. Geräte melden sich per signierter
+Challenge an, ein zweites Gerät braucht Einmal-Token **und**
+Master-Passwort-Beweis, Widerruf nimmt sofort die Tokens mit, und das letzte
+Gerät darf sich nicht selbst aussperren. Dazu SSE-Events, Rate-Limits, CLI,
+Docker-Image und nächtliche Backups.
+
+Das eigene TLS ist drin und Standard: Der Server macht sich beim ersten Start
+ein Zertifikat und nennt seinen Fingerprint; gepinnt wird der **Schlüssel**,
+also übersteht ein gepinnter Fingerprint jedes neue Zertifikat. Und das
+Kopplungs-Relay steht — der Server trägt ein paar opake Nachrichten zwischen
+zwei Geräten hin und her, ohne den gesprochenen Code je zu sehen. 81 Tests,
+davon 17 über echtes HTTP; am laufenden Binary mit `curl` und `openssl`
+nachgeprüft, dass der ausgelieferte Schlüssel denselben Fingerprint hat, den die
+Kommandozeile nennt.
+
+Als Nächstes die **Client-Hälfte**: der HTTP-Transport (blockierend, auf einem
+eigenen Thread, mit gepinntem Zertifikat), Account-Key und Recovery-Kit, SPAKE2
+und die Oberfläche unter Einstellungen → Sync. Danach der Rest von **M1** —
+Splits, Agent-Login, ProxyJump-Ketten (der Import merkt sich den Jump-Host,
+verknüpft die Kette aber noch nicht). Offen: die von PuTTY schon vertrauten
+Host-Keys (eigenes Registry-Format, braucht einen echten Dump zum Verifizieren).

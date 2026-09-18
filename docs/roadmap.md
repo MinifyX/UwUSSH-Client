@@ -96,11 +96,17 @@ The point where I can stop using anything else.
   running code, and sixteen tests drive two real devices against it — including
   a server that flips a tombstone flag or replays an old version, which gets
   nowhere. See [architecture](architecture.md#sync).
-- `UwUSSH-Server` v1: Axum, SQLite, its own TLS certificate with a pinned
-  fingerprint, Docker image, admin CLI
-- The account key (so a stolen server database is worth nothing), device
-  enrolment with a keypair per device, pairing by short code over SPAKE2,
-  revocation, the recovery kit
+- **The server's first half is done**, in
+  [UwUSSH-Server](https://github.com/MinifyX/UwUSSH-Server): accounts, devices,
+  records with the version check, an event stream, rate limits, a command line,
+  a Docker image and nightly backups — plus its own TLS certificate, whose
+  fingerprint a device pins like an SSH host key, and the post box two devices
+  pair through. Eighty-one tests, seventeen of them over real HTTP.
+- The client half of that: the HTTP transport, the account key (so a stolen
+  server database is worth nothing), a keypair per device, pairing by short
+  code over SPAKE2, revocation, the recovery kit
+- Still to come on the server: the published image, and a security review of
+  both halves together
 - Settings → Sync: connect, device list, what happened on the last pass, and
   the honest sentence about rotating keys after revoking a device
 
