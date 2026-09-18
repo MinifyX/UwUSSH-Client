@@ -102,9 +102,16 @@ The point where I can stop using anything else.
   a Docker image and nightly backups — plus its own TLS certificate, whose
   fingerprint a device pins like an SSH host key, and the post box two devices
   pair through. Eighty-one tests, seventeen of them over real HTTP.
-- The client half of that: the HTTP transport, the account key (so a stolen
-  server database is worth nothing), a keypair per device, pairing by short
-  code over SPAKE2, revocation, the recovery kit
+- **The client half is done too**, bar the interface: the account key (so a
+  stolen server database is worth nothing), the transport with the server's key
+  pinned like an SSH host key, a keypair per device, and pairing by three
+  spoken words over SPAKE2 — with the secret handed over only after the other
+  side has proved it derived the same key. The server repository's
+  `tests/client.rs` runs both halves against each other.
+- Still to do here: Settings → Sync (connect a server, show the recovery kit
+  once, add a device, list and revoke them, say what the last pass did), the
+  Tauri commands behind it, and an end-to-end phase with two app instances
+  against a real server
 - Still to come on the server: the published image, and a security review of
   both halves together
 - Settings → Sync: connect, device list, what happened on the last pass, and

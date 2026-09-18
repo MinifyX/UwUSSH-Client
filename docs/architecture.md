@@ -308,7 +308,7 @@ Backups are `VACUUM INTO`, not a copy of a live WAL database, plus a nightly
 snapshot with fourteen kept — cheap insurance against a client bug that pushes
 nonsense to every device.
 
-### Keys and pairing
+### The account key, and how a device joins
 
 ```
 master password ── Argon2id(salt, params) ──┐
@@ -323,14 +323,44 @@ master password offline against the wrapped vault key it has to store. The cost
 is stated plainly in the setup: losing every device **and** the recovery kit
 means losing the data.
 
+The key is 128 bits, and it is mixed in _after_ Argon2id through HKDF rather
+than into Argon2's salt. That is what makes turning sync on cheap for a vault
+that already has hosts: the salt, the parameters and every record stay as they
+are, and one 32-byte key is wrapped again. Changing the master password is the
+same operation, so there is one function for both.
+
+On paper the key is 28 characters in four groups, from an alphabet with no
+letter that can be read as a digit, with two characters of checksum. A mistyped
+kit therefore says "typo" rather than "wrong password" — which is the
+difference between looking in the right place and the wrong one. A vault that
+needs the key says so in its header, and the server passes that on to a joining
+device, for the same reason.
+
 Pairing follows Magic Wormhole rather than a QR code, because desktops rarely
-have cameras. The device that is already in shows a code like
-`7-nyu-laser-kaffee`; the new one types it; SPAKE2 over the server's relay gives
-them a channel the server cannot read and an attacker exactly one guess per
-code. The first device confirms by name, passes the certificate fingerprint, the
-account key and a one-time token — and the server hands over the wrapped vault
-key only once the new device has proved it knows the master password. An
-intercepted pairing code alone is worth nothing.
+have cameras. The device that is already in shows `K7M4Q-tiger-radio-kiwi`: the
+server's session id and three of 128 words — exactly 128, so one random byte
+picks one without favouring any. A word that is not on the list means the code
+was misheard rather than mistyped, and those are worth telling apart. Next to
+it sits one pasteable string carrying the address and the fingerprint too, for
+when the two devices can copy and paste at each other.
+
+Then SPAKE2 over the server's relay gives the two a key the server cannot
+derive, and an attacker exactly one guess per code. **The order is what makes
+that guess worthless**: messages, then the joining device proves it derived the
+same key, and only then does the other one hand over the certificate
+fingerprint, the account key and a one-time token. Handing the secret over
+first and asking afterwards would give it to that one guess. Last, the joining
+device says what it is called, so the other can show a name instead of "a
+device".
+
+The server hands over the wrapped vault key only once the new device has proved
+it knows the master password as well. So an intercepted code is worth nothing
+without the password, and the password is worth nothing without a device that
+approved the join.
+
+`uwussh-sync`'s `flow` module is where these steps are put in order, once —
+connect a server, offer a pairing, join from one — so the interface above has
+three calls and no chance to get the order wrong.
 
 ## Import
 
@@ -665,6 +695,14 @@ the vault key sealed with DPAPI when the vault is remembered on this device (see
 
 - **Unit tests** in every crate: clock, crypto, merge, parsers, flow control,
   the store.
+- **Both halves against each other**, in the server repository's
+  `tests/client.rs`: it pulls this repository's store, vault, sync engine and
+  transport as a git dependency and runs them against the real server over
+  HTTP. A host with a password in the vault travels to a second device that
+  joined by being told three words; a device that heard the wrong words gets
+  nothing; and with the stored records in front of it, none of them contains
+  the hostname, the address, the group or the password. That test found a real
+  bug the first time it ran — a header written by its own SQL, missing a field.
 - **Two devices against a server**, in `crates/uwussh-sync/src/tests.rs`: two
   real stores sharing one vault, syncing through `MemoryServer` — which is the
   server's rules as running code, so the server's own tests can later be held

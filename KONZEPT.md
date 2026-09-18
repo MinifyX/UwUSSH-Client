@@ -698,9 +698,28 @@ davon 17 über echtes HTTP; am laufenden Binary mit `curl` und `openssl`
 nachgeprüft, dass der ausgelieferte Schlüssel denselben Fingerprint hat, den die
 Kommandozeile nennt.
 
-Als Nächstes die **Client-Hälfte**: der HTTP-Transport (blockierend, auf einem
-eigenen Thread, mit gepinntem Zertifikat), Account-Key und Recovery-Kit, SPAKE2
-und die Oberfläche unter Einstellungen → Sync. Danach der Rest von **M1** —
-Splits, Agent-Login, ProxyJump-Ketten (der Import merkt sich den Jump-Host,
-verknüpft die Kette aber noch nicht). Offen: die von PuTTY schon vertrauten
-Host-Keys (eigenes Registry-Format, braucht einen echten Dump zum Verifizieren).
+~~Die Client-Hälfte~~ — **steht ebenfalls**, bis auf die Oberfläche. Der
+**Account-Key** (128 Bit, per HKDF nach Argon2id) macht eine geklaute
+Server-Datenbank wertlos; Sync einschalten schließt einen Schlüssel neu um und
+verschlüsselt keinen Record neu. Im Recovery-Kit steht er als 28 Zeichen in
+vier Gruppen mit zwei Prüfzeichen — ein Tippfehler sagt deshalb „Tippfehler"
+und nicht „falsches Passwort". Der **Transport** pinnt den Server-Schlüssel wie
+einen SSH-Host-Key und meldet sich bei abgelaufenem Token selbst neu an. Die
+**Kopplung** läuft per SPAKE2 über das Relay: `K7M4Q-tiger-radio-kiwi`, drei
+von 128 Wörtern, und das Geheimnis geht erst raus, nachdem die andere Seite
+bewiesen hat, dass sie denselben Schlüssel hat.
+
+Und beides ist gegeneinander geprüft: `UwUSSH-Server/tests/client.rs` fährt die
+echten Client-Crates gegen den echten Server — ein Host mit Passwort wandert zu
+einem Gerät, dem nur drei Wörter gesagt wurden, ein Gerät mit falsch gehörten
+Wörtern bekommt nichts, und in den gespeicherten Records steht nichts Lesbares.
+Der Test hat beim ersten Lauf einen echten Fehler gefunden (ein Header mit
+eigenem SQL, dem ein Feld fehlte).
+
+Als Nächstes: **die Oberfläche** unter Einstellungen → Sync (Server verbinden,
+Recovery-Kit einmal zeigen, Gerät hinzufügen, Geräteliste, Status) samt
+Tauri-Commands und einer E2E-Phase mit zwei App-Instanzen gegen einen echten
+Server. Danach der Rest von **M1** — Splits, Agent-Login, ProxyJump-Ketten (der
+Import merkt sich den Jump-Host, verknüpft die Kette aber noch nicht). Offen:
+die von PuTTY schon vertrauten Host-Keys (eigenes Registry-Format, braucht
+einen echten Dump zum Verifizieren).
