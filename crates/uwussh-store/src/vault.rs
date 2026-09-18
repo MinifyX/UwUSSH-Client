@@ -253,7 +253,7 @@ pub(crate) fn truncate_wal(conn: &rusqlite::Connection) {
     let _ = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
 }
 
-fn store_header(conn: &rusqlite::Connection, header: &VaultHeader) -> Result<()> {
+pub(crate) fn store_header(conn: &rusqlite::Connection, header: &VaultHeader) -> Result<()> {
     conn.execute(
         "INSERT INTO vault
             (id, vault_id, kdf_memory_kib, kdf_time_cost, kdf_parallelism,

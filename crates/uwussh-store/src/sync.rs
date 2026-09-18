@@ -543,21 +543,10 @@ impl Store {
 
         let vault_id = header.vault_id.to_string();
         tx.execute("DELETE FROM vault", [])?;
-        tx.execute(
-            "INSERT INTO vault
-                (id, vault_id, kdf_memory_kib, kdf_time_cost, kdf_parallelism,
-                 salt, wrapped_nonce, wrapped_blob)
-             VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![
-                vault_id,
-                header.kdf.memory_kib,
-                header.kdf.time_cost,
-                header.kdf.parallelism,
-                header.salt.to_vec(),
-                header.wrapped_key.nonce,
-                header.wrapped_key.blob,
-            ],
-        )?;
+        // The one place that writes a header, so a new field in it cannot be
+        // forgotten here: this used to have its own INSERT, and losing the
+        // account key flag that way is exactly what happened.
+        crate::vault::store_header(&tx, header)?;
         tx.execute("UPDATE meta SET vault_id = ?1 WHERE id = 1", [&vault_id])?;
         for kind in SYNCED_KINDS {
             let Some(table) = table_of(kind) else {
@@ -1276,4 +1265,99 @@ fn stub_secret(tx: &Transaction, vault_id: &str, id: Uuid) -> Result<()> {
         params![id.to_string(), vault_id],
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uwussh_vault::{AccountKey, KdfParams};
+
+    /// A stand-in for what the operating system seals with.
+    fn protect(bytes: &[u8]) -> std::io::Result<Vec<u8>> {
+        Ok(bytes.iter().map(|byte| byte ^ 0x5a).collect())
+    }
+
+    fn unprotect(bytes: &[u8]) -> std::io::Result<Zeroizing<Vec<u8>>> {
+        Ok(Zeroizing::new(
+            bytes.iter().map(|byte| byte ^ 0x5a).collect(),
+        ))
+    }
+
+    #[test]
+    fn adopting_a_vault_keeps_everything_the_header_said() {
+        // The account's vault, as a joining device downloads it.
+        let account_key = AccountKey::generate();
+        let (header, unlocked) = uwussh_vault::create_with(
+            b"master",
+            Some(&account_key),
+            uuid::Uuid::now_v7(),
+            KdfParams::INSECURE_FOR_TESTS,
+        )
+        .unwrap();
+
+        let store = Store::open_in_memory().unwrap();
+        store.adopt_vault(&header, unlocked.export_key()).unwrap();
+
+        assert_eq!(store.vault_header().unwrap().as_ref(), Some(&header));
+        assert!(
+            store.vault_needs_account_key().unwrap(),
+            "a device that loses this flag asks for the wrong thing at unlock"
+        );
+        store.lock_vault();
+        assert!(store.unlock_vault(b"master").is_err());
+        store
+            .unlock_vault_with(b"master", Some(&account_key))
+            .unwrap();
+    }
+
+    #[test]
+    fn what_a_pairing_left_behind_comes_back_and_can_be_forgotten() {
+        let store = Store::open_in_memory().unwrap();
+        let account_key = AccountKey::generate();
+        let enrolment = Enrolment {
+            server_url: "https://nas.lan:8443".into(),
+            account_id: uuid::Uuid::now_v7(),
+            device_id: uuid::Uuid::now_v7(),
+            tls_fingerprint: Some("SHA256:abc".into()),
+        };
+        store
+            .save_enrolment(&enrolment, &[7u8; 32], Some(&account_key), protect)
+            .unwrap();
+
+        let state = store.sync_state().unwrap();
+        assert!(state.paired());
+        assert_eq!(state.server_url.as_deref(), Some("https://nas.lan:8443"));
+        assert_eq!(state.tls_fingerprint.as_deref(), Some("SHA256:abc"));
+        assert_eq!(state.account_id, Some(enrolment.account_id));
+        assert!(state.paired_ms.is_some());
+
+        let keys = store.enrolment_keys(unprotect).unwrap().unwrap();
+        assert_eq!(*keys.device_key, [7u8; 32]);
+        assert_eq!(format!("{keys:?}"), "EnrolmentKeys(redacted)");
+        assert_eq!(keys.account_key.unwrap(), account_key);
+
+        // Sealed, not stored: what is in the database is not the key.
+        let stored: Vec<u8> = store
+            .conn
+            .lock()
+            .query_row(
+                "SELECT protected_device_key FROM sync_state WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_ne!(stored, [7u8; 32].to_vec());
+
+        // What the operating system refuses to unseal — another Windows
+        // account, a database carried to another machine — drops the pairing
+        // rather than leaving it half-broken. (DPAPI answers with an error
+        // there rather than with the wrong bytes, which is why that is the
+        // case being tested.)
+        let refused = |_: &[u8]| Err(std::io::Error::other("another user"));
+        assert!(store.enrolment_keys(refused).unwrap().is_none());
+        assert!(!store.sync_state().unwrap().paired());
+
+        store.forget_enrolment().unwrap();
+        assert_eq!(store.sync_state().unwrap(), SyncState::default());
+    }
 }
