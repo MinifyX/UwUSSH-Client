@@ -26,8 +26,9 @@ pub mod memory;
 pub mod pin;
 
 pub use engine::{sync_once, SyncError, SyncReport, Transport, TransportError, MAX_ROUNDS};
-pub use http::Server;
+pub use http::{from_wire, to_wire, Server};
 pub use memory::MemoryServer;
+pub use uwussh_proto::api;
 
 #[cfg(test)]
 mod tests;

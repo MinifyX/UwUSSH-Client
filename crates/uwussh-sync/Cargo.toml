@@ -10,6 +10,7 @@ rust-version.workspace = true
 [dependencies]
 uwussh-proto.workspace = true
 uwussh-store.workspace = true
+uwussh-vault.workspace = true
 
 parking_lot.workspace = true
 serde.workspace = true
@@ -29,7 +30,6 @@ webpki-roots = "1.0.9"
 #   cargo add ureq --features rustls
 
 [dev-dependencies]
-uwussh-vault.workspace = true
 serde_json.workspace = true
 zeroize.workspace = true
 rcgen = { version = "0.14.10", default-features = false, features = ["crypto", "pem", "ring"] }

@@ -557,6 +557,48 @@ fn a_batch_larger_than_the_protocol_allows_is_refused_by_the_server() {
 }
 
 #[test]
+fn a_vault_header_survives_the_trip_through_the_wire_form() {
+    let account_key = uwussh_vault::AccountKey::generate();
+    let (header, _) = uwussh_vault::create_with(
+        b"master",
+        Some(&account_key),
+        Uuid::now_v7(),
+        KdfParams::INSECURE_FOR_TESTS,
+    )
+    .unwrap();
+
+    let wire = crate::to_wire(&header);
+    assert!(wire.needs_account_key, "a joining device has to be told");
+    assert_eq!(crate::from_wire(&wire).unwrap(), header);
+
+    // A header that arrives from somewhere else is input, not truth.
+    for broken in [
+        uwussh_proto::api::WireVault {
+            salt: "c2hvcnQ".into(),
+            ..wire.clone()
+        },
+        uwussh_proto::api::WireVault {
+            kdf_memory_kib: u32::MAX,
+            ..wire.clone()
+        },
+        uwussh_proto::api::WireVault {
+            wrapped_nonce: "dG9vLXNob3J0".into(),
+            ..wire.clone()
+        },
+        uwussh_proto::api::WireVault {
+            wrapped_blob: String::new(),
+            ..wire.clone()
+        },
+        uwussh_proto::api::WireVault {
+            salt: "not base64!!".into(),
+            ..wire.clone()
+        },
+    ] {
+        assert!(crate::from_wire(&broken).is_err(), "{broken:?}");
+    }
+}
+
+#[test]
 fn the_conflict_rule_is_the_one_both_sides_share() {
     // The rule lives in the protocol crate, so the server and both devices
     // cannot drift apart on it. Spot-check that this is the rule in force.
