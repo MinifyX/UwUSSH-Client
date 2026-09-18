@@ -408,6 +408,69 @@ fn decode(text: &str) -> Option<Vec<u8>> {
     URL_SAFE_NO_PAD.decode(text.trim()).ok()
 }
 
+// ── The vault header, to and from the wire ──────────────────────────────────
+//
+// The header is bytes on this side and base64 on the wire. The conversion
+// lives here rather than in the vault, because which form is which is the
+// transport's business — and because a header that arrives from somewhere else
+// is input, to be checked rather than trusted.
+
+/// The header this device keeps, in the form the server stores.
+pub fn to_wire(header: &uwussh_vault::VaultHeader) -> WireVault {
+    WireVault {
+        vault_id: header.vault_id,
+        kdf_memory_kib: header.kdf.memory_kib,
+        kdf_time_cost: header.kdf.time_cost,
+        kdf_parallelism: header.kdf.parallelism,
+        salt: encode(&header.salt),
+        wrapped_nonce: encode(&header.wrapped_key.nonce),
+        wrapped_blob: encode(&header.wrapped_key.blob),
+        needs_account_key: header.needs_account_key,
+        extra: Default::default(),
+    }
+}
+
+/// The other direction, for a header a joining device just downloaded.
+///
+/// Everything here is checked: the salt is the length a salt is, the costs are
+/// ones a device can actually run, and nothing is empty. A header is data from
+/// the network, and a header asking for a terabyte of memory would otherwise
+/// be discovered by running out of it.
+pub fn from_wire(wire: &WireVault) -> Result<uwussh_vault::VaultHeader, TransportError> {
+    let bytes = |what: &'static str, text: &str| {
+        decode(text).ok_or_else(|| TransportError::Refused(format!("the vault's {what}")))
+    };
+    let salt: [u8; 16] = bytes("salt", &wire.salt)?
+        .try_into()
+        .map_err(|_| TransportError::Refused("the vault's salt is the wrong length".into()))?;
+    let kdf = uwussh_vault::KdfParams {
+        memory_kib: wire.kdf_memory_kib,
+        time_cost: wire.kdf_time_cost,
+        parallelism: wire.kdf_parallelism,
+    };
+    if !kdf.within_limits() {
+        return Err(TransportError::Refused(
+            "that vault asks for more work than any device can do".into(),
+        ));
+    }
+    let wrapped_key = uwussh_vault::Sealed {
+        nonce: bytes("nonce", &wire.wrapped_nonce)?,
+        blob: bytes("wrapped key", &wire.wrapped_blob)?,
+    };
+    if wrapped_key.nonce.len() != 24 || wrapped_key.blob.is_empty() {
+        return Err(TransportError::Refused(
+            "that vault's wrapped key is not one".into(),
+        ));
+    }
+    Ok(uwussh_vault::VaultHeader {
+        vault_id: wire.vault_id,
+        kdf,
+        salt,
+        wrapped_key,
+        needs_account_key: wire.needs_account_key,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -476,67 +539,4 @@ mod tests {
         assert_eq!(decode(" -_-- \n").unwrap(), vec![251, 255, 190]);
         assert!(decode("not base64!!").is_none());
     }
-}
-
-// ── The vault header, to and from the wire ──────────────────────────────────
-//
-// The header is bytes on this side and base64 on the wire. The conversion
-// lives here rather than in the vault, because which form is which is the
-// transport's business — and because a header that arrives from somewhere else
-// is input, to be checked rather than trusted.
-
-/// The header this device keeps, in the form the server stores.
-pub fn to_wire(header: &uwussh_vault::VaultHeader) -> WireVault {
-    WireVault {
-        vault_id: header.vault_id,
-        kdf_memory_kib: header.kdf.memory_kib,
-        kdf_time_cost: header.kdf.time_cost,
-        kdf_parallelism: header.kdf.parallelism,
-        salt: encode(&header.salt),
-        wrapped_nonce: encode(&header.wrapped_key.nonce),
-        wrapped_blob: encode(&header.wrapped_key.blob),
-        needs_account_key: header.needs_account_key,
-        extra: Default::default(),
-    }
-}
-
-/// The other direction, for a header a joining device just downloaded.
-///
-/// Everything here is checked: the salt is the length a salt is, the costs are
-/// ones a device can actually run, and nothing is empty. A header is data from
-/// the network, and a header asking for a terabyte of memory would otherwise
-/// be discovered by running out of it.
-pub fn from_wire(wire: &WireVault) -> Result<uwussh_vault::VaultHeader, TransportError> {
-    let bytes = |what: &'static str, text: &str| {
-        decode(text).ok_or_else(|| TransportError::Refused(format!("the vault's {what}")))
-    };
-    let salt: [u8; 16] = bytes("salt", &wire.salt)?
-        .try_into()
-        .map_err(|_| TransportError::Refused("the vault's salt is the wrong length".into()))?;
-    let kdf = uwussh_vault::KdfParams {
-        memory_kib: wire.kdf_memory_kib,
-        time_cost: wire.kdf_time_cost,
-        parallelism: wire.kdf_parallelism,
-    };
-    if !kdf.within_limits() {
-        return Err(TransportError::Refused(
-            "that vault asks for more work than any device can do".into(),
-        ));
-    }
-    let wrapped_key = uwussh_vault::Sealed {
-        nonce: bytes("nonce", &wire.wrapped_nonce)?,
-        blob: bytes("wrapped key", &wire.wrapped_blob)?,
-    };
-    if wrapped_key.nonce.len() != 24 || wrapped_key.blob.is_empty() {
-        return Err(TransportError::Refused(
-            "that vault's wrapped key is not one".into(),
-        ));
-    }
-    Ok(uwussh_vault::VaultHeader {
-        vault_id: wire.vault_id,
-        kdf,
-        salt,
-        wrapped_key,
-        needs_account_key: wire.needs_account_key,
-    })
 }
