@@ -27,6 +27,8 @@ enum Mode {
     },
     Uninstall {
         dir: Option<PathBuf>,
+        /// Windows: this is the copy in the temp folder, which deletes itself.
+        #[cfg_attr(not(windows), allow(dead_code))]
         from_temp: bool,
     },
 }

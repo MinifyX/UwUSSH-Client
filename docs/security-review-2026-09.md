@@ -154,3 +154,73 @@ Smaller hardening in the same pass:
 - **UwUKeygen's window keeps Tauri's default permissions.** The page is
   UwUSSH's own code under the same content security policy; trimming the list
   gains nothing that boundary doesn't already give.
+
+## Third round: before 0.1.0-beta.8
+
+This release wires the sync client into the app — Settings → Sync, a worker
+thread, pairing — and brings UwUSSH, its setup and its updater to macOS and
+Linux. An independent review went over the whole client first, with the sync
+server added to the trust boundary as hostile: it may lie, stall, answer with
+anything, and it must still learn nothing and break nothing. No Critical or
+High finding; the sync transport was where the work was, and it was fixed
+before a single build shipped it.
+
+### Fixed
+
+| Severity   | Where          | What                                                                                                                                                                                                                                                                                                                                                                   |
+| ---------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Medium     | Sync transport | The "plain HTTP only to this machine" check read the host by hand: `http://localhost:1@evil.example` passed as localhost, and reqwest sent the invite, the login key and every token in the clear to `evil.example`. Addresses are now parsed the way reqwest parses them; `http` needs a loopback host, and user names, passwords, queries and fragments are refused. |
+| Low–Medium | Sync transport | Redirects were followed, with the body sent again — a login key included — to wherever the server pointed, past the pin and possibly down to plain HTTP. The protocol has no redirects; none are followed now.                                                                                                                                                         |
+| Low–Medium | Sync transport | Answers were read without a limit, so a hostile server could stream gigabytes into memory until the app died. Record pages are capped at twice a full batch plus a megabyte, everything else at 256 KiB, error bodies at 64 KiB.                                                                                                                                       |
+| Low        | Sync engine    | A server that always said "there is more" kept the sync thread pulling forever. A pass pulls at most a thousand pages, and stops at a page where every record failed its seal.                                                                                                                                                                                         |
+| Low        | Pairing        | A pairing that failed — wrong words, a timeout, a relay error — left its session open on the server for its ten minutes. It is closed on every path now; a retry always makes new words.                                                                                                                                                                               |
+| Low        | ssh_config     | The network-share check for `Include` looked at the pattern as written, so `~/\server\share\x` only became a UNC path after `~` was expanded — and reading it sends the Windows login hash to that server. The expanded path is checked too, and only a drive letter counts as local.                                                                                  |
+| Info       | Sync transport | reqwest honours `HTTP_PROXY`, which for an `http://localhost` server would have sent the plain-text requests to the proxy. Plain HTTP now never uses one.                                                                                                                                                                                                              |
+| Info       | Device seal    | The vault key and the pairing's keys were to be sealed with the same DPAPI entropy. Each purpose has its own label now, so a blob made for one can't be opened as the other.                                                                                                                                                                                           |
+
+Also found while building, not by the review: the export dialog's "close
+anyway?" question was asked but never shown, so Escape did nothing while a file
+password was typed.
+
+### New surface, and how it is held
+
+- **Settings → Sync** never hands a secret to the page except the recovery
+  code, once, right after the account was made. Master password and pairing
+  codes go straight into one command each and are not kept. Revoking another
+  device needs the master password (the login key comes from it); leaving
+  re-wraps the vault without the account key only after the password opened
+  it.
+- **The worker thread** syncs only while the vault is open, and drops its
+  connection after any failure, so a pin, token or address problem is met
+  afresh on the next pass.
+- **Sealing on macOS and Linux** uses a random key of UwUSSH's own in the
+  Keychain or the Secret Service, and XChaCha20-Poly1305 with a label per
+  purpose. Where no Secret Service answers, the key falls back to a file only
+  this user can read (0600, not a link, refused if anyone else may read it).
+- **The macOS and Linux setup** unpacks only the two app folders it knows,
+  entry by entry, refusing any path outside them; replaces an app by moving the
+  old one aside first; removes only those folders on uninstall — never
+  `/Applications` or a folder that holds anything else.
+- **Updates on macOS and Linux** run the downloaded setup only after the same
+  two signature checks as on Windows, and only for a copy of UwUSSH the setup
+  installed (its `install.json` names the folder the running app is in). An app
+  from the `.deb` updates the way it came.
+
+### Accepted, for now
+
+- **Pairing messages share one seal label** in both directions and all steps.
+  A replayed message fails to parse where it doesn't belong, so nothing is
+  exploitable; changing the label would break pairing between this version
+  and the last.
+- **The WebView2 bootstrapper** is trusted on HTTPS alone. Checking its
+  Authenticode signature would add something only on networks that intercept
+  TLS with their own trusted root — which could sign code just as well.
+- **Nothing is notarized on macOS, nothing is code-signed on Windows.** Both
+  need paid certificates; the updater's own signature is what protects
+  updates, and each release lists SHA-256 sums for the first download.
+- **The seal key file on Linux without a Secret Service** is as strong as the
+  file permissions: anything running as this user, or anyone with the disk,
+  can read it. The install guide says so.
+- **The unsealed update on macOS and Linux could be swapped** by a process of
+  the same user between the check and the start. That process can already
+  replace the app itself.

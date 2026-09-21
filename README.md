@@ -6,11 +6,11 @@
 
 <p align="center">
   The SSH client I build for myself, because every other one annoyed me. (◕‿◕✿)<br/>
-  SSH · SFTP · Vault · Windows, beta
+  SSH · SFTP · Vault · Sync · Windows, macOS and Linux, beta
 </p>
 
 <p align="center">
-  <a href="https://github.com/MinifyX/UwUSSH-Client/releases"><b>Download for Windows</b></a>
+  <a href="https://github.com/MinifyX/UwUSSH-Client/releases"><b>Download for Windows, macOS and Linux</b></a>
   ·
   <a href="docs/install.md"><b>How to install</b></a>
   ·
@@ -67,10 +67,10 @@ headed; the status below says what already works today.
   Settings → Tone → Neutral. Security warnings are never playful, in either
   tone.
 
-> **Status: beta.** [Betas are out for Windows](https://github.com/MinifyX/UwUSSH-Client/releases),
-> with their own installer and signed automatic updates. The sync server,
-> splits, port forwarding, agent login, ProxyJump and macOS and Linux builds are
-> still to come. It is a beta: expect rough edges.
+> **Status: beta.** [Betas are out for Windows, macOS and Linux](https://github.com/MinifyX/UwUSSH-Client/releases),
+> each with the same installer with Nyu in it, and signed automatic updates.
+> Splits, port forwarding, agent login and ProxyJump are still to come. It is a
+> beta: expect rough edges.
 >
 > **What works.** SSH with a password or a key — OpenSSH, PEM and PuTTY `.ppk` —
 > with host keys checked on first contact and every time after, in tabs, on a
@@ -80,7 +80,7 @@ headed; the status below says what already works today.
 >   drag and drop, each with a little icon for the system the server runs
 >   (Ubuntu, Debian, Fedora, Windows, Cisco and friends, detected on connect).
 > - Passwords and keys can live in an **encrypted vault**. Unlock it once, or let
->   this Windows account open it on its own. When `sudo` asks for the password
+>   your user account open it on its own. When `sudo` asks for the password
 >   in the terminal, one click types it.
 > - A **file browser**: your computer on the left, the server on the right, over
 >   SFTP or an SMB share, with drag and drop both ways and a root mode through
@@ -93,23 +93,31 @@ headed; the status below says what already works today.
 >   carries secrets, that UwUSSH reads back in.
 > - Imports from Termius (its local database, since Termius has no export —
 >   [how](docs/architecture.md#termius-which-has-no-export)), PuTTY and KiTTY
->   from the registry, and `~/.ssh/config` with its `Include`s.
+>   from the registry or from a portable KiTTY's folder and `.reg` exports, and
+>   `~/.ssh/config` with its `Include`s.
+> - **Sync** through a [UwUSSH server](https://github.com/MinifyX/UwUSSH-Server)
+>   of your own: hosts, keys and passwords end-to-end encrypted, a recovery kit
+>   shown once, a new device paired by three words, and revoking one with the
+>   master password.
 >
 > Splits, agent login and ProxyJump come next; the [roadmap](docs/roadmap.md) has
 > the order.
 
 ## Install
 
-Windows 10 or 11, 64-bit.
+Windows 10 or 11 (64-bit), macOS 11 or newer (Apple silicon and Intel), Linux
+(x86_64).
 
 1. Open the [releases](https://github.com/MinifyX/UwUSSH-Client/releases) and
-   download `UwUSSH-Setup-<version>.exe` from the newest one (every version is
-   a beta for now, marked **Pre-release**).
-2. Run it. Windows will probably warn that it "protected your PC", because the
-   setup isn't signed with a paid certificate: **More info → Run anyway**.
-3. Click **Install**. No admin prompt: it installs for your Windows user only,
-   brings UwUKeygen along unless you untick it under Options, and keeps itself
-   up to date.
+   download the setup for your system from the newest one (every version is a
+   beta for now, marked **Pre-release**): `UwUSSH-Setup-<version>.exe`,
+   `…-macos-arm64.dmg` / `…-macos-x64.dmg`, or `…-linux-x64.AppImage`.
+2. Run it. Neither Windows nor macOS knows the setup, because it isn't signed
+   with a paid certificate: on Windows **More info → Run anyway**, on macOS
+   **System Settings → Privacy & Security → Open Anyway**.
+3. Click **Install**. No admin prompt: it installs for your user only, brings
+   UwUKeygen along unless you untick it under Options, and keeps itself up to
+   date.
 
 The [install guide](docs/install.md) has the details: checking the download,
 updates, uninstalling, where your data lives, and what to do when something
@@ -117,23 +125,18 @@ goes wrong. [Auf Deutsch](docs/install.md#uwussh-installieren).
 
 ## The sync server
 
-The server is a separate repo, `UwUSSH-Server`, and will land with milestone M2.
-One Rust binary, one Docker image, one SQLite file:
+The server is a separate repo, [UwUSSH-Server](https://github.com/MinifyX/UwUSSH-Server):
+one Rust binary, one Docker image, one SQLite file, its own TLS certificate
+whose fingerprint each device pins like an SSH host key. It installs with one
+command and prints a setup code; paste that into **Settings → Sync → Connect a
+server**, and UwUSSH shows the recovery kit once. Another device joins with
+the code **Add a device** shows — three words over SPAKE2, the master password
+typed on each device and never sent.
 
-```yaml
-services:
-  uwussh:
-    image: ghcr.io/minifyx/uwussh-server:latest
-    ports: ['8080:8080']
-    volumes: ['./data:/data']
-    environment:
-      UWUSSH_DB: /data/uwussh.db
-      UWUSSH_REGISTRATION: invite # open | invite | closed
-```
-
-TLS is your reverse proxy's job. Backup is copying one file. And if you'd
-rather not run a server at all, "local only" is a first-class choice, not a
-downgrade.
+The server only ever holds ciphertext, and without the account key from the
+recovery kit even its copy of the wrapped vault key is worth nothing. And if
+you'd rather not run a server at all, "local only" is a first-class choice,
+not a downgrade.
 
 ## Project layout
 
@@ -141,7 +144,7 @@ downgrade.
 | ---------------------- | ----------------------------------------------------------------------- |
 | `apps/desktop`         | The Tauri 2 app (React UI + Rust shell)                                 |
 | `apps/keygen`          | UwUKeygen, the standalone key generator                                 |
-| `apps/setup`           | The Windows installer, updater and uninstaller                          |
+| `apps/setup`           | The installer, updater and uninstaller, for all three systems           |
 | `apps/desktop/e2e`     | End-to-end run against a real SSH server                                |
 | `crates/uwussh-core`   | Session engine: SSH, SFTP, local shells, flow control, system detection |
 | `crates/uwussh-store`  | SQLite: hosts, groups, keys, trusted host keys, export files            |
@@ -163,7 +166,8 @@ Requirements:
 - Rust stable (via [rustup](https://rustup.rs))
 - Platform prerequisites for Tauri: see
   [tauri.app/start/prerequisites](https://tauri.app/start/prerequisites/)
-  (Windows: Visual Studio C++ Build Tools and WebView2)
+  (Windows: Visual Studio C++ Build Tools and WebView2; Linux:
+  `libwebkit2gtk-4.1-dev` and friends, plus `libdbus-1-dev`)
 
 ```bash
 pnpm install
@@ -182,17 +186,19 @@ Checks:
 ```bash
 pnpm typecheck && pnpm lint
 cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
-node apps/desktop/e2e/run.mjs     # end to end, Windows
+node apps/desktop/e2e/run.mjs     # end to end, Windows (phase E needs ../UwUSSH-Server built)
 ```
 
 The installer, with the app packed inside:
 
 ```bash
-pnpm build:setup                  # target/release/UwUSSH-Setup-<version>.exe
+pnpm build:setup                  # target/installers/, for the system it runs on
 ```
 
-Releasing is `pnpm release`; [release-notes/README.md](release-notes/README.md)
-has the steps.
+Releasing is `pnpm release`: it builds and signs the Windows setup here, takes
+the macOS and Linux setups CI built for the tag, signs those here too, and
+publishes all of them. [release-notes/README.md](release-notes/README.md) has
+the steps.
 
 ## Documentation
 
