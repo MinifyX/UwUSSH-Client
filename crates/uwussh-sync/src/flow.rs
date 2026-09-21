@@ -204,6 +204,7 @@ pub fn wait_for_device(
             .as_ref()
             .map(|key| http::encode_base64(key.as_bytes())),
         enrolment: offer.enrolment.clone(),
+        manifest: store.published_manifest()?,
     };
 
     let postbox = server.postbox(&offer.offer.id, "a");
@@ -279,6 +280,9 @@ pub fn join(
         account_key.as_ref(),
         protect,
     )?;
+    // What the other device had published: until that manifest is here, this
+    // one cannot tell the whole vault from whatever the server chose to send.
+    store.set_manifest_floor(handover.manifest)?;
 
     // And tell the other device what to call this one.
     let _ = pairing::say_joined(
@@ -363,6 +367,15 @@ fn login_key_from(
     if !kdf.within_limits() {
         return Err(TransportError::Refused(
             "that vault asks for more work than any device can do".into(),
+        )
+        .into());
+    }
+    // With an account key mixed in, the login key is out of reach of a guess
+    // whatever the costs. Without one, the password alone guards it — and the
+    // costs came from the server, which would like them to be cheap.
+    if account_key.is_none() && !kdf.strong_enough() {
+        return Err(TransportError::Refused(
+            "that vault's password protection is too weak to join without an account key".into(),
         )
         .into());
     }
@@ -488,5 +501,21 @@ mod tests {
             ..paired
         };
         assert!(format!("{joined:?}").contains("recovery none"));
+    }
+
+    #[test]
+    fn cheap_costs_from_the_server_are_refused_unless_an_account_key_guards_the_login() {
+        let params = |kdf: KdfParams| uwussh_proto::api::WireVaultParams {
+            vault_id: uuid::Uuid::nil(),
+            kdf_memory_kib: kdf.memory_kib,
+            kdf_time_cost: kdf.time_cost,
+            kdf_parallelism: kdf.parallelism,
+            salt: http::encode_base64([7u8; 16]),
+            needs_account_key: false,
+        };
+        let cheap = params(KdfParams::INSECURE_FOR_TESTS);
+        assert!(login_key_from(&cheap, b"pw", None).is_err());
+        assert!(login_key_from(&cheap, b"pw", Some(&AccountKey::generate())).is_ok());
+        assert!(login_key_from(&params(KdfParams::FLOOR), b"pw", None).is_ok());
     }
 }

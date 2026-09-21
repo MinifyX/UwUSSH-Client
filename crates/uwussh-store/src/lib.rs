@@ -19,6 +19,7 @@ pub mod hosts;
 pub mod import;
 pub mod keys;
 pub mod known_hosts;
+pub mod manifest;
 mod schema;
 pub mod secret;
 pub mod sync;
@@ -34,6 +35,7 @@ pub use import::{
 };
 pub use keys::{KeyDraft, KeyRecord};
 pub use known_hosts::KnownHostRecord;
+pub use manifest::{manifest_id, ManifestFloor, Problem, Violation, Withheld};
 pub use schema::SCHEMA_VERSION;
 pub use secret::SecretText;
 pub use sync::{ApplyReport, Enrolment, EnrolmentKeys, Pushed, SyncState};
@@ -100,11 +102,49 @@ pub struct Store {
     vault: Mutex<Option<UnlockedVault>>,
 }
 
+/// The database holds host names, addresses, snippets and — without sync — the
+/// salt and wrapped key a guess at the master password would start from. The
+/// default umask leaves all of that readable by every other user on the
+/// machine; this doesn't. SQLite gives its `-wal` and `-shm` files the mode
+/// of the database, so the file itself is enough. Windows profiles are
+/// private to their user already.
+fn private_to_this_user(path: &Path, made_folder: bool) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        // Only a folder made just now: one that was already there — `/tmp`,
+        // for a database someone pointed at it — stays as it was.
+        if let Some(parent) = path.parent().filter(|_| made_folder) {
+            std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))?;
+        }
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(path)?;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        for suffix in ["-wal", "-shm"] {
+            let mut side = path.as_os_str().to_owned();
+            side.push(suffix);
+            if std::path::Path::new(&side).exists() {
+                std::fs::set_permissions(&side, std::fs::Permissions::from_mode(0o600))?;
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = (path, made_folder);
+    Ok(())
+}
+
 impl Store {
     pub fn open(path: &Path) -> Result<Self> {
+        let mut made_folder = false;
         if let Some(parent) = path.parent() {
+            made_folder = !parent.as_os_str().is_empty() && !parent.exists();
             std::fs::create_dir_all(parent)?;
         }
+        private_to_this_user(path, made_folder)?;
         let conn = Connection::open(path)?;
         // WAL, like UwUMail: readers never block the writer, and a crash
         // mid-write cannot corrupt the file.
@@ -200,5 +240,22 @@ mod tests {
         for suffix in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_database_and_a_folder_made_for_it_are_this_users_alone() {
+        use std::os::unix::fs::PermissionsExt;
+        let folder = std::env::temp_dir().join(format!("uwussh-store-perm-{}", Uuid::now_v7()));
+        let path = folder.join("uwussh.db");
+        let store = Store::open(&path).unwrap();
+        store
+            .save_host(hosts::tests::draft("a", "10.0.0.1"))
+            .unwrap();
+        let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&folder), 0o700);
+        assert_eq!(mode(&path), 0o600);
+        drop(store);
+        let _ = std::fs::remove_dir_all(&folder);
     }
 }

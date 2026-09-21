@@ -53,6 +53,7 @@ import {
 } from './lib/session';
 import { language, t } from './lib/i18n';
 import { getSettings, useSettings } from './lib/settings';
+import type { Withheld } from './lib/sync';
 import {
   createTab,
   describe,
@@ -791,6 +792,30 @@ export function App() {
     const stop = listen('sync:changed', () => void refreshHosts());
     return () => void stop.then((unlisten) => unlisten());
   }, [refreshHosts]);
+
+  // The server keeps records back or hands out old versions. Said once, when
+  // it begins, whatever is open; the sync settings keep saying it.
+  useEffect(() => {
+    const stop = listen<Withheld>('sync:withheld', ({ payload }) =>
+      setAppNotice({
+        tone: 'error',
+        text: [
+          t(
+            'Der Server liefert nicht den neuesten Stand – er hält Daten zurück oder spielt alte Versionen ein.',
+          ),
+          payload.hostKeys
+            ? t(
+                'Host-Schlüsseln aus dem Sync wird bis dahin nicht vertraut – beim nächsten Verbinden fragt UwUSSH wieder nach.',
+              )
+            : null,
+        ]
+          .filter(Boolean)
+          .join(' '),
+        action: { label: t('Sync-Einstellungen'), run: () => setSettingsOpen('sync') },
+      }),
+    );
+    return () => void stop.then((unlisten) => unlisten());
+  }, []);
 
   // Dev builds only: lets end-to-end tests read the active terminal, whose
   // text never reaches the DOM with the WebGL renderer. Stripped from release.

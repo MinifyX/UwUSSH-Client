@@ -51,9 +51,10 @@ impl Hlc {
                 device: self.device,
             }
         } else {
+            let (wall_ms, counter) = step(self.wall_ms, self.counter);
             Self {
-                wall_ms: self.wall_ms,
-                counter: self.counter + 1,
+                wall_ms,
+                counter,
                 device: self.device,
             }
         }
@@ -75,21 +76,31 @@ impl Hlc {
         };
         let max_wall = now_ms.max(self.wall_ms).max(remote.wall_ms);
 
-        let counter = if max_wall == self.wall_ms && max_wall == remote.wall_ms {
-            self.counter.max(remote.counter) + 1
+        let (wall_ms, counter) = if max_wall == self.wall_ms && max_wall == remote.wall_ms {
+            step(max_wall, self.counter.max(remote.counter))
         } else if max_wall == self.wall_ms {
-            self.counter + 1
+            step(max_wall, self.counter)
         } else if max_wall == remote.wall_ms {
-            remote.counter + 1
+            step(max_wall, remote.counter)
         } else {
-            0
+            (max_wall, 0)
         };
 
         Self {
-            wall_ms: max_wall,
+            wall_ms,
             counter,
             device: self.device,
         }
+    }
+}
+
+/// The moment right after `(wall_ms, counter)`. A counter at its end — which
+/// a record from another device can claim — moves on to the next millisecond
+/// instead of wrapping to 0, which would sort before everything it follows.
+fn step(wall_ms: u64, counter: u32) -> (u64, u32) {
+    match counter.checked_add(1) {
+        Some(counter) => (wall_ms, counter),
+        None => (wall_ms.saturating_add(1), 0),
     }
 }
 
@@ -155,6 +166,29 @@ mod tests {
         // The record that arrived still sorts after ours — only the clock is
         // capped, not the ordering.
         assert!(absurd > local);
+    }
+
+    #[test]
+    fn a_counter_at_its_end_moves_on_instead_of_wrapping() {
+        let now = 1_000;
+        let local = Hlc {
+            wall_ms: now,
+            counter: 0,
+            device: 1,
+        };
+        let remote = Hlc {
+            wall_ms: now,
+            counter: u32::MAX,
+            device: 2,
+        };
+        let merged = local.merge(remote, now);
+        assert!(merged > remote);
+        let full = Hlc {
+            wall_ms: now,
+            counter: u32::MAX,
+            device: 1,
+        };
+        assert!(full.tick(now) > full);
     }
 
     #[test]

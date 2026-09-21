@@ -11,9 +11,14 @@
 //! It also plays the part of a server that misbehaves: [`MemoryServer::store`]
 //! writes a record the way a hostile or broken server would hand it back, so
 //! the client's defences can be tested.
+//!
+//! And it keeps things back, which no seal catches:
+//! [`MemoryServer::withhold`] leaves a record out of every pull, and
+//! [`MemoryServer::serve_stale`] hands out an older version in place of the
+//! newest — what the manifests are there to notice.
 
 use parking_lot::Mutex;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use uuid::Uuid;
 use uwussh_proto::{
     Accepted, Envelope, PullResponse, PushResponse, SyncCursor, MAX_BATCH, MAX_BATCH_BYTES,
@@ -32,6 +37,10 @@ struct Inner {
     /// The vault this account holds. Set by the first record that arrives, so
     /// a device pushing another account's records is refused.
     vault_id: Option<Uuid>,
+    /// Records the server pretends not to have when asked for them.
+    withheld: BTreeSet<Uuid>,
+    /// Older versions handed out in place of the newest one it holds.
+    stale: BTreeMap<Uuid, Envelope>,
 }
 
 #[derive(Default)]
@@ -70,6 +79,27 @@ impl MemoryServer {
         inner.records.insert(envelope.id, envelope);
         seq
     }
+
+    /// From now on, leave a record out of every pull, as a server keeping a
+    /// newer host key or a delete to itself would. Pushes still see it.
+    pub fn withhold(&self, id: Uuid) {
+        self.inner.lock().withheld.insert(id);
+    }
+
+    /// From now on, hand out `old` — a version the server once held — in
+    /// place of the newest version of that record, at the newest one's place
+    /// in the order: exactly what a device joining now would get from a
+    /// server that rolled one record back.
+    pub fn serve_stale(&self, old: Envelope) {
+        self.inner.lock().stale.insert(old.id, old);
+    }
+
+    /// Back to honest.
+    pub fn behave(&self) {
+        let mut inner = self.inner.lock();
+        inner.withheld.clear();
+        inner.stale.clear();
+    }
 }
 
 impl Transport for MemoryServer {
@@ -79,7 +109,14 @@ impl Transport for MemoryServer {
             .records
             .values()
             .filter(|env| env.seq.unwrap_or(0) > since.0)
-            .cloned()
+            .filter(|env| !inner.withheld.contains(&env.id))
+            .map(|env| match inner.stale.get(&env.id) {
+                Some(old) => Envelope {
+                    seq: env.seq,
+                    ..old.clone()
+                },
+                None => env.clone(),
+            })
             .collect();
         envelopes.sort_by_key(|env| env.seq.unwrap_or(0));
 

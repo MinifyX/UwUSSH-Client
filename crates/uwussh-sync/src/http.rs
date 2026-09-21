@@ -433,9 +433,15 @@ impl Transport for Server {
         let limit = limit.min(MAX_BATCH);
         self.send_limited(
             || {
-                self.client
-                    .get(self.url("/v1/records"))
-                    .query(&[("since", since.0.to_string()), ("limit", limit.to_string())])
+                // `manifests` says this build reads manifest records. A build
+                // before them fails on a whole page that holds a kind it does
+                // not know, so a server leaves them out for whoever does not
+                // ask; one that does not know the parameter ignores it.
+                self.client.get(self.url("/v1/records")).query(&[
+                    ("since", since.0.to_string()),
+                    ("limit", limit.to_string()),
+                    ("manifests", "1".to_string()),
+                ])
             },
             true,
             MAX_PAGE_BYTES,

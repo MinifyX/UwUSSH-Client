@@ -253,6 +253,60 @@ possible clock, no name, never pushed — which the real record replaces the
 moment it turns up. Until then the host is listed without a login, and a group
 with no name yet is not shown as a group at all.
 
+### Manifests: noticing what the server keeps back
+
+The seal stops a server from forging or altering a record, but not from
+**leaving one out**: it could hand a newly joined device the old version of a
+host key that was replaced after a reinstall, never mention the new one, and
+the device would trust the old key — a man in the middle waiting for the first
+connection. Nothing in a single record says there should have been more.
+
+So every device publishes one **manifest** (`EntityKind::Manifest`, sealed like
+any record) under an id derived from the vault and the device's clock id — a
+version-8 UUID from SHA-256, so each device has exactly one and it can be named
+before it arrives. It lists id, version and tombstone flag of every record the
+device holds **that the server has confirmed** (`dirty = 0`, a `server_seq`, no
+placeholder), in a compact binary form of 34 bytes per record. A pass that got
+everything out and pulled to the end rewrites it when that list changed and
+pushes it **on its own**, after the records it lists; a server that does not
+know the kind yet refuses that request alone, and the records still sync.
+
+After a pull that reached the end, every manifest is held against what is here:
+each listed version must be here or something newer — a later edit, or a
+tombstone, which beats every edit anyway. A listed delete of something never
+had is fine, and so is a host key that lost its `address:port` slot to a newer
+one (it is recorded in `superseded`, since it leaves no tombstone). Kinds this
+build keeps no table for are not checked. Before the alarm goes up the first
+time, everything is pulled once more from cursor 0, so only what is still
+missing then counts. What is found is written down (`manifest_violations`),
+shown in Settings → Sync and once as a banner, and while it involves host keys
+**a host key another device decided on is not trusted**: `known_host` answers
+as if the host were new, the next connection asks, and a key the user accepts
+there is this device's own and trusted again. Manifests themselves go through
+the usual conflict rule, so a server cannot roll an existing device back to an
+older manifest either.
+
+A device that joins gets a **floor** inside the pairing handshake, which the
+server cannot touch: the id and version of the manifest the offering device had
+last published. Until that manifest, at least that new, is here, the check
+fails — so a server cannot hide the one manifest that would give it away.
+
+The limits, honestly:
+
+- A device with **no floor and no earlier state** — joined by hand, or before
+  the offering device ever published — can be rolled back **consistently**: a
+  server that serves an old snapshot of every record and every manifest
+  together is indistinguishable from a vault that simply is that old.
+- A manifest lists at most 7,000 records, host keys first, then keys, secrets,
+  logins, hosts, groups and snippets; a bigger vault publishes a partial one
+  and the rest goes unchecked.
+- The check covers versions the listing device had confirmed. An edit made
+  after its last manifest is covered once that device publishes again.
+- Manifests of devices that are gone stay on the server. They are harmless as
+  long as the server keeps tombstones; once it forgets a tombstone, a new
+  device would miss a record that stale manifest still lists — which is why a
+  server that knows manifests drops a device's manifest when it is revoked.
+
 ### Joining an account
 
 A second device that already has hosts of its own has its own vault id and its
@@ -307,7 +361,7 @@ end-to-end run drives two app instances against a real server (see below).
 | `POST /v1/accounts`                  | Create an account from an invite: vault header, auth verifier, first device |
 | `POST /v1/session`                   | A device signs a challenge (Ed25519) → token, one hour                      |
 | `GET /v1/vault`, `PUT /v1/vault/key` | The vault header; a new one on a password change                            |
-| `GET /v1/records?since=<seq>`        | Envelopes newer than a cursor, paginated                                    |
+| `GET /v1/records?since=<seq>`        | Envelopes newer than a cursor, paginated; `&manifests=1` includes manifests |
 | `POST /v1/records`                   | Batch push, each record with its `base_seq`                                 |
 | `GET /v1/events`                     | Server-sent events: "changes from seq N"                                    |
 | `POST /v1/pair`, `/v1/pair/{id}`     | Relay for device pairing (SPAKE2), ten minutes                              |

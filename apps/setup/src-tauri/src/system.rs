@@ -30,7 +30,8 @@ use windows::Win32::System::Variant::VT_LPWSTR;
 use windows::Win32::UI::Shell::PropertiesSystem::IPropertyStore;
 use windows::Win32::UI::Shell::{
     FOLDERID_Desktop, FOLDERID_LocalAppData, FOLDERID_Programs, FOLDERID_RoamingAppData,
-    FOLDERID_UserProgramFiles, IShellLinkW, SHGetKnownFolderPath, ShellLink, KF_FLAG_CREATE,
+    FOLDERID_System, FOLDERID_UserProgramFiles, IShellLinkW, SHGetKnownFolderPath, ShellLink,
+    KF_FLAG_CREATE,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     MessageBoxW, IDYES, MB_ICONERROR, MB_ICONQUESTION, MB_OK, MB_YESNO,
@@ -255,9 +256,21 @@ pub fn delete_after_exit(file: &Path) {
     // through an environment variable: cmd expands %…% inside quotes too, so a
     // profile path with a percent sign in it must never become part of the
     // command line itself.
-    let _ = std::process::Command::new("cmd")
-        .raw_arg("/c ping 127.0.0.1 -n 4 > nul & del /f /q \"%UWUSSH_SETUP_COPY%\"")
+    //
+    // cmd and ping by their full paths, started in System32: this copy runs
+    // from the temp folder, and a bare `cmd` is looked up next to the running
+    // program first — as is `ping` in cmd's working folder — so a cmd.exe or
+    // ping.bat someone left in %TEMP% would run instead.
+    let Some(system) = known_folder(&FOLDERID_System) else {
+        return;
+    };
+    let _ = std::process::Command::new(system.join("cmd.exe"))
+        .raw_arg(
+            "/c \"\"%UWUSSH_PING%\" 127.0.0.1 -n 4 > nul & del /f /q \"%UWUSSH_SETUP_COPY%\"\"",
+        )
+        .env("UWUSSH_PING", system.join("PING.EXE"))
         .env("UWUSSH_SETUP_COPY", file)
+        .current_dir(&system)
         .creation_flags(CREATE_NO_WINDOW)
         .spawn();
 }

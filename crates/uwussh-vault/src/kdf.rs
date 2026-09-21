@@ -59,6 +59,22 @@ impl KdfParams {
             && (1..=16).contains(&self.parallelism)
     }
 
+    /// The least a password that stands on its own may be derived with: the
+    /// OWASP floor for Argon2id. Costs that arrive from somewhere else — a
+    /// server handing a joining device its vault's parameters — are checked
+    /// against it, so a hostile server cannot ask for a login key made cheap
+    /// enough to guess the password from offline.
+    pub const FLOOR: Self = Self {
+        memory_kib: 19 * 1024,
+        time_cost: 2,
+        parallelism: 1,
+    };
+
+    /// Whether guessing a password through these costs is expensive enough.
+    pub fn strong_enough(&self) -> bool {
+        self.memory_kib >= Self::FLOOR.memory_kib && self.time_cost >= Self::FLOOR.time_cost
+    }
+
     /// For tests only: fast, and worthless against guessing.
     pub const INSECURE_FOR_TESTS: Self = Self {
         memory_kib: 8,
@@ -193,6 +209,18 @@ mod tests {
         let a = fast(b"pw", b"salt-one-aaaaaaa");
         let b = fast(b"pw", b"salt-one-aaaaaaa");
         assert_eq!(a, b, "unlocking on a second device depends on this");
+    }
+
+    #[test]
+    fn the_defaults_clear_the_floor_and_the_test_costs_do_not() {
+        assert!(KdfParams::RECOMMENDED.strong_enough());
+        assert!(KdfParams::FLOOR.strong_enough());
+        assert!(!KdfParams::INSECURE_FOR_TESTS.strong_enough());
+        let one_pass = KdfParams {
+            time_cost: 1,
+            ..KdfParams::RECOMMENDED
+        };
+        assert!(!one_pass.strong_enough());
     }
 
     #[test]

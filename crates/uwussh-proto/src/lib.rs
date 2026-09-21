@@ -13,12 +13,14 @@
 pub mod api;
 pub mod clock;
 pub mod entities;
+pub mod manifest;
 pub mod merge;
 pub mod sync;
 
 pub use api::{Admitted, NewDevice, WireVault, WireVaultParams};
 pub use clock::{Hlc, MAX_DRIFT_MS};
 pub use entities::*;
+pub use manifest::{Manifest, ManifestEntry, MAX_MANIFEST_ENTRIES};
 pub use merge::{resolve, Resolution, Version};
 pub use sync::{
     Accepted, Envelope, PullResponse, PushRequest, PushResponse, SyncCursor, MAX_BATCH,

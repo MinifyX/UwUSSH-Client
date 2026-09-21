@@ -111,6 +111,10 @@ pub struct ApplyReport {
     pub rejected: usize,
     /// Two devices trusted a different key for the same `address:port`.
     pub host_key_conflicts: usize,
+    /// Other devices' manifests that came along, whatever became of them. Not
+    /// counted above, which is about records; one that fails its seal is
+    /// counted as rejected all the same.
+    pub manifests: usize,
 }
 
 impl ApplyReport {
@@ -123,11 +127,12 @@ impl ApplyReport {
         self.skipped += other.skipped;
         self.rejected += other.rejected;
         self.host_key_conflicts += other.host_key_conflicts;
+        self.manifests += other.manifests;
     }
 }
 
 /// The table a kind lives in, or `None` for a kind this build does not keep.
-fn table_of(kind: EntityKind) -> Option<&'static str> {
+pub(crate) fn table_of(kind: EntityKind) -> Option<&'static str> {
     Some(match kind {
         EntityKind::Host => "hosts",
         EntityKind::Group => "host_groups",
@@ -136,6 +141,9 @@ fn table_of(kind: EntityKind) -> Option<&'static str> {
         EntityKind::Snippet => "snippets",
         EntityKind::KnownHost => "known_hosts",
         EntityKind::Secret => "secrets",
+        // Travels like a record, but is no row of the vault: not pending in
+        // the count, and pushed on its own (see `crate::manifest`).
+        EntityKind::Manifest => "manifests",
         // Port forwards and terminal profiles have no table yet. A newer
         // build's records for them stay on the server, where they do no harm.
         EntityKind::PortForward | EntityKind::TerminalProfile => return None,
@@ -144,7 +152,7 @@ fn table_of(kind: EntityKind) -> Option<&'static str> {
 
 /// Every table whose rows travel, in the order records must be applied:
 /// whatever a record can point at comes first.
-const SYNCED_KINDS: [EntityKind; 7] = EntityKind::APPLY_ORDER;
+pub(crate) const SYNCED_KINDS: [EntityKind; 7] = EntityKind::APPLY_ORDER;
 
 /// A row waiting to be pushed.
 struct Pending {
@@ -156,14 +164,14 @@ struct Pending {
     payload: Zeroizing<Vec<u8>>,
 }
 
-fn parse_uuid(text: &str) -> Result<Uuid> {
+pub(crate) fn parse_uuid(text: &str) -> Result<Uuid> {
     Uuid::parse_str(text).map_err(|_| StoreError::Invalid {
         field: "id",
         problem: "invalid",
     })
 }
 
-fn clock_of(wall: i64, counter: i64, device: i64) -> Hlc {
+pub(crate) fn clock_of(wall: i64, counter: i64, device: i64) -> Hlc {
     Hlc::new(wall as u64, counter as u32, device as u32)
 }
 
@@ -306,10 +314,15 @@ impl Store {
                 SET server_url = NULL, account_id = NULL, device_id = NULL,
                     tls_fingerprint = NULL, protected_device_key = NULL,
                     protected_account_key = NULL, paired_ms = NULL,
-                    cursor = 0, last_sync_ms = NULL
+                    cursor = 0, last_sync_ms = NULL,
+                    floor_manifest_id = NULL, floor_wall_ms = NULL,
+                    floor_counter = NULL, floor_device = NULL
               WHERE id = 1",
             [],
         )?;
+        // Without a server, nothing is being kept back. The manifests stay: a
+        // device that pairs with the same account again still holds them.
+        conn.execute("DELETE FROM manifest_violations", [])?;
         truncate_wal(&conn);
         tracing::info!("this device is no longer paired");
         Ok(())
@@ -402,6 +415,43 @@ impl Store {
         Ok((envelopes, left_out))
     }
 
+    /// This device's manifest, sealed, when a newer one waits to be pushed.
+    ///
+    /// Kept apart from [`Store::pending_envelopes`] on purpose: a server that
+    /// does not know the kind yet refuses the whole request it arrives in, and
+    /// that must not hold up the records themselves.
+    pub fn pending_manifest(&self) -> Result<Option<Envelope>> {
+        let conn = self.conn.lock();
+        let guard = self.vault.lock();
+        let vault = guard.as_ref().ok_or(StoreError::VaultLocked)?;
+        let (rows, _) = pending_rows(&conn, vault, EntityKind::Manifest, 1)?;
+        let Some(row) = rows.into_iter().next() else {
+            return Ok(None);
+        };
+        let sealed =
+            vault.seal_synced(row.id, row.kind, row.updated_at, row.deleted, &row.payload)?;
+        if sealed.blob.len() > MAX_BLOB_BYTES {
+            // Cannot happen with the entry limit in place; if it ever does,
+            // the records still sync and only the check is missing.
+            tracing::warn!(
+                bytes = sealed.blob.len(),
+                "manifest too large, not published"
+            );
+            return Ok(None);
+        }
+        Ok(Some(Envelope {
+            id: row.id,
+            vault_id: vault.vault_id(),
+            kind: row.kind,
+            updated_at: row.updated_at,
+            base_seq: row.base_seq,
+            deleted: row.deleted,
+            nonce: sealed.nonce,
+            blob: sealed.blob,
+            seq: None,
+        }))
+    }
+
     /// Clear the pending flag for records the server took, and remember the
     /// version it gave them.
     ///
@@ -457,7 +507,11 @@ impl Store {
         let mut wiped_a_secret = false;
         for env in order {
             let outcome = apply_one(&tx, vault, env, self.device)?;
-            report.add(outcome.report);
+            if env.kind == EntityKind::Manifest && outcome.report.rejected == 0 {
+                report.manifests += 1;
+            } else {
+                report.add(outcome.report);
+            }
             wiped_a_secret |= outcome.wiped_a_secret;
             if outcome.report.rejected == 0 {
                 newest = Some(match newest {
@@ -574,6 +628,9 @@ impl Store {
                 [],
             )?;
         }
+        // Manifests speak of the old vault's devices, and so does what was
+        // found missing against them.
+        crate::manifest::forget_manifests(&tx)?;
         // The key this device had sealed for itself opens the old vault, and
         // the cursor counted a server this account does not share.
         tx.execute("DELETE FROM device_unlock", [])?;
@@ -609,9 +666,10 @@ fn pending_rows(
             "address, port, algorithm, fingerprint_sha256, public_key, first_seen_ms"
         }
         EntityKind::Secret => "nonce, blob",
+        EntityKind::Manifest => "entries",
         EntityKind::PortForward | EntityKind::TerminalProfile => return Ok((Vec::new(), 0)),
     };
-    let extra = if matches!(kind, EntityKind::Secret) {
+    let extra = if matches!(kind, EntityKind::Secret | EntityKind::Manifest) {
         "NULL"
     } else {
         "sync_extra"
@@ -733,6 +791,7 @@ fn payload_of(
             };
             return Ok(vault.open(id, EntityKind::Secret, &sealed)?);
         }
+        EntityKind::Manifest => return Ok(Zeroizing::new(row.get(7)?)),
         EntityKind::PortForward | EntityKind::TerminalProfile => {
             return Ok(Zeroizing::new(Vec::new()))
         }
@@ -1127,13 +1186,22 @@ fn insert_record(
                     );
                     report.host_key_conflicts = 1;
                 }
-                if clock_of(wall, counter, device) > env.updated_at {
+                let rival_clock = clock_of(wall, counter, device);
+                if rival_clock > env.updated_at {
                     // What is here is the newer decision; the record that
-                    // arrived loses its slot.
+                    // arrived loses its slot. It is never stored, so a
+                    // manifest that lists it must not count it as missing.
+                    supersede(tx, EntityKind::KnownHost, env.id, env.updated_at)?;
                     report.applied = 0;
                     report.kept = 1;
                     return Ok(one(report));
                 }
+                supersede(
+                    tx,
+                    EntityKind::KnownHost,
+                    parse_uuid(&rival_id)?,
+                    rival_clock,
+                )?;
                 tx.execute("DELETE FROM known_hosts WHERE id = ?1", [&rival_id])?;
             }
             let extra = extra_to(&known.extra);
@@ -1196,12 +1264,67 @@ fn insert_record(
                 ],
             )?;
         }
+        EntityKind::Manifest => {
+            // A manifest from a newer build, in a format this one cannot
+            // read, is passed over rather than checked against wrongly.
+            let Some(manifest) = uwussh_proto::Manifest::decode(payload) else {
+                return Ok(skipped());
+            };
+            // The id says whose it is. One that names another device than the
+            // one it lists for would let a manifest stand in for another.
+            if env.id != crate::manifest::manifest_id(env.vault_id, manifest.device) {
+                tracing::warn!(%env.id, "a manifest under someone else's id, dropped");
+                return Ok(rejected());
+            }
+            tx.execute(
+                "INSERT INTO manifests
+                    (id, vault_id, entries, hlc_wall_ms, hlc_counter, hlc_device,
+                     deleted, dirty, server_seq)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 0, ?7)
+                 ON CONFLICT (id) DO UPDATE SET
+                    entries = excluded.entries,
+                    hlc_wall_ms = excluded.hlc_wall_ms, hlc_counter = excluded.hlc_counter,
+                    hlc_device = excluded.hlc_device, deleted = 0, dirty = 0,
+                    server_seq = excluded.server_seq, rev = rev + 1",
+                params![
+                    id,
+                    vault_id,
+                    payload,
+                    clock.wall_ms as i64,
+                    clock.counter,
+                    clock.device,
+                    seq,
+                ],
+            )?;
+        }
         EntityKind::PortForward | EntityKind::TerminalProfile => return Ok(skipped()),
     }
     Ok(one(ApplyReport {
         applied: 1,
         ..Default::default()
     }))
+}
+
+/// Remember that a version of a record arrived and was given up without a
+/// tombstone. Only the newest such version per id is kept.
+pub(crate) fn supersede(tx: &Transaction, kind: EntityKind, id: Uuid, clock: Hlc) -> Result<()> {
+    tx.execute(
+        "INSERT INTO superseded (id, kind, hlc_wall_ms, hlc_counter, hlc_device)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT (id) DO UPDATE SET
+            hlc_wall_ms = excluded.hlc_wall_ms, hlc_counter = excluded.hlc_counter,
+            hlc_device = excluded.hlc_device
+          WHERE (excluded.hlc_wall_ms, excluded.hlc_counter, excluded.hlc_device)
+              > (hlc_wall_ms, hlc_counter, hlc_device)",
+        params![
+            id.to_string(),
+            kind as u8,
+            clock.wall_ms as i64,
+            clock.counter,
+            clock.device
+        ],
+    )?;
+    Ok(())
 }
 
 fn from_payload<T: serde::de::DeserializeOwned>(payload: &[u8]) -> Result<T> {

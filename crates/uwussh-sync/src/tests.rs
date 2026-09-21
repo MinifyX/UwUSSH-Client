@@ -682,3 +682,379 @@ fn a_workspace_this_build_does_not_know_lands_in_the_private_one() {
     let hosts = a.list_hosts().unwrap();
     assert_eq!(hosts[0].workspace, Workspace::Private);
 }
+
+// ── Manifests: a server that keeps things back ────────────────────────────
+
+fn manifests_on(server: &MemoryServer) -> usize {
+    server
+        .records()
+        .iter()
+        .filter(|env| env.kind == EntityKind::Manifest)
+        .count()
+}
+
+fn known_host_envelope(server: &MemoryServer) -> Envelope {
+    server
+        .records()
+        .into_iter()
+        .find(|env| env.kind == EntityKind::KnownHost)
+        .unwrap()
+}
+
+fn envelope_of(server: &MemoryServer, id: Uuid) -> Envelope {
+    server
+        .records()
+        .into_iter()
+        .find(|env| env.id == id)
+        .unwrap()
+}
+
+#[test]
+fn edits_deletes_and_many_pages_between_three_devices_leave_nothing_to_report() {
+    let server = MemoryServer::new();
+    let a = first_device();
+    let mut ids = Vec::new();
+    for index in 0..300 {
+        let mut host = draft(&format!("host-{index}"), &format!("10.0.1.{}", index % 250));
+        host.group_path = Some(format!("Group {}", index % 7));
+        ids.push(a.save_host(host).unwrap().id);
+    }
+    a.trust_host_key(
+        "nas.lan",
+        22,
+        "ssh-ed25519",
+        "SHA256:one",
+        "ssh-ed25519 ONE",
+    )
+    .unwrap();
+    let report = sync_once(&a, &server).unwrap();
+    assert!(server.len() > MAX_BATCH, "more than one page to pull");
+    assert_eq!(report.withheld, Default::default());
+
+    let b = joined_device(&a);
+    let c = joined_device(&a);
+    for device in [&b, &c] {
+        let report = sync_once(device, &server).unwrap();
+        assert!(report.pulled > MAX_BATCH);
+        assert_eq!(report.withheld, Default::default(), "{report:?}");
+    }
+    assert_eq!(manifests_on(&server), 3, "one manifest per device");
+
+    // Everyone at once: two renames of the same host, a delete, a new host,
+    // and a host key trusted differently on two devices — the one that loses
+    // its slot is gone without a tombstone, and must not count as missing.
+    let mut on_a = draft("renamed-on-a", "10.0.1.0");
+    on_a.id = Some(ids[0]);
+    a.save_host(on_a).unwrap();
+    a.trust_host_key("db.lan", 22, "ssh-ed25519", "SHA256:a", "ssh-ed25519 A")
+        .unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(3));
+    let mut on_b = draft("renamed-on-b", "10.0.1.0");
+    on_b.id = Some(ids[0]);
+    b.save_host(on_b).unwrap();
+    b.delete_host(ids[1]).unwrap();
+    b.trust_host_key("db.lan", 22, "ssh-ed25519", "SHA256:b", "ssh-ed25519 B")
+        .unwrap();
+    c.save_host(draft("new-on-c", "10.0.2.1")).unwrap();
+    c.forget_host_key("nas.lan", 22).unwrap();
+
+    for _ in 0..2 {
+        for device in [&a, &b, &c] {
+            let report = sync_once(device, &server).unwrap();
+            assert_eq!(report.withheld, Default::default(), "{report:?}");
+            assert_eq!(report.apply.rejected, 0);
+        }
+    }
+    assert_eq!(names(&a).len(), names(&c).len());
+    for device in [&a, &b, &c] {
+        assert!(device.manifest_violations().unwrap().is_empty());
+        assert_eq!(
+            device
+                .known_host("db.lan", 22)
+                .unwrap()
+                .unwrap()
+                .fingerprint,
+            "SHA256:b",
+            "host keys from other devices are trusted while nothing is missing"
+        );
+    }
+
+    // And a device that joins after all that finds everything too.
+    let d = joined_device(&a);
+    assert_eq!(sync_once(&d, &server).unwrap().withheld, Default::default());
+    assert_eq!(names(&d).len(), names(&a).len());
+}
+
+#[test]
+fn a_server_that_hands_a_new_device_an_old_host_key_is_caught() {
+    let server = MemoryServer::new();
+    let a = first_device();
+    a.save_host(draft("bastion", "bastion.lan")).unwrap();
+    a.trust_host_key(
+        "bastion.lan",
+        22,
+        "ssh-ed25519",
+        "SHA256:old",
+        "ssh-ed25519 OLD",
+    )
+    .unwrap();
+    sync_once(&a, &server).unwrap();
+    let old = known_host_envelope(&server);
+
+    // The bastion was reinstalled; A trusts its new key, in place.
+    a.trust_host_key(
+        "bastion.lan",
+        22,
+        "ssh-ed25519",
+        "SHA256:new",
+        "ssh-ed25519 NEW",
+    )
+    .unwrap();
+    sync_once(&a, &server).unwrap();
+    assert_eq!(known_host_envelope(&server).id, old.id, "the same record");
+
+    // The server hands a new device the key from before — sealed, authentic,
+    // and exactly what someone in the middle of the reinstalled host needs.
+    server.serve_stale(old.clone());
+    let c = joined_device(&a);
+    let report = sync_once(&c, &server).unwrap();
+    assert_eq!(report.apply.rejected, 0, "no seal catches this");
+    assert_eq!(report.withheld.records, 1);
+    assert!(report.withheld.host_keys);
+    let violations = c.manifest_violations().unwrap();
+    assert_eq!(violations.len(), 1);
+    assert_eq!(violations[0].kind, EntityKind::KnownHost);
+    assert_eq!(violations[0].id, old.id);
+    assert_eq!(violations[0].problem, uwussh_store::Problem::Older);
+
+    // The old key is not trusted: the next connection asks.
+    assert!(c.known_host("bastion.lan", 22).unwrap().is_none());
+    // The next pass still says so, without pulling everything again.
+    let again = sync_once(&c, &server).unwrap();
+    assert_eq!(again.withheld.records, 1);
+    assert_eq!(again.pulled, 0);
+
+    // A key the user accepts on this device, after seeing it, is trusted.
+    c.trust_host_key(
+        "bastion.lan",
+        22,
+        "ssh-ed25519",
+        "SHA256:new",
+        "ssh-ed25519 NEW",
+    )
+    .unwrap();
+    assert_eq!(
+        c.known_host("bastion.lan", 22)
+            .unwrap()
+            .unwrap()
+            .fingerprint,
+        "SHA256:new"
+    );
+}
+
+#[test]
+fn a_server_that_keeps_a_record_to_itself_is_caught() {
+    let server = MemoryServer::new();
+    let a = first_device();
+    a.save_host(draft("web", "10.0.0.20")).unwrap();
+    let hidden = a.save_host(draft("hidden", "10.0.0.21")).unwrap();
+    a.trust_host_key(
+        "web.lan",
+        22,
+        "ssh-ed25519",
+        "SHA256:web",
+        "ssh-ed25519 WEB",
+    )
+    .unwrap();
+    sync_once(&a, &server).unwrap();
+
+    server.withhold(hidden.id);
+    let c = joined_device(&a);
+    let report = sync_once(&c, &server).unwrap();
+    assert_eq!(names(&c), vec!["web"]);
+    assert_eq!(report.withheld.records, 1);
+    assert!(
+        !report.withheld.host_keys,
+        "a host is missing, no host key is in doubt"
+    );
+    let violations = c.manifest_violations().unwrap();
+    assert_eq!(
+        (violations[0].kind, violations[0].id, violations[0].problem),
+        (EntityKind::Host, hidden.id, uwussh_store::Problem::Missing)
+    );
+    assert!(c.known_host("web.lan", 22).unwrap().is_some());
+}
+
+#[test]
+fn a_delete_the_server_keeps_from_an_existing_device_is_caught() {
+    let server = MemoryServer::new();
+    let a = first_device();
+    let b = joined_device(&a);
+    let host = a.save_host(draft("decommissioned", "10.0.0.66")).unwrap();
+    sync_once(&a, &server).unwrap();
+    sync_once(&b, &server).unwrap();
+
+    a.delete_host(host.id).unwrap();
+    sync_once(&a, &server).unwrap();
+    server.withhold(host.id);
+    let report = sync_once(&b, &server).unwrap();
+    assert_eq!(names(&b), vec!["decommissioned"], "the delete never came");
+    assert_eq!(report.withheld.records, 1);
+    assert_eq!(
+        b.manifest_violations().unwrap()[0].problem,
+        uwussh_store::Problem::Older
+    );
+
+    // Once the server hands it over, the alarm clears by itself.
+    server.behave();
+    let tombstone = envelope_of(&server, host.id);
+    server.store(tombstone);
+    let report = sync_once(&b, &server).unwrap();
+    assert!(names(&b).is_empty());
+    assert_eq!(report.withheld, Default::default());
+}
+
+#[test]
+fn a_new_device_notices_the_manifest_its_pairing_promised_is_missing() {
+    let server = MemoryServer::new();
+    let a = first_device();
+    a.save_host(draft("one", "10.0.0.1")).unwrap();
+    a.trust_host_key(
+        "one.lan",
+        22,
+        "ssh-ed25519",
+        "SHA256:one",
+        "ssh-ed25519 ONE",
+    )
+    .unwrap();
+    sync_once(&a, &server).unwrap();
+    let floor = a
+        .published_manifest()
+        .unwrap()
+        .expect("published and confirmed");
+    assert_eq!(floor.id, a.own_manifest_id().unwrap());
+
+    // The server hides A's manifest — and with it any way to tell that it
+    // left something else out. Without the floor that goes unnoticed: the
+    // limit of what a manifest can do for a device with nothing to go on.
+    server.withhold(floor.id);
+    let unwarned = joined_device(&a);
+    assert_eq!(
+        sync_once(&unwarned, &server).unwrap().withheld,
+        Default::default()
+    );
+
+    // With what the pairing said, it does not.
+    let c = joined_device(&a);
+    c.set_manifest_floor(Some(floor)).unwrap();
+    let report = sync_once(&c, &server).unwrap();
+    assert_eq!(report.withheld.records, 1);
+    assert!(
+        report.withheld.host_keys,
+        "any host key could be the old one"
+    );
+    let violation = c.manifest_violations().unwrap()[0];
+    assert_eq!(
+        (violation.kind, violation.id, violation.problem),
+        (
+            EntityKind::Manifest,
+            floor.id,
+            uwussh_store::Problem::Missing
+        )
+    );
+    assert!(c.known_host("one.lan", 22).unwrap().is_none());
+
+    // An older manifest of A's in its place does not satisfy it either.
+    let old_manifest = envelope_of(&server, floor.id);
+    a.save_host(draft("two", "10.0.0.2")).unwrap();
+    sync_once(&a, &server).unwrap();
+    let newer = a.published_manifest().unwrap().unwrap();
+    assert!(newer.clock > floor.clock);
+    server.behave();
+    server.serve_stale(old_manifest);
+    let d = joined_device(&a);
+    d.set_manifest_floor(Some(newer)).unwrap();
+    sync_once(&d, &server).unwrap();
+    assert_eq!(
+        d.manifest_violations().unwrap()[0].problem,
+        uwussh_store::Problem::Older
+    );
+}
+
+#[test]
+fn a_server_that_replays_an_old_manifest_to_an_existing_device_gets_nowhere() {
+    let server = MemoryServer::new();
+    let a = first_device();
+    let b = joined_device(&a);
+    a.save_host(draft("one", "10.0.0.1")).unwrap();
+    sync_once(&a, &server).unwrap();
+    let id = a.own_manifest_id().unwrap();
+    let old = envelope_of(&server, id);
+
+    let two = a.save_host(draft("two", "10.0.0.2")).unwrap();
+    sync_once(&a, &server).unwrap();
+    sync_once(&b, &server).unwrap();
+    let newest = b.manifest_clock(id).unwrap().unwrap();
+    assert!(newest > old.updated_at);
+
+    // The old manifest again, as the newest thing the server has: one that
+    // does not list "two", so "two" could be kept back unnoticed.
+    server.store(old);
+    server.withhold(two.id);
+    let report = sync_once(&b, &server).unwrap();
+    assert_eq!(report.apply.rejected, 0);
+    assert_eq!(
+        b.manifest_clock(id).unwrap(),
+        Some(newest),
+        "the newer manifest stays"
+    );
+    assert_eq!(report.withheld, Default::default(), "b has two already");
+
+    // A new device still has B's word for "two".
+    let c = joined_device(&a);
+    let report = sync_once(&c, &server).unwrap();
+    assert_eq!(report.withheld.records, 1);
+    assert_eq!(c.manifest_violations().unwrap()[0].id, two.id);
+
+    // Without B's manifest as well, a device that never saw A's newer one is
+    // fooled by the replay — which is what the pairing floor is for.
+    server.withhold(b.own_manifest_id().unwrap());
+    let d = joined_device(&a);
+    assert_eq!(sync_once(&d, &server).unwrap().withheld, Default::default());
+    let e = joined_device(&a);
+    e.set_manifest_floor(a.published_manifest().unwrap())
+        .unwrap();
+    assert_eq!(sync_once(&e, &server).unwrap().withheld.records, 1);
+}
+
+#[test]
+fn a_manifest_the_server_does_not_know_yet_holds_up_nothing() {
+    use crate::{Transport, TransportError};
+    use uwussh_proto::{PullResponse, PushResponse, SyncCursor};
+
+    /// A server from before manifests: it refuses any request that holds one.
+    struct Older(MemoryServer);
+    impl Transport for Older {
+        fn pull(&self, since: SyncCursor, limit: usize) -> Result<PullResponse, TransportError> {
+            self.0.pull(since, limit)
+        }
+        fn push(&self, envelopes: Vec<Envelope>) -> Result<PushResponse, TransportError> {
+            if envelopes.iter().any(|env| env.kind == EntityKind::Manifest) {
+                return Err(TransportError::Refused("unknown variant `manifest`".into()));
+            }
+            self.0.push(envelopes)
+        }
+    }
+
+    let server = Older(MemoryServer::new());
+    let a = first_device();
+    a.save_host(draft("one", "10.0.0.1")).unwrap();
+    let report = sync_once(&a, &server).unwrap();
+    assert!(report.pushed >= 2);
+    assert_eq!(a.pending_count().unwrap(), 0);
+    assert_eq!(manifests_on(&server.0), 0);
+
+    let b = joined_device(&a);
+    sync_once(&b, &server).unwrap();
+    assert_eq!(names(&b), vec!["one"]);
+}

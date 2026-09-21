@@ -277,6 +277,11 @@ fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
             .truncate(true)
             .mode(0o600)
             .open(path)?;
+        // `mode` only applies to a file this call creates. Saving over one
+        // that is already there keeps its bits, 0644 as often as not — so
+        // they are set again, while the file is still empty.
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
         file.write_all(bytes)
     }
     #[cfg(not(any(unix, windows)))]

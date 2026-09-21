@@ -11,12 +11,18 @@
 //! version the server holds. That version is merged straight away, and the
 //! round starts over.
 //!
+//! A pass that got everything out and pulled to the end has one more thing to
+//! do: publish this device's manifest if what it holds changed, and hold every
+//! device's manifest against what is here — which is how a server that keeps
+//! records back, or hands out old versions, is caught (see
+//! `uwussh_store::manifest`).
+//!
 //! The pass is blocking and belongs on a thread of its own, not in the UI's
 //! runtime: every step is either a database transaction or one request, and
 //! neither wants to be interleaved with the terminal's data path.
 
-use uwussh_proto::{Envelope, PullResponse, PushResponse, SyncCursor, MAX_BATCH};
-use uwussh_store::{ApplyReport, Pushed, Store, StoreError};
+use uwussh_proto::{EntityKind, Envelope, PullResponse, PushResponse, SyncCursor, MAX_BATCH};
+use uwussh_store::{ApplyReport, Pushed, Store, StoreError, Withheld};
 
 /// What the client needs from a server. The real one speaks HTTP; the tests
 /// use [`crate::MemoryServer`], which is the same set of rules without a
@@ -75,6 +81,11 @@ pub struct SyncReport {
     pub oversized: usize,
     pub apply: ApplyReport,
     pub cursor: u64,
+    /// What the other devices' manifests say this one should have and does
+    /// not: anything here means the server is keeping records back or handing
+    /// out old versions. Carried over from the last complete check when this
+    /// pass could not make one.
+    pub withheld: Withheld,
 }
 
 /// How often a pass may go round before it stops trying. Three is generous:
@@ -87,14 +98,17 @@ pub const MAX_ROUNDS: u32 = 3;
 /// keep the sync thread busy forever.
 const MAX_PAGES: usize = 1_000;
 
-/// Sync once: everything we have, then everything the server has.
+/// Sync once: everything we have, then everything the server has — and then,
+/// with both done, this device's manifest out and everyone's checked.
 pub fn sync_once<T: Transport>(store: &Store, transport: &T) -> Result<SyncReport, SyncError> {
     let mut report = SyncReport::default();
     for round in 1..=MAX_ROUNDS {
         report.rounds = round;
         let conflicts = push_all(store, transport, &mut report)?;
-        pull_all(store, transport, &mut report)?;
+        let complete = pull_all(store, transport, &mut report)?;
         if conflicts == 0 {
+            let complete = complete && publish_manifest(store, transport, &mut report)?;
+            report.withheld = check(store, transport, &mut report, complete)?;
             report.cursor = store.sync_state()?.cursor;
             return Ok(report);
         }
@@ -105,37 +119,127 @@ pub fn sync_once<T: Transport>(store: &Store, transport: &T) -> Result<SyncRepor
 /// Everything the server has that we have not seen, page by page. Each page is
 /// applied and the cursor moved before the next one is asked for, so an
 /// interrupted sync resumes where it stopped instead of starting over.
+///
+/// Returns whether the pull got to the end of what the server offers — which
+/// includes a server that stopped making sense along the way: what it did not
+/// hand over, it withheld.
 fn pull_all<T: Transport>(
     store: &Store,
     transport: &T,
     report: &mut SyncReport,
-) -> Result<(), SyncError> {
+) -> Result<bool, SyncError> {
     for _ in 0..MAX_PAGES {
         let cursor = store.sync_state()?.cursor;
         let page = transport.pull(SyncCursor(cursor), MAX_BATCH)?;
         if page.envelopes.is_empty() {
-            return Ok(());
+            return Ok(true);
         }
-        report.pulled += page.envelopes.len();
+        // Records, not the manifests that came with them.
+        report.pulled += page
+            .envelopes
+            .iter()
+            .filter(|env| env.kind != EntityKind::Manifest)
+            .count();
         let applied = store.apply_envelopes(&page.envelopes)?;
         report.apply.add(applied);
         // A page of nothing but records that fail their seal is a server
         // making things up. The next pass may ask again; this one stops.
         if applied.rejected == page.envelopes.len() {
-            return Ok(());
+            return Ok(true);
         }
         // Never move the cursor backwards: a server that answers with a
         // smaller one would make this device forget what it has already seen.
         if page.cursor.0 > cursor {
             store.set_sync_cursor(page.cursor.0)?;
         } else {
-            return Ok(());
+            return Ok(true);
         }
         if !page.has_more {
-            return Ok(());
+            return Ok(true);
         }
     }
-    Ok(())
+    Ok(false)
+}
+
+/// Hold the manifests against what is here.
+///
+/// Only a pull that reached the end can tell what is missing: until then, a
+/// listed record may just be on a page not fetched yet, so an incomplete pass
+/// keeps what the last complete one found. And before the alarm goes up for
+/// the first time, everything is pulled once more from the start: whatever
+/// this device missed by accident — a cursor carried over from somewhere, a
+/// page lost along the way — it gets now, and what is still missing after
+/// that, the server really is keeping back.
+fn check<T: Transport>(
+    store: &Store,
+    transport: &T,
+    report: &mut SyncReport,
+    complete: bool,
+) -> Result<Withheld, SyncError> {
+    if !complete {
+        return Ok(store.withheld()?);
+    }
+    let before = store.withheld()?;
+    let found = store.check_manifests()?;
+    if !found.any() || before.any() {
+        return Ok(found);
+    }
+    tracing::info!(
+        records = found.records,
+        "records other devices hold are missing here; pulling everything again"
+    );
+    store.set_sync_cursor(0)?;
+    if pull_all(store, transport, report)? {
+        Ok(store.check_manifests()?)
+    } else {
+        Ok(found)
+    }
+}
+
+/// Write this device's manifest if what it holds changed, and push it — on
+/// its own, after everything it lists is on the server. Returns whether the
+/// pull that follows reached the end.
+///
+/// A manifest that does not get through is left for the next pass rather than
+/// failing this one: the records themselves are in, and a server too old to
+/// know the kind refuses it every time until it is updated.
+fn publish_manifest<T: Transport>(
+    store: &Store,
+    transport: &T,
+    report: &mut SyncReport,
+) -> Result<bool, SyncError> {
+    store.refresh_manifest()?;
+    let Some(manifest) = store.pending_manifest()? else {
+        return Ok(true);
+    };
+    let response = match transport.push(vec![manifest.clone()]) {
+        Ok(response) => response,
+        Err(error) => {
+            tracing::warn!(%error, "this device's manifest did not get through");
+            return Ok(true);
+        }
+    };
+    let accepted: Vec<Pushed> = response
+        .accepted
+        .iter()
+        .filter(|taken| taken.id == manifest.id)
+        .map(|taken| Pushed {
+            id: taken.id,
+            kind: manifest.kind,
+            updated_at: manifest.updated_at,
+            seq: taken.seq,
+        })
+        .collect();
+    store.mark_pushed(&accepted)?;
+    if !response.conflicts.is_empty() {
+        // Someone wrote under this device's manifest id — a copy of this
+        // database elsewhere, or a restore. Merged like any record; the next
+        // pass tries again.
+        report
+            .apply
+            .add(store.apply_envelopes(&response.conflicts)?);
+    }
+    pull_all(store, transport, report)
 }
 
 /// Everything waiting here, in batches. Returns how many records the server

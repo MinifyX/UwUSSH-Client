@@ -210,6 +210,7 @@ impl Writer<'_> {
 
         // Hosts pull in the identity they need, which pulls in its key: what
         // a skipped host alone needed is never written.
+        let mut added = std::collections::HashSet::new();
         for host in &set.hosts {
             let identity = host.identity.and_then(|i| set.identities.get(i));
             let username = identity
@@ -224,6 +225,7 @@ impl Writer<'_> {
                 None => None,
             };
             self.write_host(host, identity_id.as_deref())?;
+            added.insert((host.address.trim().to_ascii_lowercase(), host.port));
             outcome.hosts_added += 1;
         }
 
@@ -236,7 +238,17 @@ impl Writer<'_> {
             self.key(set, index, &mut outcome)?;
         }
 
+        // Host keys only for the hosts this import just added. A file names
+        // whatever addresses it likes: one that lists `db.corp` beside a key
+        // of its own must not become the key trusted for the `db.corp` the
+        // user already has, or adds by hand tomorrow — that is a
+        // man-in-the-middle waiting for the first connection. Everything else
+        // is asked about the usual way, on first connect.
         for known in &set.known_hosts {
+            let address = (known.address.trim().to_ascii_lowercase(), known.port);
+            if !added.contains(&address) {
+                continue;
+            }
             if self.write_known_host(known)? {
                 outcome.known_hosts_added += 1;
             }
@@ -622,6 +634,32 @@ mod tests {
         assert_eq!(web.group_path.as_deref(), Some("Homelab"));
 
         assert!(store.known_host("10.0.0.5", 22).unwrap().is_some());
+    }
+
+    #[test]
+    fn a_file_cannot_pretrust_a_key_for_a_host_it_did_not_add() {
+        let store = unlocked_store();
+        // The user already has `web`, never connected to it yet.
+        let mut first = sample();
+        first.known_hosts.clear();
+        store.import(first).unwrap();
+
+        // A shared list names the same host, with a key of its own, and
+        // one for an address it doesn't bring at all.
+        let mut hostile = sample();
+        hostile.known_hosts[0].fingerprint = "SHA256:attacker".into();
+        hostile.known_hosts.push(KnownHostInput {
+            address: "db.corp".into(),
+            port: 22,
+            algorithm: "ssh-ed25519".into(),
+            public_key: "AAAAC3NzaC1lZDI1NTE5".into(),
+            fingerprint: "SHA256:attacker".into(),
+        });
+        let outcome = store.import(hostile).unwrap();
+        assert_eq!(outcome.hosts_skipped, 2);
+        assert_eq!(outcome.known_hosts_added, 0);
+        assert!(store.known_host("10.0.0.5", 22).unwrap().is_none());
+        assert!(store.known_host("db.corp", 22).unwrap().is_none());
     }
 
     #[test]

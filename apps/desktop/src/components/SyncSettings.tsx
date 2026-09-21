@@ -547,6 +547,7 @@ function Paired({ status, onChanged }: { status: SyncStatus; onChanged: () => vo
   const [devices, setDevices] = useState<Device[] | null>(null);
   const [devicesError, setDevicesError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [offer, setOffer] = useState<Offer | null>(null);
   const [joined, setJoined] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<Device | null>(null);
   const [revoked, setRevoked] = useState<string | null>(null);
@@ -607,11 +608,29 @@ function Paired({ status, onChanged }: { status: SyncStatus; onChanged: () => vo
           <p className="setting-label">
             <span
               className="sync-dot"
-              data-state={locked ? 'paused' : last?.error ? 'error' : 'ok'}
+              data-state={
+                locked ? 'paused' : last?.error || status.withheld.records > 0 ? 'error' : 'ok'
+              }
             />
             {t('Verbunden mit {server}', { server: status.serverUrl ?? '' })}
           </p>
           <p className="setting-description">{line}</p>
+          {status.withheld.records > 0 && (
+            <p className="setting-description field-error" role="alert">
+              {t(
+                'Der Server liefert nicht den neuesten Stand – er hält Daten zurück oder spielt alte Versionen ein.',
+              )}{' '}
+              {status.withheld.records === 1
+                ? t('1 Eintrag, den ein anderes Gerät hat, fehlt hier oder ist veraltet.')
+                : t('{n} Einträge, die andere Geräte haben, fehlen hier oder sind veraltet.', {
+                    n: status.withheld.records,
+                  })}{' '}
+              {status.withheld.hostKeys &&
+                t(
+                  'Host-Schlüsseln aus dem Sync wird bis dahin nicht vertraut – beim nächsten Verbinden fragt UwUSSH wieder nach.',
+                )}
+            </p>
+          )}
           {status.pending > 0 && !locked && (
             <p className="setting-description">
               {status.pending === 1
@@ -759,9 +778,23 @@ function Paired({ status, onChanged }: { status: SyncStatus; onChanged: () => vo
       </div>
 
       {adding && (
+        <PasswordConfirm
+          title={t('Gerät hinzufügen')}
+          lead={t(
+            'Das neue Gerät bekommt den Schlüssel zu deinem Tresor. Darum braucht es hier zuerst das Master-Passwort.',
+          )}
+          action={t('Code zeigen')}
+          tone="normal"
+          run={async (password) => setOffer(await syncOffer(password))}
+          onCancel={() => setAdding(false)}
+          onDone={() => setAdding(false)}
+        />
+      )}
+      {offer && (
         <AddDevice
+          offer={offer}
           onClose={(name) => {
-            setAdding(false);
+            setOffer(null);
             if (name) {
               setJoined(name);
               loadDevices();
@@ -774,7 +807,7 @@ function Paired({ status, onChanged }: { status: SyncStatus; onChanged: () => vo
         <PasswordConfirm
           title={t('{name} widerrufen?', { name: revoking.name })}
           lead={t(
-            'Zum Widerrufen eines anderen Geräts braucht es das Master-Passwort – so kann ein gestohlenes Gerät dich nicht aussperren.',
+            'Zum Widerrufen eines anderen Geräts braucht es das Master-Passwort – so kann ein gestohlenes Gerät dich nicht aussperren. Das Gerät bekommt danach nichts Neues mehr, aber was es schon hat, bleibt dort lesbar: Ändere Passwörter und Schlüssel, die darauf lagen, wenn du ihm nicht mehr traust.',
           )}
           action={t('Widerrufen')}
           run={(password) => syncRevoke(revoking.id, password)}
@@ -833,9 +866,8 @@ function Paired({ status, onChanged }: { status: SyncStatus; onChanged: () => vo
 }
 
 /** The code to read out or paste, while this device waits for the other one. */
-function AddDevice({ onClose }: { onClose: (joined: string | null) => void }) {
+function AddDevice({ offer, onClose }: { offer: Offer; onClose: (joined: string | null) => void }) {
   useLanguage();
-  const [offer, setOffer] = useState<Offer | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -845,9 +877,6 @@ function AddDevice({ onClose }: { onClose: (joined: string | null) => void }) {
     let active = true;
     void (async () => {
       try {
-        const shown = await syncOffer();
-        if (!active) return;
-        setOffer(shown);
         const joined = await syncWaitForDevice();
         if (active && !closed.current) onClose(joined.name);
       } catch (e) {
@@ -868,7 +897,7 @@ function AddDevice({ onClose }: { onClose: (joined: string | null) => void }) {
     onClose(null);
   };
 
-  const left = offer ? Math.max(0, Math.round((offer.expiresMs - now) / 1000)) : 0;
+  const left = Math.max(0, Math.round((offer.expiresMs - now) / 1000));
   const minutes = Math.floor(left / 60);
   const seconds = String(left % 60).padStart(2, '0');
 
@@ -886,40 +915,35 @@ function AddDevice({ onClose }: { onClose: (joined: string | null) => void }) {
       }
     >
       <NyuScene name="connecting" className="dialog-scene" />
-      {!offer && !error && <p className="dialog-lead">{t('Code wird erzeugt…')}</p>}
-      {offer && (
-        <>
-          <p className="dialog-lead">
-            {t('Auf dem neuen Gerät: Einstellungen → Sync → Mit einem Gerät koppeln.')}
-          </p>
-          <div className="sync-offer">
-            <span className="setting-description">{t('Zum Abtippen')}</span>
-            <code className="sync-kit-code">{offer.spoken}</code>
-            <span className="setting-description">
-              {t('Dazu die Adresse {server}', { server: offer.serverUrl })}
-              {offer.tlsFingerprint && (
-                <>
-                  {' · '}
-                  <code className="sync-fingerprint">{offer.tlsFingerprint}</code>
-                </>
-              )}
-            </span>
-          </div>
-          <button
-            onClick={() => {
-              void copy(offer.pasteable);
-              setCopied(true);
-            }}
-          >
-            <Icon name={copied ? 'check' : 'copy'} size={15} />
-            {copied ? t('Langen Code kopiert') : t('Langen Code zum Einfügen kopieren')}
-          </button>
-          {!error && (
-            <p className="field-hint" role="status">
-              {t('Warte auf das andere Gerät… noch {m}:{s}', { m: minutes, s: seconds })}
-            </p>
+      <p className="dialog-lead">
+        {t('Auf dem neuen Gerät: Einstellungen → Sync → Mit einem Gerät koppeln.')}
+      </p>
+      <div className="sync-offer">
+        <span className="setting-description">{t('Zum Abtippen')}</span>
+        <code className="sync-kit-code">{offer.spoken}</code>
+        <span className="setting-description">
+          {t('Dazu die Adresse {server}', { server: offer.serverUrl })}
+          {offer.tlsFingerprint && (
+            <>
+              {' · '}
+              <code className="sync-fingerprint">{offer.tlsFingerprint}</code>
+            </>
           )}
-        </>
+        </span>
+      </div>
+      <button
+        onClick={() => {
+          void copy(offer.pasteable);
+          setCopied(true);
+        }}
+      >
+        <Icon name={copied ? 'check' : 'copy'} size={15} />
+        {copied ? t('Langen Code kopiert') : t('Langen Code zum Einfügen kopieren')}
+      </button>
+      {!error && (
+        <p className="field-hint" role="status">
+          {t('Warte auf das andere Gerät… noch {m}:{s}', { m: minutes, s: seconds })}
+        </p>
       )}
       {error && (
         <p className="field-error" role="alert">

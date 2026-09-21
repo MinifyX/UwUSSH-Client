@@ -108,5 +108,6 @@
   "Master-Passwort oder Wiederherstellungscode war falsch.": "The master password or the recovery code was wrong.",
   "Wiederherstellungscode (aus dem Recovery-Kit)": "Recovery code (from the recovery kit)",
   "Dieser Tresor wird synchronisiert und braucht neben dem Passwort den Code, den UwUSSH beim Verbinden des Servers einmal gezeigt hat.": "This vault is synced and needs, besides the password, the code UwUSSH showed once when the server was connected.",
-  "„System“ folgt der Einstellung von {system}.": "“System” follows the {system} setting."
+  "„System“ folgt der Einstellung von {system}.": "“System” follows the {system} setting.",
+  "Sync-Einstellungen": "Sync settings"
 }

@@ -6,6 +6,7 @@
 //! — `Prox-1.lan` and `prox-1.lan` are the same machine, and treating them as
 //! two would ask the user to trust the same key twice.
 
+use crate::manifest::HOST_KEY_KINDS;
 use crate::{now_ms, tick, vault_id, Result, Store};
 use rusqlite::{params, OptionalExtension};
 use serde::Serialize;
@@ -28,15 +29,27 @@ fn normalise(address: &str) -> String {
 }
 
 impl Store {
+    /// The key trusted for `address:port`, if any.
+    ///
+    /// While the last sync check found the server keeping host keys back (see
+    /// [`crate::manifest`]), a key another device decided on is not answered
+    /// with: it may be the one from before the host's key changed. The host
+    /// then counts as new and the next connection asks. A key trusted on this
+    /// device stays.
     pub fn known_host(&self, address: &str, port: u16) -> Result<Option<KnownHostRecord>> {
         Ok(self
             .conn
             .lock()
             .query_row(
-                "SELECT address, port, algorithm, fingerprint_sha256, public_key, first_seen_ms
-                   FROM known_hosts
-                  WHERE address = ?1 AND port = ?2 AND deleted = 0",
-                params![normalise(address), port],
+                &format!(
+                    "SELECT address, port, algorithm, fingerprint_sha256, public_key, first_seen_ms
+                       FROM known_hosts
+                      WHERE address = ?1 AND port = ?2 AND deleted = 0
+                        AND (hlc_device = ?3
+                             OR NOT EXISTS (SELECT 1 FROM manifest_violations
+                                             WHERE kind IN {HOST_KEY_KINDS}))"
+                ),
+                params![normalise(address), port, self.device],
                 |row| {
                     Ok(KnownHostRecord {
                         address: row.get(0)?,

@@ -27,26 +27,56 @@ fn extra_is_empty(extra: &Extra) -> bool {
 /// expected.
 ///
 /// **Append only.** The discriminant is what goes into the associated data;
-/// reordering would make every sealed record unreadable.
+/// changing one would make every sealed record of that kind unreadable. They
+/// are written out so that reordering the list can't do it by accident.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[repr(u8)]
 pub enum EntityKind {
-    Host,
-    Group,
-    Identity,
-    Key,
-    Snippet,
-    PortForward,
-    KnownHost,
-    TerminalProfile,
+    Host = 0,
+    Group = 1,
+    Identity = 2,
+    Key = 3,
+    Snippet = 4,
+    PortForward = 5,
+    KnownHost = 6,
+    TerminalProfile = 7,
     /// A password, private key or passphrase, which records point at by id.
     /// Its payload is the secret itself, not JSON.
-    Secret,
+    Secret = 8,
+    /// What one device holds: every record's id and version, so another
+    /// device can tell whether the server handed it everything. See
+    /// [`crate::manifest`].
+    Manifest = 9,
 }
 
 impl EntityKind {
+    /// Every kind, in discriminant order.
+    pub const ALL: [Self; 10] = [
+        Self::Host,
+        Self::Group,
+        Self::Identity,
+        Self::Key,
+        Self::Snippet,
+        Self::PortForward,
+        Self::KnownHost,
+        Self::TerminalProfile,
+        Self::Secret,
+        Self::Manifest,
+    ];
+
+    /// The kind a discriminant stands for, or `None` for one a newer build
+    /// added.
+    pub fn from_discriminant(value: u8) -> Option<Self> {
+        Self::ALL.get(usize::from(value)).copied()
+    }
+
     /// Kinds a record can point at, before the kinds that point at them. A
     /// batch applied in this order needs the fewest placeholder rows.
+    ///
+    /// Manifests are not in here on purpose: this list doubles as the list of
+    /// record tables, and a manifest sorts last anyway, after the records it
+    /// talks about.
     pub const APPLY_ORDER: [Self; 7] = [
         Self::Secret,
         Self::Key,
@@ -211,5 +241,23 @@ mod tests {
         assert_eq!(EntityKind::KnownHost as u8, 6);
         assert_eq!(EntityKind::TerminalProfile as u8, 7);
         assert_eq!(EntityKind::Secret as u8, 8);
+        assert_eq!(EntityKind::Manifest as u8, 9);
+        for (index, kind) in EntityKind::ALL.iter().enumerate() {
+            assert_eq!(*kind as usize, index, "ALL is in discriminant order");
+            assert_eq!(EntityKind::from_discriminant(index as u8), Some(*kind));
+        }
+        assert_eq!(EntityKind::from_discriminant(10), None);
+    }
+
+    #[test]
+    fn a_manifest_is_applied_after_everything_it_lists() {
+        for kind in EntityKind::APPLY_ORDER {
+            assert!(kind.apply_rank() < EntityKind::Manifest.apply_rank());
+        }
+        assert_eq!(
+            serde_json::to_string(&EntityKind::Manifest).unwrap(),
+            r#""manifest""#,
+            "the name the server stores it under"
+        );
     }
 }

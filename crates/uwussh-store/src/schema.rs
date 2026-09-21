@@ -7,7 +7,7 @@ use crate::{Result, StoreError};
 use rusqlite::{params, Connection, OptionalExtension};
 use uuid::Uuid;
 
-pub const SCHEMA_VERSION: i64 = 5;
+pub const SCHEMA_VERSION: i64 = 6;
 
 /// The sync header (`id`, `vault_id`, clock, `rev`, `deleted`) is on every
 /// syncable table from the start; see the crate docs for why.
@@ -271,6 +271,56 @@ ALTER TABLE sync_state ADD COLUMN protected_account_key  BLOB;
 ALTER TABLE sync_state ADD COLUMN paired_ms              INTEGER;
 "#;
 
+/// Manifests: what each device holds, so a device can tell a server that
+/// keeps records back from one that has nothing more (see
+/// `uwussh_proto::manifest`).
+const V6: &str = r#"
+-- One row per device of the vault, this one's own included. `entries` is the
+-- payload exactly as it is sealed. Synced like any record, so it carries the
+-- same header; only this device's own row is ever dirty.
+CREATE TABLE manifests (
+    id                  TEXT    PRIMARY KEY,
+    vault_id            TEXT    NOT NULL,
+    entries             BLOB    NOT NULL,
+    hlc_wall_ms         INTEGER NOT NULL,
+    hlc_counter         INTEGER NOT NULL,
+    hlc_device          INTEGER NOT NULL,
+    rev                 INTEGER NOT NULL DEFAULT 1,
+    deleted             INTEGER NOT NULL DEFAULT 0,
+    dirty               INTEGER NOT NULL DEFAULT 0,
+    server_seq          INTEGER NOT NULL DEFAULT 0
+);
+
+-- Record versions that arrived and lost their slot without becoming a
+-- tombstone: a host key another device trusted for an address that already
+-- had a newer one. Such a record is not here, and that is not the server's
+-- doing.
+CREATE TABLE superseded (
+    id                  TEXT    PRIMARY KEY,
+    kind                INTEGER NOT NULL,
+    hlc_wall_ms         INTEGER NOT NULL,
+    hlc_counter         INTEGER NOT NULL,
+    hlc_device          INTEGER NOT NULL
+);
+
+-- What the last complete check found missing or out of date. Local, and
+-- replaced as a whole by every check.
+CREATE TABLE manifest_violations (
+    kind                INTEGER NOT NULL,
+    id                  TEXT    NOT NULL,
+    problem             TEXT    NOT NULL,
+    PRIMARY KEY (kind, id)
+);
+
+-- The manifest the device that added this one had published when it did, as
+-- it said inside the pairing handshake: this device must see that one, or a
+-- newer one, before it can believe it has everything.
+ALTER TABLE sync_state ADD COLUMN floor_manifest_id  TEXT;
+ALTER TABLE sync_state ADD COLUMN floor_wall_ms      INTEGER;
+ALTER TABLE sync_state ADD COLUMN floor_counter      INTEGER;
+ALTER TABLE sync_state ADD COLUMN floor_device       INTEGER;
+"#;
+
 pub fn migrate(conn: &mut Connection) -> Result<()> {
     let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
 
@@ -431,6 +481,14 @@ pub fn migrate(conn: &mut Connection) -> Result<()> {
         tx.pragma_update(None, "user_version", 5)?;
         tx.commit()?;
         tracing::info!("store migrated to schema 5");
+    }
+
+    if version < 6 {
+        let tx = conn.transaction()?;
+        tx.execute_batch(V6)?;
+        tx.pragma_update(None, "user_version", 6)?;
+        tx.commit()?;
+        tracing::info!("store migrated to schema 6");
     }
 
     Ok(())
@@ -692,6 +750,37 @@ mod tests {
         assert_eq!(needs_key, 1, "the vault header has the flag");
         assert_eq!(fingerprint, None, "and nothing is paired yet");
         assert_eq!(paired, None);
+    }
+
+    #[test]
+    fn a_v5_database_upgrades_to_v6_with_no_manifests_and_no_floor() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        for batch in [V1, V2, V3, V4, V4_DROP_GROUP_PATH, V5] {
+            conn.execute_batch(batch).unwrap();
+        }
+        conn.execute(
+            "INSERT INTO meta (id, device_id, vault_id) VALUES (1, 1, 'v')",
+            [],
+        )
+        .unwrap();
+        conn.pragma_update(None, "user_version", 5).unwrap();
+
+        migrate(&mut conn).unwrap();
+
+        let (manifests, violations, floor): (i64, i64, Option<String>) = conn
+            .query_row(
+                "SELECT (SELECT count(*) FROM manifests),
+                        (SELECT count(*) FROM manifest_violations),
+                        (SELECT floor_manifest_id FROM sync_state WHERE id = 1)",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!((manifests, violations, floor), (0, 0, None));
+        conn.query_row("SELECT count(*) FROM superseded", [], |r| {
+            r.get::<_, i64>(0)
+        })
+        .unwrap();
     }
 
     #[test]

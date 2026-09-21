@@ -138,6 +138,10 @@ check('the imported host went up to the server', true);
 await openSync(a);
 await a.waitFor(`document.querySelector('.setting-row button')`, { what: 'paired section' });
 await a.click('.setting-row button', 'Gerät hinzufügen');
+await a.waitFor(`${top}?.querySelector('input[type=password]')`, { what: 'add-device password' });
+await a.eval(`${top}.querySelector('input[type=password]').focus()`);
+await a.type(MASTER);
+await a.click('.modal-footer button', 'Code zeigen');
 await a.waitFor(`document.querySelector('.sync-offer .sync-kit-code')`, {
   what: 'pairing code',
   timeout: 20_000,

@@ -17,7 +17,8 @@
 //! 2. **The joining device proves it derived the same key** — before anything
 //!    worth having is sent.
 //! 3. Only then does the device that is already in hand over the account key,
-//!    the fingerprint to pin and a one-time enrolment token.
+//!    the fingerprint to pin, a one-time enrolment token and the manifest the
+//!    joining device must see before it can trust that it has everything.
 //! 4. The joining device says who it is, so the other can show a name rather
 //!    than "a device".
 //!
@@ -29,6 +30,7 @@ use crate::http::Server;
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 use uuid::Uuid;
+use uwussh_store::ManifestFloor;
 use uwussh_vault::{AccountKey, Sealed};
 use zeroize::Zeroizing;
 
@@ -55,8 +57,11 @@ const WORDS: [&str; 128] = [
 /// How many words a code has.
 const WORD_COUNT: usize = 3;
 
-/// The label that keeps a pairing blob from being openable as anything else.
-const SEAL_LABEL: &[u8] = b"uwussh/pairing/v1";
+/// The labels that keep a pairing blob from being openable as anything else —
+/// one per direction, so a message can't be put back to the side that sent it
+/// and read there as the other side's answer.
+const A_TO_B: &[u8] = b"uwussh/pairing/v2/a-to-b";
+const B_TO_A: &[u8] = b"uwussh/pairing/v2/b-to-a";
 /// What the joining device sends to prove it derived the same key.
 const CONFIRM: &[u8] = b"uwussh/pairing/confirm";
 
@@ -130,6 +135,15 @@ pub struct Handover {
     pub account_key: Option<String>,
     /// A one-time token for joining the account.
     pub enrolment: String,
+    /// This device's manifest as the server last confirmed it. The joining
+    /// device does not trust itself to have everything until it holds that
+    /// manifest, at least that new — so a server that hands a new device
+    /// nothing but old versions cannot pass that off as the whole vault. It
+    /// travels in here because the server cannot change what is in here.
+    /// Missing from builds before manifests, and while this device has
+    /// published none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manifest: Option<ManifestFloor>,
 }
 
 impl std::fmt::Debug for Handover {
@@ -251,13 +265,13 @@ fn password(id: &str, words: &str) -> Vec<u8> {
     .into_bytes()
 }
 
-fn seal(key: &[u8; 32], plaintext: &[u8]) -> Result<Vec<u8>, TransportError> {
-    let sealed = uwussh_vault::encrypt_keyed(key, SEAL_LABEL, plaintext)
+fn seal(key: &[u8; 32], label: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, TransportError> {
+    let sealed = uwussh_vault::encrypt_keyed(key, label, plaintext)
         .map_err(|_| TransportError::Refused("could not seal the handover".into()))?;
     Ok([sealed.nonce, sealed.blob].concat())
 }
 
-fn open(key: &[u8; 32], message: &[u8]) -> Result<Vec<u8>, TransportError> {
+fn open(key: &[u8; 32], label: &[u8], message: &[u8]) -> Result<Vec<u8>, TransportError> {
     if message.len() < 24 {
         return Err(TransportError::Refused(
             "a message that is too short".into(),
@@ -266,7 +280,7 @@ fn open(key: &[u8; 32], message: &[u8]) -> Result<Vec<u8>, TransportError> {
     let (nonce, blob) = message.split_at(24);
     uwussh_vault::decrypt_keyed(
         key,
-        SEAL_LABEL,
+        label,
         &Sealed {
             nonce: nonce.to_vec(),
             blob: blob.to_vec(),
@@ -339,7 +353,7 @@ pub fn hand_over(
     // Nothing worth having goes out until the other side has shown it derived
     // the same key. Otherwise the one guess SPAKE2 allows would be enough.
     let confirmation = await_message(postbox, 1, deadline)?;
-    if open(&key, &confirmation)? != CONFIRM {
+    if open(&key, B_TO_A, &confirmation)? != CONFIRM {
         return Err(TransportError::Refused(
             "the other device did not answer with the right code".into(),
         ));
@@ -347,11 +361,11 @@ pub fn hand_over(
 
     let payload = serde_json::to_vec(handover)
         .map_err(|_| TransportError::Refused("could not pack the handover".into()))?;
-    postbox.put(&seal(&key, &payload)?)?;
+    postbox.put(&seal(&key, A_TO_B, &payload)?)?;
 
     // And it says who it is, so the other side can name it.
     let joined = await_message(postbox, 2, deadline)?;
-    serde_json::from_slice(&open(&key, &joined)?)
+    serde_json::from_slice(&open(&key, B_TO_A, &joined)?)
         .map_err(|_| TransportError::Refused("the joining device answered oddly".into()))
 }
 
@@ -379,9 +393,9 @@ pub fn take_over(
         .map_err(|_| TransportError::Refused("the handshake went wrong".into()))?;
     let key = Zeroizing::new(key);
 
-    postbox.put(&seal(&key, CONFIRM)?)?;
+    postbox.put(&seal(&key, B_TO_A, CONFIRM)?)?;
     let payload = await_message(postbox, 1, deadline)?;
-    let handover: Handover = serde_json::from_slice(&open(&key, &payload)?)
+    let handover: Handover = serde_json::from_slice(&open(&key, A_TO_B, &payload)?)
         .map_err(|_| TransportError::Refused("the handover made no sense".into()))?;
     Ok((handover, key))
 }
@@ -394,7 +408,7 @@ pub fn say_joined(
 ) -> Result<(), TransportError> {
     let payload = serde_json::to_vec(joined)
         .map_err(|_| TransportError::Refused("could not pack the answer".into()))?;
-    postbox.put(&seal(key, &payload)?)
+    postbox.put(&seal(key, B_TO_A, &payload)?)
 }
 
 #[cfg(test)]
@@ -456,11 +470,23 @@ mod tests {
                 AccountKey::from_bytes([9u8; 16]).as_bytes(),
             )),
             enrolment: "one-time-token".into(),
+            manifest: Some(ManifestFloor {
+                id: Uuid::now_v7(),
+                clock: uwussh_proto::Hlc::new(1_700_000_000_000, 2, 7),
+            }),
         }
     }
 
     /// The whole handshake, both sides, through a relay that understands none
     /// of it — which is the point.
+    #[test]
+    fn a_message_cannot_be_reflected_back_to_its_sender() {
+        let key = [9u8; 32];
+        let sealed = seal(&key, A_TO_B, b"handover").unwrap();
+        assert_eq!(open(&key, A_TO_B, &sealed).unwrap(), b"handover");
+        assert!(open(&key, B_TO_A, &sealed).is_err());
+    }
+
     #[test]
     fn two_devices_agree_on_a_key_and_hand_the_account_key_over() {
         let (a, b) = sides();
@@ -497,6 +523,30 @@ mod tests {
             &[9u8; 16],
             "the account key came across"
         );
+        assert_eq!(taken.manifest, secrets.manifest, "and so did the floor");
+    }
+
+    #[test]
+    fn a_handover_from_a_build_before_manifests_still_reads() {
+        let older = serde_json::json!({
+            "server_url": "https://nas.lan:8443",
+            "tls_fingerprint": null,
+            "account_id": Uuid::now_v7(),
+            "account_key": null,
+            "enrolment": "one-time-token",
+        });
+        let handover: Handover = serde_json::from_value(older).unwrap();
+        assert_eq!(handover.manifest, None);
+        assert_eq!(handover.enrolment, "one-time-token");
+
+        // And one with nothing to say leaves the field out, for a build that
+        // might refuse what it does not know.
+        let written = serde_json::to_value(Handover {
+            manifest: None,
+            ..handover
+        })
+        .unwrap();
+        assert!(written.get("manifest").is_none());
     }
 
     #[test]

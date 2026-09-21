@@ -17,7 +17,15 @@ export type SyncReport = {
   conflicts: number;
   rounds: number;
   apply: { applied: number; rejected: number; hostKeyConflicts: number };
+  withheld: Withheld;
 };
+
+/**
+ * What the other devices' manifests say this one should have and does not:
+ * the server is keeping records back or handing out old versions. While
+ * `hostKeys` is set, host keys from other devices are not trusted.
+ */
+export type Withheld = { records: number; hostKeys: boolean };
 
 export type SyncStatus = {
   paired: boolean;
@@ -32,6 +40,7 @@ export type SyncStatus = {
   vault: VaultStatus;
   deviceName: string;
   offering: boolean;
+  withheld: Withheld;
 };
 
 export type SyncFailure =
@@ -86,7 +95,7 @@ export const syncJoin = (
   fingerprint: string | null,
 ) => invoke<void>('sync_join', { code, password, name, serverUrl, fingerprint });
 
-export const syncOffer = () => invoke<Offer>('sync_offer');
+export const syncOffer = (password: string) => invoke<Offer>('sync_offer', { password });
 export const syncWaitForDevice = () => invoke<{ name: string }>('sync_wait_for_device');
 export const syncCancelOffer = () => invoke<void>('sync_cancel_offer');
 export const syncDevices = () => invoke<Device[]>('sync_devices');

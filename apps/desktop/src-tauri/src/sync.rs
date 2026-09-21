@@ -20,7 +20,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
-use uwussh_store::{Store, StoreError, VaultStatus};
+use uwussh_store::{Store, StoreError, VaultStatus, Withheld};
 use uwussh_sync::flow::{self, FlowError, PairingOffer};
 use uwussh_sync::{pairing, Server, SyncError, SyncReport, TransportError};
 use zeroize::Zeroizing;
@@ -133,6 +133,9 @@ pub(crate) struct Sync {
     server: Mutex<Option<Arc<Server>>>,
     last: Mutex<Option<LastPass>>,
     running: AtomicBool,
+    /// The last pass found the server keeping records back, and the window
+    /// has been told.
+    alarmed: AtomicBool,
     /// A pairing this device offered and is waiting on.
     offer: Mutex<Option<Arc<PairingOffer>>>,
     /// The page asked for a pass now.
@@ -198,6 +201,14 @@ fn pass(app: &AppHandle, store: &Store, sync: &Sync) -> SyncResult<SyncReport> {
         if report.apply.applied > 0 {
             // Another device changed something: the host list loads again.
             let _ = app.emit("sync:changed", report.apply.applied);
+        }
+        // Not just a line on the settings page: the window hears of it once,
+        // when it begins, whatever it is showing.
+        let withheld = report.withheld.any();
+        if withheld && !sync.alarmed.swap(true, Ordering::SeqCst) {
+            let _ = app.emit("sync:withheld", report.withheld);
+        } else if !withheld {
+            sync.alarmed.store(false, Ordering::SeqCst);
         }
     }
     let _ = app.emit("sync:status", ());
@@ -305,6 +316,9 @@ pub(crate) struct SyncStatus {
     device_name: String,
     /// Waiting for another device to join right now.
     offering: bool,
+    /// What the last complete check found the server keeping back — kept
+    /// across restarts, so it shows before the first pass has run.
+    withheld: Withheld,
 }
 
 #[tauri::command]
@@ -327,6 +341,7 @@ pub(crate) fn sync_status(
         vault: store.vault_status().map_err(err)?,
         device_name: device_name(),
         offering: sync.offer.lock().is_some(),
+        withheld: store.withheld().unwrap_or_default(),
     })
 }
 
@@ -395,12 +410,13 @@ fn check_password(store: &Store, password: &[u8]) -> SyncResult<()> {
     }
 }
 
-/// Whether the vault should be remembered on this device after pairing: if it
-/// was before, and on a device that had no vault at all — the same default the
-/// vault dialog starts with.
+/// Whether the vault should be remembered on this device after pairing: only
+/// if it was before. A remembered vault opens for anything running as this
+/// user, so that is a choice the person makes where they can see it — the
+/// vault dialog's checkbox, the next time it asks — never one pairing makes
+/// for them.
 fn wants_remembered(store: &Store) -> bool {
     store.vault_is_remembered().unwrap_or(false)
-        || matches!(store.vault_status(), Ok(VaultStatus::Absent))
 }
 
 /// Keep a remembered vault remembered: a vault key that changed (joining
@@ -553,9 +569,19 @@ pub(crate) struct OfferShown {
     expires_ms: u64,
 }
 
+/// The master password first: the other end of the code receives the account
+/// key, and a window left open should not hand that to whoever sits down at it.
 #[tauri::command]
-pub(crate) async fn sync_offer(app: AppHandle) -> SyncResult<OfferShown> {
-    blocking(&app, |_, store, sync| {
+pub(crate) async fn sync_offer(app: AppHandle, password: String) -> SyncResult<OfferShown> {
+    let password = Zeroizing::new(password);
+    blocking(&app, move |_, store, sync| {
+        let header = store
+            .vault_header()?
+            .ok_or_else(|| SyncFailure::error("there is no vault"))?;
+        let account_key = flow::account_key(store, crate::device::unprotect_sync)?;
+        header
+            .unlock_with(password.as_bytes(), account_key.as_ref())
+            .map_err(|_| SyncFailure::PasswordWrong)?;
         let server = server(store, sync)?;
         let offer = flow::offer_pairing(store, &server)?;
         let state = store.sync_state()?;
