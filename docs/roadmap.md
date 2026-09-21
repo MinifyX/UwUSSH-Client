@@ -117,6 +117,10 @@ The point where I can stop using anything else.
   knows, what the last pass did, and leaving again. A worker thread keeps the
   device in step. An end-to-end phase drives two app instances against a real
   server. See [architecture](architecture.md#settings--sync).
+  Since 0.1.0-beta.9 a server that refuses the connect leaves the vault as it
+  was, a vault an earlier refusal stranded gets a new master password on a
+  device that remembered it, and every paired device shows the kit again for
+  the master password.
 - **The server is ready to release**: `install.sh` sets it up with one
   question, `update.sh` updates it with a backup first and the old version back
   if the new one does not come up, and CI runs both on a real Docker before an
