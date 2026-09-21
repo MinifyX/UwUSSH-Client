@@ -138,6 +138,10 @@ pub(crate) struct Sync {
     alarmed: AtomicBool,
     /// A pairing this device offered and is waiting on.
     offer: Mutex<Option<Arc<PairingOffer>>>,
+    /// Someone is waiting on the offer. Two waiters on one code would both
+    /// speak for side A of the handshake, and the other device would hear
+    /// nonsense.
+    waiting: AtomicBool,
     /// The page asked for a pass now.
     wake: Mutex<bool>,
     woken: Condvar,
@@ -617,6 +621,16 @@ pub(crate) async fn sync_wait_for_device(app: AppHandle) -> SyncResult<DeviceJoi
             .lock()
             .clone()
             .ok_or_else(|| SyncFailure::error("no code is being shown"))?;
+        if sync.waiting.swap(true, Ordering::SeqCst) {
+            return Err(SyncFailure::error("this code is already being waited on"));
+        }
+        struct Waiting<'a>(&'a AtomicBool);
+        impl Drop for Waiting<'_> {
+            fn drop(&mut self) {
+                self.0.store(false, Ordering::SeqCst);
+            }
+        }
+        let _waiting = Waiting(&sync.waiting);
         let server = server(store, sync)?;
         let joined = flow::wait_for_device(
             store,

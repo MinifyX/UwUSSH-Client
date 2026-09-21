@@ -375,10 +375,13 @@ check(
 );
 await page.click('.segmented button', 'Block');
 await page.click('.settings-nav button', 'Updates');
+// A beta build starts on the beta channel, a release on the stable one.
+const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+const channel = version.includes('-') ? 'Beta' : 'Stabil';
 check(
-  'a beta build is on the beta channel',
+  `a ${version.includes('-') ? 'beta build' : 'release'} is on the ${channel} channel`,
   await page.eval(
-    `[...document.querySelectorAll('.segmented button')].find(b => b.textContent === 'Beta')?.getAttribute('aria-checked') === 'true'`,
+    `[...document.querySelectorAll('.segmented button')].find(b => b.textContent === '${channel}')?.getAttribute('aria-checked') === 'true'`,
   ),
 );
 await shot('10d-settings');

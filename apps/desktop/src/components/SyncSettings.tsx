@@ -872,20 +872,27 @@ function AddDevice({ offer, onClose }: { offer: Offer; onClose: (joined: string 
   const [copied, setCopied] = useState(false);
   const [now, setNow] = useState(Date.now());
   const closed = useRef(false);
+  const mounted = useRef(true);
+  const waiting = useRef(false);
 
   useEffect(() => {
-    let active = true;
-    void (async () => {
-      try {
-        const joined = await syncWaitForDevice();
-        if (active && !closed.current) onClose(joined.name);
-      } catch (e) {
-        if (active && !closed.current) setError(failureText(asSyncFailure(e)));
-      }
-    })();
+    mounted.current = true;
+    // Once per code, however often React runs this: a second wait on the
+    // same code would garble the handshake for the other device.
+    if (!waiting.current) {
+      waiting.current = true;
+      void (async () => {
+        try {
+          const joined = await syncWaitForDevice();
+          if (mounted.current && !closed.current) onClose(joined.name);
+        } catch (e) {
+          if (mounted.current && !closed.current) setError(failureText(asSyncFailure(e)));
+        }
+      })();
+    }
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => {
-      active = false;
+      mounted.current = false;
       window.clearInterval(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
