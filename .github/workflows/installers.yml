@@ -132,6 +132,26 @@ jobs:
           fi
           ls -la target/installers
 
+      # The setup unpacks what it carries into a scratch folder and checks both
+      # apps arrived startable — the part of an install no window is needed
+      # for. The Intel build can't run on this Apple silicon runner.
+      - name: Check what the setup carries
+        if: matrix.name != 'macos-x64'
+        shell: bash
+        run: |
+          set -e
+          check="$RUNNER_TEMP/payload-check"
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            setup=$(ls target/installers/*-update)
+            chmod +x "$setup"
+            "$setup" --check-payload "$check"
+            for app in "$check"/*.app; do codesign --verify --deep --strict "$app"; echo "signed: $app"; done
+          else
+            setup=$(ls target/installers/*.AppImage)
+            "$setup" --check-payload "$check"
+            ldd "$check/UwUSSH/usr/bin/"* | grep "not found" && exit 1 || echo "every library found"
+          fi
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: installers-${{ matrix.name }}

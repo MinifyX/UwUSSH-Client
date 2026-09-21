@@ -349,6 +349,42 @@ fn unpack(staging: &Path, keygen: bool, progress: Progress) -> Result<(), String
     Ok(())
 }
 
+/// Unpacks everything into `dir` (which must not exist yet) and checks that
+/// both apps arrived with an executable to start — `--check-payload`, for CI.
+pub fn check_payload(dir: &Path) -> Result<String, String> {
+    use std::os::unix::fs::PermissionsExt;
+    if dir.exists() {
+        return Err(format!("{} exists already.", dir.display()));
+    }
+    std::fs::create_dir_all(dir).map_err(|e| format!("Couldn't create {}: {e}", dir.display()))?;
+    unpack(dir, has_keygen(), &mut |_, _| {})?;
+    let mut report = Vec::new();
+    for folder in [APP, KEYGEN] {
+        if folder == KEYGEN && !has_keygen() {
+            continue;
+        }
+        // macOS: the one program in Contents/MacOS; Linux: the AppDir's AppRun.
+        let path = if cfg!(target_os = "macos") {
+            let programs = dir.join(folder).join("Contents/MacOS");
+            std::fs::read_dir(&programs)
+                .map_err(|e| format!("{} is missing: {e}", programs.display()))?
+                .flatten()
+                .map(|entry| entry.path())
+                .next()
+                .ok_or_else(|| format!("{} is empty.", programs.display()))?
+        } else {
+            dir.join(folder).join("AppRun")
+        };
+        let meta =
+            std::fs::metadata(&path).map_err(|e| format!("{} is missing: {e}", path.display()))?;
+        if meta.permissions().mode() & 0o111 == 0 {
+            return Err(format!("{} is not executable.", path.display()));
+        }
+        report.push(format!("ok  {} ({} bytes)", path.display(), meta.len()));
+    }
+    Ok(report.join("\n"))
+}
+
 /// Puts `incoming` where `target` is, and what was there before away. The old
 /// version is moved aside first, so a failure leaves one of the two in place.
 fn swap_in(incoming: &Path, target: &Path) -> Result<(), String> {
