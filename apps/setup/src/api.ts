@@ -18,6 +18,7 @@ export interface Info {
   hasKeygen: boolean;
   sandbox: boolean;
   relaunch: boolean;
+  platform: 'windows' | 'macos' | 'linux';
 }
 
 export type Step = 'prepare' | 'copy' | 'shortcuts' | 'register' | 'cleanup' | 'done';
@@ -34,6 +35,8 @@ export interface SetupApi {
   install(options: Options): Promise<void>;
   uninstall(keepData: boolean): Promise<void>;
   launchApp(): Promise<void>;
+  /** macOS and Linux: switch to uninstalling the installed UwUSSH. */
+  beginUninstall(): Promise<void>;
   finish(): Promise<void>;
   minimize(): Promise<void>;
   onProgress(listener: (progress: Progress) => void): () => void;
@@ -46,6 +49,7 @@ const tauriApi: SetupApi = {
   install: (options) => invoke('install', { options }),
   uninstall: (keepData) => invoke('uninstall', { keepData }),
   launchApp: () => invoke('launch_app'),
+  beginUninstall: () => invoke('begin_uninstall'),
   finish: () => invoke('finish'),
   minimize: () => getCurrentWindow().minimize(),
   onProgress(listener) {
@@ -82,6 +86,7 @@ function previewApi(): SetupApi {
       hasKeygen: true,
       sandbox: false,
       relaunch: true,
+      platform: (params.get('platform') as Info['platform'] | null) ?? 'windows',
     }),
     pickFolder: async () => 'D:\\Apps\\UwUSSH',
     closeApp: async () => {
@@ -90,6 +95,7 @@ function previewApi(): SetupApi {
     install: () => pretend(['prepare', 'copy', 'shortcuts', 'register']),
     uninstall: () => pretend(['prepare', 'shortcuts', 'register', 'copy', 'cleanup']),
     launchApp: async () => {},
+    beginUninstall: async () => {},
     finish: async () => window.location.reload(),
     minimize: async () => {},
     onProgress(listener) {

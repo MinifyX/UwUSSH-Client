@@ -13,7 +13,7 @@ use std::sync::Arc;
 use tauri::State;
 use uwussh_core::public_key_fingerprint;
 use uwussh_import::termius::{self, TermiusError};
-use uwussh_import::{putty, ssh_config, ImportBundle, ImportResult, Source};
+use uwussh_import::{putty, session_files, ssh_config, ImportBundle, ImportResult, Source};
 use uwussh_store::Store;
 use uwussh_store::{
     HostInput, IdentityInput, ImportSet, KeyInput, KnownHostInput, SnippetInput, VaultStatus,
@@ -34,13 +34,20 @@ pub(crate) fn vault_status(state: State<'_, AppState>) -> CommandResult<VaultSta
 pub(crate) struct VaultState {
     status: VaultStatus,
     remembered: bool,
+    /// The vault is synced and needs the account key besides the password,
+    /// and this device has lost the copy it kept: the recovery kit's code has
+    /// to be typed with the password.
+    needs_recovery_code: bool,
 }
 
 #[tauri::command]
 pub(crate) fn vault_state(state: State<'_, AppState>) -> CommandResult<VaultState> {
+    let needs_account_key = state.store.vault_needs_account_key().map_err(err)?;
     Ok(VaultState {
         status: state.store.vault_status().map_err(err)?,
         remembered: state.store.vault_is_remembered().map_err(err)?,
+        needs_recovery_code: needs_account_key
+            && crate::sync::kept_account_key(&state.store).is_none(),
     })
 }
 
@@ -84,15 +91,36 @@ pub(crate) async fn create_vault(
 
 /// Unlock with the master password. `remember` changes whether this device
 /// keeps the key; `None` leaves that as it is.
+///
+/// A synced vault also needs the account key. A paired device kept it, sealed
+/// for this user; one that lost it gets it typed in from the recovery kit.
 #[tauri::command]
 pub(crate) async fn unlock_vault(
     state: State<'_, AppState>,
     password: String,
     remember: Option<bool>,
+    recovery_code: Option<String>,
 ) -> CommandResult<()> {
     let password = Zeroizing::new(password);
+    let recovery_code = recovery_code.map(Zeroizing::new);
     with_store(&state, move |store| {
-        store.unlock_vault(password.as_bytes()).map_err(err)?;
+        if store.vault_needs_account_key().map_err(err)? {
+            let account_key = match recovery_code.as_deref().filter(|c| !c.trim().is_empty()) {
+                Some(code) => Some(
+                    uwussh_vault::AccountKey::from_code(code)
+                        .map_err(|_| "that recovery code has a typo in it".to_string())?,
+                ),
+                None => crate::sync::kept_account_key(store),
+            };
+            let account_key = account_key.ok_or_else(|| {
+                "this vault needs the code from the recovery kit as well".to_string()
+            })?;
+            store
+                .unlock_vault_with(password.as_bytes(), Some(&account_key))
+                .map_err(err)?;
+        } else {
+            store.unlock_vault(password.as_bytes()).map_err(err)?;
+        }
         match remember {
             Some(remember) => set_remembered(store, remember),
             None => Ok(()),
@@ -121,6 +149,9 @@ const TERMIUS: &str = "termius";
 const PUTTY: &str = "putty";
 const KITTY: &str = "kitty";
 const OPENSSH: &str = "openssh";
+/// PuTTY or KiTTY sessions in a folder the person picked: a portable KiTTY's
+/// `Sessions`, or `.reg` exports.
+const FOLDER: &str = "folder";
 
 /// Which sources have something to import on this machine.
 #[tauri::command]
@@ -139,6 +170,36 @@ pub(crate) fn available_imports() -> Vec<&'static str> {
         sources.push(OPENSSH);
     }
     sources
+}
+
+/// What a picked folder is called, for the preview. `None` when the dialog
+/// was cancelled.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PickedFolder {
+    name: String,
+    /// Whether it holds a Sessions folder or `.reg` files at all.
+    importable: bool,
+}
+
+#[tauri::command]
+pub(crate) async fn pick_import_folder(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> CommandResult<Option<PickedFolder>> {
+    let Some(dir) = crate::dialogs::folder(&app, "Ordner mit PuTTY- oder KiTTY-Sitzungen").await
+    else {
+        return Ok(None);
+    };
+    let picked = PickedFolder {
+        name: dir
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| dir.display().to_string()),
+        importable: session_files::looks_importable(&dir),
+    };
+    *state.picked_folder.lock() = Some(dir);
+    Ok(Some(picked))
 }
 
 /// What an import would bring, in counts. Contains no host names, addresses or
@@ -186,8 +247,11 @@ impl ImportReport {
 }
 
 #[tauri::command]
-pub(crate) fn scan_import(source: String) -> Result<ImportSummary, String> {
-    let (set, mut skipped) = to_import_set(read_bundle(&source)?);
+pub(crate) fn scan_import(
+    state: State<'_, AppState>,
+    source: String,
+) -> Result<ImportSummary, String> {
+    let (set, mut skipped) = to_import_set(read_bundle(&state, &source)?);
     skipped.sort();
     Ok(ImportSummary {
         hosts: set.hosts.len(),
@@ -205,8 +269,9 @@ pub(crate) fn run_import(
     state: State<'_, AppState>,
     source: String,
 ) -> Result<ImportReport, BackupFailure> {
-    let (set, mut skipped) =
-        to_import_set(read_bundle(&source).map_err(|message| BackupFailure::Error { message })?);
+    let (set, mut skipped) = to_import_set(
+        read_bundle(&state, &source).map_err(|message| BackupFailure::Error { message })?,
+    );
     skipped.sort();
 
     // A secret that has to be written fails with `vault-locked`, and the page
@@ -221,7 +286,7 @@ fn needs_vault(set: &ImportSet) -> bool {
     set.has_secrets()
 }
 
-fn read_bundle(source: &str) -> Result<ImportBundle, String> {
+fn read_bundle(state: &AppState, source: &str) -> Result<ImportBundle, String> {
     match source {
         TERMIUS => termius::import_local().map_err(|e| match e {
             TermiusError::NotInstalled => "no Termius data was found for this user".into(),
@@ -232,6 +297,16 @@ fn read_bundle(source: &str) -> Result<ImportBundle, String> {
         OPENSSH => ssh_config::read_default()
             .map(sessions_result)
             .map_err(|e| e.to_string()),
+        FOLDER => {
+            let dir = state
+                .picked_folder
+                .lock()
+                .clone()
+                .ok_or("pick a folder first")?;
+            session_files::read_folder(&dir)
+                .map(sessions_result)
+                .map_err(|e| e.to_string())
+        }
         other => Err(format!("unknown import source: {other}")),
     }
 }

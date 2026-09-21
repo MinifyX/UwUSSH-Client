@@ -141,6 +141,11 @@ fn resolve_include(pattern: &str, base: &Path) -> std::result::Result<Vec<PathBu
     } else {
         base.join(expanded)
     };
+    // And again once `~` is expanded and the base joined: `~/\\server\x` and
+    // `\??\UNC\server\x` only show what they are afterwards.
+    if !is_local(&full) {
+        return Err("network paths are not followed");
+    }
 
     let name = full
         .file_name()
@@ -176,6 +181,29 @@ fn resolve_include(pattern: &str, base: &Path) -> std::result::Result<Vec<PathBu
         .collect();
     matches.sort();
     Ok(matches)
+}
+
+/// Whether a path stays on this machine. On Windows only a drive letter
+/// counts, which also turns away the NT-namespace spellings of a share.
+fn is_local(path: &Path) -> bool {
+    let text = path.as_os_str().to_string_lossy();
+    let bytes = text.as_bytes();
+    if bytes.len() >= 2 && matches!(bytes[0], b'\\' | b'/') && matches!(bytes[1], b'\\' | b'/') {
+        return false;
+    }
+    #[cfg(windows)]
+    {
+        use std::path::{Component, Prefix};
+        matches!(
+            path.components().next(),
+            Some(Component::Prefix(prefix))
+                if matches!(prefix.kind(), Prefix::Disk(_) | Prefix::VerbatimDisk(_))
+        )
+    }
+    #[cfg(not(windows))]
+    {
+        true
+    }
 }
 
 /// A minimal `*`/`?` glob match for one file name.
@@ -386,6 +414,19 @@ Host edge-bastion
         assert!(SshConfigImporter::from_text("# nothing here\n")
             .import()
             .is_err());
+    }
+
+    #[test]
+    fn an_include_never_reaches_for_a_share() {
+        let base = std::env::temp_dir();
+        for pattern in [r"\\server\share\x", "//server/share/x"] {
+            assert!(resolve_include(pattern, &base).is_err(), "{pattern}");
+        }
+        #[cfg(windows)]
+        for pattern in [r"~/\\server\share\x", r"\\?\UNC\server\share\x"] {
+            assert!(resolve_include(pattern, &base).is_err(), "{pattern}");
+        }
+        assert!(resolve_include("no-such-file", &base).is_ok());
     }
 
     #[test]

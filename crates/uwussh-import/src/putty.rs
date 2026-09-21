@@ -81,7 +81,7 @@ pub fn from_session_values(
 ///
 /// Works on bytes: slicing the string next to a `%` could cut a character in
 /// half (`%1ü`) and panic, and non-ASCII names must come back as they were.
-fn decode_session_name(encoded: &str) -> String {
+pub(crate) fn decode_session_name(encoded: &str) -> String {
     let bytes = encoded.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;

@@ -6,11 +6,12 @@ import { writeFileSync } from 'node:fs';
 
 const PORT = 9223;
 
-export async function connect() {
+/** The app behind a DevTools port: 9223 for the one `pnpm tauri dev` starts. */
+export async function connect(port = PORT) {
   let target;
   for (let i = 0; i < 60 && !target; i++) {
     try {
-      const list = await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json();
+      const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
       target = list.find((t) => t.type === 'page' && t.url.startsWith('http://localhost:1420'));
     } catch {}
     if (!target) await sleep(500);
@@ -93,6 +94,30 @@ export async function connect() {
         await send('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1 });
       }
       await sleep(80);
+    },
+
+    async rightClick(selector, text) {
+      const { x, y } = await page.locate(selector, text);
+      for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) {
+        await send('Input.dispatchMouseEvent', { type, x, y, button: 'right', clickCount: 1 });
+      }
+      await sleep(80);
+    },
+
+    /**
+     * A new terminal tab to a host from the sidebar, whether or not one is
+     * open already: a plain click only brings an open one to the front.
+     */
+    async openHost(name) {
+      await page.rightClick('.host .host-name', name);
+      await page.waitFor(`document.querySelector('.context-menu')`, { what: 'host menu' });
+      const another = await page.eval(
+        `[...document.querySelectorAll('.context-menu [role=menuitem]')].some(e => e.textContent.includes('Weiteren Tab öffnen'))`,
+      );
+      await page.click(
+        '.context-menu [role=menuitem]',
+        another ? 'Weiteren Tab öffnen' : 'Verbinden',
+      );
     },
 
     async type(text) {

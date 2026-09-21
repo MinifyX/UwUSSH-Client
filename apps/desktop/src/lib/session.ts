@@ -301,7 +301,12 @@ export function vaultStatus(): Promise<VaultStatus> {
   return invoke<VaultStatus>('vault_status');
 }
 
-export type VaultState = { status: VaultStatus; remembered: boolean };
+export type VaultState = {
+  status: VaultStatus;
+  remembered: boolean;
+  /** Synced, and this device lost its copy of the account key: the kit's code is needed. */
+  needsRecoveryCode: boolean;
+};
 
 export function vaultState(): Promise<VaultState> {
   return invoke<VaultState>('vault_state');
@@ -312,9 +317,17 @@ export function createVault(password: string, remember: boolean): Promise<void> 
   return invoke('create_vault', { password, remember });
 }
 
-/** `remember` changes whether this device keeps the key; `null` leaves it. */
-export function unlockVault(password: string, remember: boolean | null = null): Promise<void> {
-  return invoke('unlock_vault', { password, remember });
+/**
+ * `remember` changes whether this device keeps the key; `null` leaves it.
+ * `recoveryCode` is the recovery kit's code, for a synced vault whose account
+ * key this device no longer has.
+ */
+export function unlockVault(
+  password: string,
+  remember: boolean | null = null,
+  recoveryCode: string | null = null,
+): Promise<void> {
+  return invoke('unlock_vault', { password, remember, recoveryCode });
 }
 
 export function setVaultRemembered(remember: boolean): Promise<void> {
@@ -328,7 +341,15 @@ export function lockVault(): Promise<void> {
 // ── Import ────────────────────────────────────────────────────────────────
 
 /** The sources UwUSSH can import from, by id. */
-export type ImportSource = 'termius' | 'putty' | 'kitty' | 'openssh';
+export type ImportSource = 'termius' | 'putty' | 'kitty' | 'openssh' | 'folder';
+
+/** A folder picked for "PuTTY/KiTTY sessions from a folder". */
+export type PickedFolder = { name: string; importable: boolean };
+
+/** Asks for a folder (portable KiTTY, a Sessions folder, `.reg` exports). */
+export function pickImportFolder(): Promise<PickedFolder | null> {
+  return invoke<PickedFolder | null>('pick_import_folder');
+}
 
 export type ImportSummary = {
   hosts: number;

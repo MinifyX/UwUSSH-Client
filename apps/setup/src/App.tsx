@@ -310,6 +310,12 @@ export function App() {
   if (!info || !options || screen === 'loading') return shell(null);
 
   const installed = info.installed && !info.installed.legacy ? info.installed : null;
+  const computer =
+    info.platform === 'macos'
+      ? t.computerMac
+      : info.platform === 'linux'
+        ? t.computerLinux
+        : t.computerWindows;
   const actionLabel = !installed
     ? t.install
     : installed.version === info.version
@@ -330,7 +336,7 @@ export function App() {
           body={
             installed
               ? fill(t.againBody, { installed: installed.version ?? '', version: info.version })
-              : t.welcomeBody
+              : fill(t.welcomeBody, { computer })
           }
         />
         <div className="flex flex-col items-center gap-2 pt-5">
@@ -371,11 +377,13 @@ export function App() {
                 {t.change}
               </button>
             </div>
-            <Switch
-              checked={options.desktopShortcut}
-              onChange={(desktopShortcut) => setOptions({ ...options, desktopShortcut })}
-              label={t.desktopShortcut}
-            />
+            {info.platform !== 'macos' && (
+              <Switch
+                checked={options.desktopShortcut}
+                onChange={(desktopShortcut) => setOptions({ ...options, desktopShortcut })}
+                label={t.desktopShortcut}
+              />
+            )}
             {info.hasKeygen && (
               <Switch
                 checked={options.keygen}
@@ -384,6 +392,23 @@ export function App() {
               />
             )}
           </div>
+        )}
+        {installed && info.platform !== 'windows' && !showOptions && (
+          <button
+            type="button"
+            onClick={() =>
+              void api
+                .beginUninstall()
+                .then(() => setScreen('uninstall'))
+                .catch((reason) => {
+                  setError(String(reason));
+                  setScreen('error');
+                })
+            }
+            className="text-plum-soft hover:text-plum mt-2 rounded-full px-3 py-1 text-[12.5px] font-bold"
+          >
+            {t.removeInstead}
+          </button>
         )}
         <p className="text-plum-soft mt-auto pt-3 text-center text-[11.5px]">
           {!info.hasPayload
@@ -535,7 +560,11 @@ export function App() {
   if (screen === 'uninstall') {
     return shell(
       <>
-        <Stage scene={<GoodbyeScene />} title={t.uninstallTitle} body={t.uninstallBody} />
+        <Stage
+          scene={<GoodbyeScene />}
+          title={t.uninstallTitle}
+          body={fill(t.uninstallBody, { computer })}
+        />
         <div className="setup-card mt-5 w-full rounded-[22px] p-2">
           <Switch
             checked={keepData}

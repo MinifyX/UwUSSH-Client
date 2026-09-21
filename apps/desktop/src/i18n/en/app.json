@@ -98,5 +98,15 @@
   "Unbekanntes System": "Unknown system",
   "Dateien · {login}": "Files · {login}",
   "Durchsatz-Messung": "Throughput test",
-  "Lokale Shell": "Local shell"
+  "Lokale Shell": "Local shell",
+  "Passt ✓": "Matches ✓",
+  "In „{name}“ liegen keine Sitzungen. Wähle den KiTTY-Ordner, seinen Sessions-Ordner oder einen Ordner mit .reg-Exporten.": "There are no sessions in “{name}”. Pick the KiTTY folder, its Sessions folder, or a folder with .reg exports.",
+  "Ein portables KiTTY (Ordner mit Sessions), ein Sessions-Ordner oder .reg-Exporte von PuTTY und KiTTY": "A portable KiTTY (folder with Sessions), a Sessions folder, or .reg exports from PuTTY and KiTTY",
+  "KiTTY- / PuTTY-Sitzungen aus Ordner…": "KiTTY / PuTTY sessions from a folder…",
+  "{system} öffnet den Tresor für dein Benutzerkonto automatisch – du gibst das Master-Passwort hier nicht noch einmal ein.": "{system} opens the vault for your user account automatically – you won’t type the master password here again.",
+  "Im Wiederherstellungscode ist ein Tippfehler.": "There’s a typo in the recovery code.",
+  "Master-Passwort oder Wiederherstellungscode war falsch.": "The master password or the recovery code was wrong.",
+  "Wiederherstellungscode (aus dem Recovery-Kit)": "Recovery code (from the recovery kit)",
+  "Dieser Tresor wird synchronisiert und braucht neben dem Passwort den Code, den UwUSSH beim Verbinden des Servers einmal gezeigt hat.": "This vault is synced and needs, besides the password, the code UwUSSH showed once when the server was connected.",
+  "„System“ folgt der Einstellung von {system}.": "“System” follows the {system} setting."
 }

@@ -92,7 +92,56 @@ fn is_newer(app: &AppHandle, version: &str) -> bool {
 }
 
 fn setup_file(dir: &Path, version: &str) -> PathBuf {
-    dir.join(format!("UwUSSH-Setup-{version}.exe"))
+    dir.join(setup_name(version))
+}
+
+/// Where the setup keeps what it installed (macOS and Linux; on Windows it is
+/// the registry). The same path as in `apps/setup/src-tauri/src/install_unix.rs`.
+#[cfg(not(windows))]
+fn setup_record() -> Option<PathBuf> {
+    let home = std::env::var_os("HOME").map(PathBuf::from)?;
+    let config = if cfg!(target_os = "macos") {
+        home.join("Library/Application Support")
+    } else {
+        std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .filter(|dir| dir.is_absolute())
+            .unwrap_or_else(|| home.join(".config"))
+    };
+    Some(config.join("app.uwussh.setup").join("install.json"))
+}
+
+/// Whether this copy of UwUSSH is one the setup put there, and so one the
+/// setup may replace. On macOS and Linux an app from somewhere else — a
+/// `.deb`, a copy out of a disk image — updates the way it came.
+fn installed_by_setup() -> bool {
+    #[cfg(windows)]
+    {
+        true
+    }
+    #[cfg(not(windows))]
+    {
+        #[derive(Deserialize)]
+        struct Record {
+            dir: PathBuf,
+        }
+        let (Some(path), Ok(me)) = (setup_record(), std::env::current_exe()) else {
+            return false;
+        };
+        std::fs::read(path)
+            .ok()
+            .and_then(|raw| serde_json::from_slice::<Record>(&raw).ok())
+            .is_some_and(|record| record.dir.is_absolute() && me.starts_with(&record.dir))
+    }
+}
+
+/// The feed's platform key for this build, as `pnpm release` writes it.
+fn feed_target() -> String {
+    let os = match std::env::consts::OS {
+        "macos" => "darwin",
+        other => other,
+    };
+    format!("{os}-{}", std::env::consts::ARCH)
 }
 
 /// A waiting update, opened and checked, with the file held so that nobody can
@@ -140,8 +189,18 @@ fn open_locked(path: &Path) -> std::io::Result<std::fs::File> {
     options.open(path)
 }
 
+/// The file the release publishes for this platform's updater, and the name
+/// its signature has to carry. Windows and Linux run the same file people
+/// download; on macOS people get a disk image, and the updater the bare setup
+/// program that is inside it.
 fn setup_name(version: &str) -> String {
-    format!("UwUSSH-Setup-{version}.exe")
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("macos", "aarch64") => format!("UwUSSH-Setup-{version}-macos-arm64-update"),
+        ("macos", _) => format!("UwUSSH-Setup-{version}-macos-x64-update"),
+        ("linux", "aarch64") => format!("UwUSSH-Setup-{version}-linux-arm64.AppImage"),
+        ("linux", _) => format!("UwUSSH-Setup-{version}-linux-x64.AppImage"),
+        _ => format!("UwUSSH-Setup-{version}.exe"),
+    }
 }
 
 fn pubkey(app: &AppHandle) -> Option<String> {
@@ -273,8 +332,25 @@ fn hand_over(pending: Pending, relaunch: bool) -> Result<(), String> {
     if relaunch {
         args.push("--relaunch");
     }
-    let started = std::process::Command::new(&update.file)
-        .args(&args)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&update.file, std::fs::Permissions::from_mode(0o700))
+            .map_err(|e| format!("Couldn't start the update: {e}"))?;
+    }
+    let mut command = std::process::Command::new(&update.file);
+    command.args(&args);
+    // The Linux setup is an AppImage. Unpacked and run, it needs no FUSE,
+    // which many systems no longer have.
+    #[cfg(target_os = "linux")]
+    command.env("APPIMAGE_EXTRACT_AND_RUN", "1");
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // Its own process group, so it lives on when UwUSSH quits.
+        command.process_group(0);
+    }
+    let started = command
         .spawn()
         .map(|_| ())
         .map_err(|e| format!("Couldn't start the update: {e}"));
@@ -286,7 +362,7 @@ fn hand_over(pending: Pending, relaunch: bool) -> Result<(), String> {
 /// one. Returns true when UwUSSH must quit right away because the setup takes
 /// over.
 pub fn apply_pending_on_start(app: &AppHandle) -> bool {
-    if !cfg!(windows) || cfg!(debug_assertions) {
+    if cfg!(debug_assertions) || !installed_by_setup() {
         return false;
     }
     match open_pending(app) {
@@ -327,7 +403,7 @@ pub async fn check(app: &AppHandle) -> Result<Option<UpdateInfo>, String> {
     if let Some(update) = ready(app) {
         return Ok(Some(update));
     }
-    if !cfg!(windows) {
+    if !installed_by_setup() {
         return Ok(None);
     }
     let channel = *state.channel.lock();
@@ -342,7 +418,10 @@ pub async fn check(app: &AppHandle) -> Result<Option<UpdateInfo>, String> {
             .parse()
             .map_err(|_| "Bad update address".to_string())?])
         .map_err(fail)?
-        .timeout(Duration::from_secs(60))
+        // The Linux setup brings its own WebKit and is large; a slow line
+        // needs its time.
+        .timeout(Duration::from_secs(15 * 60))
+        .target(feed_target())
         .build()
         .map_err(fail)?;
     let Some(found) = updater.check().await.map_err(fail)? else {
@@ -484,10 +563,28 @@ mod tests {
 
     #[test]
     fn only_the_file_uwussh_names_counts_as_a_setup() {
-        let dir = Path::new(r"C:\Users\nyu\AppData\Local\app.uwussh.desktop\updates");
-        assert_eq!(
-            setup_file(dir, "0.1.0-beta.2"),
-            dir.join("UwUSSH-Setup-0.1.0-beta.2.exe")
+        let dir = Path::new("updates");
+        let file = setup_file(dir, "0.1.0-beta.2");
+        let name = file.file_name().unwrap().to_string_lossy().into_owned();
+        assert!(name.starts_with("UwUSSH-Setup-0.1.0-beta.2"), "{name}");
+        #[cfg(windows)]
+        assert_eq!(name, "UwUSSH-Setup-0.1.0-beta.2.exe");
+        #[cfg(target_os = "linux")]
+        assert!(name.ends_with(".AppImage"));
+        #[cfg(target_os = "macos")]
+        assert!(name.ends_with("-update"));
+    }
+
+    #[test]
+    fn the_feed_key_is_the_one_the_release_writes() {
+        let target = feed_target();
+        assert!(
+            ["windows-", "darwin-", "linux-"]
+                .iter()
+                .any(|os| target.starts_with(os)),
+            "{target}"
         );
+        #[cfg(all(windows, target_arch = "x86_64"))]
+        assert_eq!(target, "windows-x86_64");
     }
 }

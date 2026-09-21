@@ -32,7 +32,8 @@ use uwussh_proto::api::{
     PAIR_CLAIM_HEADER,
 };
 use uwussh_proto::{
-    Envelope, PullResponse, PushRequest, PushResponse, SyncCursor, MAX_BATCH, SCHEMA_VERSION,
+    Envelope, PullResponse, PushRequest, PushResponse, SyncCursor, MAX_BATCH, MAX_BATCH_BYTES,
+    SCHEMA_VERSION,
 };
 
 /// How long a request may take. Generous, because the other end may be a NAS
@@ -40,6 +41,11 @@ use uwussh_proto::{
 const TIMEOUT: Duration = Duration::from_secs(30);
 /// Reading pairing messages holds the request open on purpose.
 const WAIT_TIMEOUT: Duration = Duration::from_secs(60);
+/// The most a page of records can weigh: a full batch in base64 inside JSON,
+/// with room to spare. A server that sends more is not sending records.
+const MAX_PAGE_BYTES: u64 = (MAX_BATCH_BYTES as u64) * 2 + (1 << 20);
+/// Everything else the server says is a few hundred bytes.
+const MAX_ANSWER_BYTES: u64 = 256 * 1024;
 
 /// The identity a device signs with, once it has one.
 struct Device {
@@ -72,8 +78,17 @@ impl Server {
             Some(fingerprint) => crate::pin::pinned_config(fingerprint),
             None => crate::pin::webpki_config(),
         };
-        let client = Client::builder()
+        let mut builder = Client::builder();
+        // Plain HTTP only ever goes to this machine, so it must not detour
+        // through a proxy from the environment.
+        if base.starts_with("http://") {
+            builder = builder.no_proxy();
+        }
+        let client = builder
             .use_preconfigured_tls(tls)
+            // The protocol has no redirects. Following one would send the
+            // same body — a login key, a token — somewhere nobody checked.
+            .redirect(reqwest::redirect::Policy::none())
             .timeout(TIMEOUT)
             .connect_timeout(Duration::from_secs(10))
             // One server, one connection, kept warm between passes.
@@ -321,9 +336,20 @@ impl Server {
         build: impl Fn() -> RequestBuilder,
         authenticated: bool,
     ) -> Result<T, TransportError> {
+        self.send_limited(build, authenticated, MAX_ANSWER_BYTES)
+    }
+
+    /// Read at most `limit` bytes of the answer. A hostile server must not be
+    /// able to make this device hold gigabytes in memory.
+    fn send_limited<T: DeserializeOwned>(
+        &self,
+        build: impl Fn() -> RequestBuilder,
+        authenticated: bool,
+        limit: u64,
+    ) -> Result<T, TransportError> {
         let response = self.attempt(&build, authenticated)?;
-        response
-            .json()
+        let body = read_limited(response, limit)?;
+        serde_json::from_slice(&body)
             .map_err(|error| TransportError::Refused(format!("the server's answer: {error}")))
     }
 
@@ -370,6 +396,30 @@ impl Server {
     }
 }
 
+/// The body, or a refusal when it is longer than `limit`.
+fn read_limited(response: Response, limit: u64) -> Result<Vec<u8>, TransportError> {
+    use std::io::Read;
+    if response
+        .content_length()
+        .is_some_and(|length| length > limit)
+    {
+        return Err(TransportError::Refused(
+            "the server's answer is too large".into(),
+        ));
+    }
+    let mut body = Vec::new();
+    response
+        .take(limit + 1)
+        .read_to_end(&mut body)
+        .map_err(|error| TransportError::Unreachable(error.to_string()))?;
+    if body.len() as u64 > limit {
+        return Err(TransportError::Refused(
+            "the server's answer is too large".into(),
+        ));
+    }
+    Ok(body)
+}
+
 /// A request with the claim on side `b` of a pairing, when there is one.
 fn claimed(request: RequestBuilder, claim: Option<&str>) -> RequestBuilder {
     match claim {
@@ -381,13 +431,14 @@ fn claimed(request: RequestBuilder, claim: Option<&str>) -> RequestBuilder {
 impl Transport for Server {
     fn pull(&self, since: SyncCursor, limit: usize) -> Result<PullResponse, TransportError> {
         let limit = limit.min(MAX_BATCH);
-        self.send(
+        self.send_limited(
             || {
                 self.client
                     .get(self.url("/v1/records"))
                     .query(&[("since", since.0.to_string()), ("limit", limit.to_string())])
             },
             true,
+            MAX_PAGE_BYTES,
         )
     }
 
@@ -405,16 +456,32 @@ impl Transport for Server {
 
 /// Whether this is an address a secret may be sent to. Plain HTTP reaches no
 /// further than this machine, where there is no network in between to listen.
+///
+/// Parsed the way reqwest will parse it, not by hand: `http://localhost:1@evil`
+/// is a request to `evil` with `localhost` as its user name.
 fn safe_address(base: &str) -> bool {
-    if let Some(rest) = base.strip_prefix("https://") {
-        return !rest.is_empty();
-    }
-    let Some(rest) = base.strip_prefix("http://") else {
+    let Ok(url) = reqwest::Url::parse(base) else {
         return false;
     };
-    let host = rest.split('/').next().unwrap_or(rest);
-    let host = host.rsplit_once(':').map_or(host, |(host, _)| host);
-    matches!(host, "localhost" | "127.0.0.1" | "[::1]" | "::1")
+    if !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return false;
+    }
+    let Some(host) = url.host() else {
+        return false;
+    };
+    match url.scheme() {
+        "https" => true,
+        "http" => match host {
+            url::Host::Domain(name) => name.eq_ignore_ascii_case("localhost"),
+            url::Host::Ipv4(ip) => ip.is_loopback(),
+            url::Host::Ipv6(ip) => ip.is_loopback(),
+        },
+        _ => false,
+    }
 }
 
 /// What the server said, or why it refused.
@@ -425,9 +492,11 @@ fn check(response: Response) -> Result<Response, TransportError> {
     }
     // The server's own short reason, when it sent one: the interface says
     // different things for a wrong password, an old client and too many tries.
-    let reason = response
-        .json::<api::ApiError>()
+    let reason = read_limited(response, 64 * 1024)
+        .ok()
+        .and_then(|body| serde_json::from_slice::<api::ApiError>(&body).ok())
         .map(|error| format!("{} ({})", error.message, error.error))
+        .ok_or(())
         .unwrap_or_else(|_| format!("HTTP {}", status.as_u16()));
     Err(TransportError::Refused(reason))
 }
@@ -539,6 +608,12 @@ mod tests {
             "nas.lan:8443",
             "ftp://nas.lan",
             "",
+            // The user-name trick: the request would go to evil.example.
+            "http://localhost:1@evil.example",
+            "http://localhost@evil.example/",
+            "https://user:pass@nas.lan",
+            "http://localhost.evil.example",
+            "http://127.0.0.1.nip.io",
         ] {
             assert!(!safe_address(address), "{address}");
             assert!(

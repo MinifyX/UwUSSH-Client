@@ -6,7 +6,8 @@
 //! Debug builds read two environment variables instead of showing a dialog, so
 //! the end-to-end run can export and import without clicking through Windows:
 //! `UWUSSH_E2E_SAVE_DIR` (a save goes there, under the suggested name) and
-//! `UWUSSH_E2E_OPEN_FILE` (an open picks that file). Release builds ignore them.
+//! `UWUSSH_E2E_OPEN_FILE` (an open picks that file), and `UWUSSH_E2E_OPEN_FOLDER`
+//! for a folder. Release builds ignore them.
 
 use std::path::PathBuf;
 use tauri::AppHandle;
@@ -39,6 +40,20 @@ pub(crate) async fn save(
         dialog = dialog.add_filter(filter.name, filter.extensions);
     }
     tauri::async_runtime::spawn_blocking(move || dialog.blocking_save_file())
+        .await
+        .ok()
+        .flatten()
+        .and_then(|path| path.into_path().ok())
+}
+
+pub(crate) async fn folder(app: &AppHandle, title: &str) -> Option<PathBuf> {
+    if cfg!(debug_assertions) {
+        if let Some(dir) = std::env::var_os("UWUSSH_E2E_OPEN_FOLDER") {
+            return Some(PathBuf::from(dir));
+        }
+    }
+    let dialog = app.dialog().file().set_title(title);
+    tauri::async_runtime::spawn_blocking(move || dialog.blocking_pick_folder())
         .await
         .ok()
         .flatten()

@@ -10,6 +10,7 @@
 
 pub mod chromium;
 pub mod putty;
+pub mod session_files;
 pub mod ssh_config;
 pub mod termius;
 

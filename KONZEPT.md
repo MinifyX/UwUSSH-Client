@@ -258,7 +258,7 @@ deshalb einen leeren Inhalt, statt gar keinen zu haben.
 | `POST /v1/records`                   | Batch-Push, jeder Record mit `base_seq`                       |
 | `GET /v1/events`                     | Server-Sent Events: „neu ab seq N" → Client pullt             |
 | `POST /v1/pair`, `/v1/pair/{id}`     | Relay für die Gerätekopplung (SPAKE2), 10 min                 |
-| `GET /v1/devices`, `POST …/revoke`  | Geräte listen, widerrufen (ein anderes nur mit Master-PW)     |
+| `GET /v1/devices`, `POST …/revoke`   | Geräte listen, widerrufen (ein anderes nur mit Master-PW)     |
 | `GET /healthz`                       | Ops                                                           |
 
 Der Cursor ist eine **monotone Server-Sequenznummer**, kein Zeitstempel.

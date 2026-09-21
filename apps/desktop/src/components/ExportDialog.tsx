@@ -144,21 +144,19 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
           </span>
         </label>
         {secrets && (
-          <div className="form-row">
-            <label className="field grow">
+          <div className="export-password">
+            <label className="field">
               <span>{t('Passwort für die Datei')}</span>
               <input
                 type="password"
                 data-autofocus
                 value={password}
                 autoComplete="new-password"
+                aria-invalid={password.length > 0 && password.length < 8}
                 onChange={(e) => setPassword(e.target.value)}
               />
-              {password.length > 0 && password.length < 8 && (
-                <em className="field-hint">{t('Mindestens 8 Zeichen.')}</em>
-              )}
             </label>
-            <label className="field grow">
+            <label className="field">
               <span>{t('Wiederholen')}</span>
               <input
                 type="password"
@@ -167,8 +165,18 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
                 aria-invalid={mismatch}
                 onChange={(e) => setRepeat(e.target.value)}
               />
-              {mismatch && <em className="field-error">{t('Stimmt nicht überein.')}</em>}
             </label>
+            {/* One line that is always there, so nothing below it jumps while typing. */}
+            <p
+              className={mismatch ? 'field-error' : 'field-hint'}
+              role={mismatch ? 'alert' : undefined}
+            >
+              {mismatch
+                ? t('Stimmt nicht überein.')
+                : password.length >= 8 && password === repeat
+                  ? t('Passt ✓')
+                  : t('Mindestens 8 Zeichen.')}
+            </p>
           </div>
         )}
         {!secrets && (
@@ -185,6 +193,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
         )}
         <button type="submit" hidden />
       </form>
+      {guard.dialog}
     </Modal>
   );
 }

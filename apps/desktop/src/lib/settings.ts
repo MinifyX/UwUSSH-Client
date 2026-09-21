@@ -18,6 +18,8 @@ export type LanguageSetting = 'system' | 'de' | 'en';
 /** Animations: follow the system's reduced-motion setting, or override it. */
 export type MotionSetting = 'system' | 'on' | 'off';
 export type CursorStyle = 'block' | 'bar' | 'underline';
+/** What opens by itself when UwUSSH starts: nothing, a local shell, or chosen hosts. */
+export type StartupSetting = 'nothing' | 'shell' | 'hosts';
 /** Beta gets pre-releases (tags like v0.1.0-beta.1) before everyone else. */
 export type UpdateChannel = 'stable' | 'beta';
 
@@ -55,7 +57,9 @@ export type Settings = {
   ctrlVPastes: boolean;
   /** Ctrl+C copies while text is selected, and sends ^C otherwise. */
   ctrlCCopies: boolean;
-  openShellOnStart: boolean;
+  startup: StartupSetting;
+  /** The hosts `startup: 'hosts'` connects to, by id, in this order. */
+  startupHosts: string[];
   confirmCloseWithSessions: boolean;
   updateChannel: UpdateChannel;
   highlight: HighlightSettings;
@@ -92,7 +96,8 @@ export const DEFAULT_SETTINGS: Settings = {
   scrollback: 10_000,
   ctrlVPastes: true,
   ctrlCCopies: true,
-  openShellOnStart: true,
+  startup: 'nothing',
+  startupHosts: [],
   confirmCloseWithSessions: true,
   // Someone who installed a beta wants the next beta too.
   updateChannel: pkg.version.includes('-') ? 'beta' : 'stable',
@@ -165,7 +170,16 @@ export function sanitize(raw: unknown): Settings {
     ),
     ctrlVPastes: bool(input.ctrlVPastes, d.ctrlVPastes),
     ctrlCCopies: bool(input.ctrlCCopies, d.ctrlCCopies),
-    openShellOnStart: bool(input.openShellOnStart, d.openShellOnStart),
+    startup: oneOf(input.startup, ['nothing', 'shell', 'hosts'] as const, d.startup),
+    startupHosts: Array.isArray(input.startupHosts)
+      ? [
+          ...new Set(
+            input.startupHosts
+              .filter((id): id is string => typeof id === 'string' && id.length <= 64)
+              .slice(0, 50),
+          ),
+        ]
+      : [],
     confirmCloseWithSessions: bool(input.confirmCloseWithSessions, d.confirmCloseWithSessions),
     updateChannel: oneOf(input.updateChannel, ['stable', 'beta'] as const, d.updateChannel),
     highlight: {

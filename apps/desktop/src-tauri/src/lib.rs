@@ -11,6 +11,7 @@
 //! - [`keygen`] — UwUKeygen, shared with the standalone app
 //! - [`import`] — the vault and importing other clients' setups
 //! - [`backup`] — exporting to and importing from `.uwussh` files
+//! - [`sync`] — Settings → Sync and the thread that keeps devices in step
 //! - [`system`] — updates, links, a fresh start for a reloaded page
 //! - [`m0`] — the throughput measurement
 
@@ -24,6 +25,7 @@ mod keygen;
 mod keys;
 mod m0;
 mod sessions;
+mod sync;
 mod system;
 mod updates;
 
@@ -51,6 +53,9 @@ pub(crate) struct AppState {
     pub transfers: files::Transfers,
     pub picked_export: backup::PickedExport,
     pub picked_key: keys::Picked,
+    /// The folder the last "sessions from a folder" import picked. The page
+    /// never names a path itself; it can only read what the person chose.
+    pub picked_folder: Mutex<Option<std::path::PathBuf>>,
 }
 
 /// Terminal frames on their way to the webview.
@@ -124,9 +129,11 @@ pub fn run() {
                 transfers: files::Transfers::default(),
                 picked_export: backup::PickedExport::default(),
                 picked_key: keys::Picked::default(),
+                picked_folder: Mutex::new(None),
             });
             app.manage(keygen::Generated::default());
             updates::start(app.handle());
+            sync::start(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -191,12 +198,23 @@ pub fn run() {
             import::set_vault_remembered,
             import::lock_vault,
             import::available_imports,
+            import::pick_import_folder,
             import::scan_import,
             import::run_import,
             backup::export_hosts,
             backup::pick_export_file,
             backup::read_export_file,
             backup::import_export_file,
+            sync::sync_status,
+            sync::sync_connect,
+            sync::sync_join,
+            sync::sync_offer,
+            sync::sync_wait_for_device,
+            sync::sync_cancel_offer,
+            sync::sync_devices,
+            sync::sync_revoke,
+            sync::sync_now,
+            sync::sync_disconnect,
             system::close_all_sessions,
             system::set_update_channel,
             system::update_status,

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { t, useLanguage } from '../lib/i18n';
+import { systemName } from '../lib/platform';
 import { createVault, unlockVault, vaultState } from '../lib/session';
 import { Modal } from './Modal';
 import { NyuScene } from './nyu/scenes';
@@ -25,6 +26,8 @@ export function VaultDialog({ reason, cancelLabel = t('Abbrechen'), onDone, onCa
   const [mode, setMode] = useState<'loading' | 'create' | 'unlock'>('loading');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [needsCode, setNeedsCode] = useState(false);
+  const [code, setCode] = useState('');
   const [remember, setRemember] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,7 +42,10 @@ export function VaultDialog({ reason, cancelLabel = t('Abbrechen'), onDone, onCa
     void vaultState()
       .then((state) => {
         if (state.status === 'unlocked') onDone();
-        else setMode(state.status === 'absent' ? 'create' : 'unlock');
+        else {
+          setNeedsCode(state.needsRecoveryCode);
+          setMode(state.status === 'absent' ? 'create' : 'unlock');
+        }
       })
       .catch((e) => setError(String(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -47,7 +53,10 @@ export function VaultDialog({ reason, cancelLabel = t('Abbrechen'), onDone, onCa
 
   const mismatch = mode === 'create' && confirm.length > 0 && password !== confirm;
   const ready =
-    !busy && password.length > 0 && (mode === 'unlock' || (password === confirm && !mismatch));
+    !busy &&
+    password.length > 0 &&
+    (!needsCode || code.trim().length > 0) &&
+    (mode === 'unlock' || (password === confirm && !mismatch));
 
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
@@ -56,15 +65,20 @@ export function VaultDialog({ reason, cancelLabel = t('Abbrechen'), onDone, onCa
     setError(null);
     try {
       if (mode === 'create') await createVault(password, remember);
-      else await unlockVault(password, remember);
+      else await unlockVault(password, remember, needsCode ? code : null);
       setPassword('');
       setConfirm('');
       onDone();
     } catch (e) {
+      const text = String(e);
       setError(
         mode === 'unlock'
-          ? t('Das Master-Passwort war falsch.')
-          : t('Hat nicht geklappt: {error}', { error: String(e) }),
+          ? text.includes('typo')
+            ? t('Im Wiederherstellungscode ist ein Tippfehler.')
+            : needsCode
+              ? t('Master-Passwort oder Wiederherstellungscode war falsch.')
+              : t('Das Master-Passwort war falsch.')
+          : t('Hat nicht geklappt: {error}', { error: text }),
       );
       setPassword('');
       passwordRef.current?.focus();
@@ -123,6 +137,23 @@ export function VaultDialog({ reason, cancelLabel = t('Abbrechen'), onDone, onCa
               aria-invalid={Boolean(error)}
             />
           </label>
+          {mode === 'unlock' && needsCode && (
+            <label className="field">
+              <span>{t('Wiederherstellungscode (aus dem Recovery-Kit)')}</span>
+              <input
+                value={code}
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX"
+                onChange={(e) => setCode(e.target.value)}
+              />
+              <em className="field-hint">
+                {t(
+                  'Dieser Tresor wird synchronisiert und braucht neben dem Passwort den Code, den UwUSSH beim Verbinden des Servers einmal gezeigt hat.',
+                )}
+              </em>
+            </label>
+          )}
           {mode === 'create' && (
             <label className="field">
               <span>{t('Wiederholen')}</span>
@@ -148,7 +179,8 @@ export function VaultDialog({ reason, cancelLabel = t('Abbrechen'), onDone, onCa
               <b>{t('Auf diesem Gerät merken')}</b>
               <small>
                 {t(
-                  'Windows öffnet den Tresor für dein Benutzerkonto automatisch – du gibst das Master-Passwort hier nicht noch einmal ein.',
+                  '{system} öffnet den Tresor für dein Benutzerkonto automatisch – du gibst das Master-Passwort hier nicht noch einmal ein.',
+                  { system: systemName() },
                 )}
               </small>
             </span>

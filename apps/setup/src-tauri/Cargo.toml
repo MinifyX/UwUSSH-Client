@@ -1,6 +1,6 @@
 [package]
 name = "uwussh-setup"
-description = "UwUSSH's own installer, updater and uninstaller for Windows"
+description = "UwUSSH's own installer, updater and uninstaller"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,6 +8,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [build-dependencies]
+tar = "0.4"
 tauri-build = { version = "2", features = [] }
 zstd = "0.13"
 
@@ -18,6 +19,12 @@ serde_json.workspace = true
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 zstd = "0.13"
+
+# macOS and Linux: the app arrives as a folder (an .app, an AppDir) packed as
+# tar, and processes are found and ended through the C library.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+tar = "0.4"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"

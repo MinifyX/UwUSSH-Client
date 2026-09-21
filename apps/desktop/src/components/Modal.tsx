@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 
 type ModalProps = {
   title: string;
@@ -100,7 +101,10 @@ export function Modal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return (
+  // Straight into <body>: a dialog opened from inside another one (the export
+  // from Settings) otherwise lives in the outer dialog's scroll box, which
+  // moves it about when a field inside gets focus.
+  return createPortal(
     // A click beside the dialog does nothing: closing by accident threw away
     // whatever was typed into it. Escape and the dialog's own buttons close.
     <div className="modal-backdrop">
@@ -120,6 +124,7 @@ export function Modal({
         <div className="modal-body">{children}</div>
         {footer && <div className="modal-footer">{footer}</div>}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

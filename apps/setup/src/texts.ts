@@ -2,7 +2,7 @@
 
 const de = {
   welcomeTitle: 'Hallo! Ich bin Nyu',
-  welcomeBody: 'Ich richte UwUSSH in ein paar Sekunden auf deinem PC ein.',
+  welcomeBody: 'Ich richte UwUSSH in ein paar Sekunden auf deinem {computer} ein.',
   againTitle: 'Schön, dich wiederzusehen!',
   againBody:
     'UwUSSH {installed} ist schon da. Ich bringe es auf {version}, deine Hosts und dein Tresor bleiben, wo sie sind.',
@@ -47,7 +47,11 @@ const de = {
   errorTitle: 'Hoppla, das hat nicht geklappt',
   retry: 'Nochmal versuchen',
   uninstallTitle: 'Schade, dass du gehst …',
-  uninstallBody: 'Ich entferne UwUSSH von diesem PC.',
+  uninstallBody: 'Ich entferne UwUSSH von diesem {computer}.',
+  removeInstead: 'Deinstallieren …',
+  computerWindows: 'PC',
+  computerMac: 'Mac',
+  computerLinux: 'Rechner',
   keepData: 'Hosts, Tresor und Einstellungen behalten',
   keepDataHint:
     'Praktisch, falls du wiederkommst. Sonst lösche ich auch den Tresor mit allen gespeicherten Schlüsseln und Passwörtern.',
@@ -65,7 +69,7 @@ const de = {
 
 const en: typeof de = {
   welcomeTitle: "Hi! I'm Nyu",
-  welcomeBody: "I'll set up UwUSSH on your PC in a few seconds.",
+  welcomeBody: "I'll set up UwUSSH on your {computer} in a few seconds.",
   againTitle: 'Nice to see you again!',
   againBody:
     "UwUSSH {installed} is already here. I'll bring it to {version}, and your hosts and vault stay where they are.",
@@ -110,7 +114,11 @@ const en: typeof de = {
   errorTitle: "Oops, that didn't work",
   retry: 'Try again',
   uninstallTitle: 'Sad to see you go …',
-  uninstallBody: "I'll remove UwUSSH from this PC.",
+  uninstallBody: "I'll remove UwUSSH from this {computer}.",
+  removeInstead: 'Uninstall …',
+  computerWindows: 'PC',
+  computerMac: 'Mac',
+  computerLinux: 'computer',
   keepData: 'Keep hosts, vault and settings',
   keepDataHint:
     'Handy if you come back. Otherwise I also delete the vault with every saved key and password.',

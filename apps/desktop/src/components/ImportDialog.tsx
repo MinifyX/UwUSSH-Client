@@ -10,6 +10,7 @@ import {
 import { t, useLanguage } from '../lib/i18n';
 import {
   availableImports,
+  pickImportFolder,
   runImport,
   scanImport,
   type ImportReport,
@@ -33,12 +34,13 @@ const LABEL: Record<ImportSource, string> = {
   putty: 'PuTTY',
   kitty: 'KiTTY',
   openssh: 'OpenSSH (~/.ssh/config)',
+  folder: 'KiTTY / PuTTY',
 };
 
 type Step =
   | { kind: 'loading' }
   | { kind: 'pick'; sources: ImportSource[] }
-  | { kind: 'preview'; source: ImportSource; summary: ImportSummary }
+  | { kind: 'preview'; source: ImportSource; summary: ImportSummary; label?: string }
   | { kind: 'file-password'; file: PickedExport; wrong: boolean }
   | { kind: 'file-preview'; file: PickedExport; summary: BackupSummary; password: string | null }
   | { kind: 'done'; report: ImportReport };
@@ -109,6 +111,26 @@ export function ImportDialog({ onClose, onImported }: Props) {
       const report = await runImport(source);
       onImported();
       setStep({ kind: 'done', report });
+    });
+  }
+
+  async function pickFolder() {
+    const folder = await pickImportFolder();
+    if (!folder) return;
+    if (!folder.importable) {
+      setError(
+        t(
+          'In „{name}“ liegen keine Sitzungen. Wähle den KiTTY-Ordner, seinen Sessions-Ordner oder einen Ordner mit .reg-Exporten.',
+          { name: folder.name },
+        ),
+      );
+      return;
+    }
+    setStep({
+      kind: 'preview',
+      source: 'folder',
+      summary: await scanImport('folder'),
+      label: folder.name,
     });
   }
 
@@ -190,6 +212,16 @@ export function ImportDialog({ onClose, onImported }: Props) {
                 {LABEL[source]}
               </button>
             ))}
+            <button
+              className="import-source"
+              disabled={busy}
+              onClick={() => void guard(pickFolder)}
+              title={t(
+                'Ein portables KiTTY (Ordner mit Sessions), ein Sessions-Ordner oder .reg-Exporte von PuTTY und KiTTY',
+              )}
+            >
+              <Icon name="folder" size={16} /> {t('KiTTY- / PuTTY-Sitzungen aus Ordner…')}
+            </button>
             <button className="import-source" disabled={busy} onClick={() => void guard(pickFile)}>
               <Icon name="file" size={16} /> {t('UwUSSH-Export (.uwussh)…')}
             </button>
@@ -207,7 +239,7 @@ export function ImportDialog({ onClose, onImported }: Props) {
       case 'preview':
         return (
           <Preview
-            source={LABEL[step.source]}
+            source={step.label ?? LABEL[step.source]}
             counts={sourceCounts(step.summary)}
             secrets={step.summary.needsVault}
             skipped={step.summary.skipped}

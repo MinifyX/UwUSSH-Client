@@ -16,10 +16,12 @@ import {
 } from '../lib/keys';
 import {
   checkForUpdates,
+  listHosts,
   lockVault,
   openProjectPage,
   setVaultRemembered,
   vaultState,
+  type HostRecord,
   type ProjectPage,
   type UpdateInfo,
   type VaultState,
@@ -35,8 +37,11 @@ import {
   type CursorStyle,
   type HighlightColor,
   type HighlightRule,
+  type StartupSetting,
 } from '../lib/settings';
+import { systemName } from '../lib/platform';
 import { ExportDialog } from './ExportDialog';
+import { SyncSettings } from './SyncSettings';
 import { Icon } from './Icon';
 import { KeyImportDialog, KeygenDialog } from './keygen/KeyDialogs';
 import { Modal } from './Modal';
@@ -44,13 +49,14 @@ import { Nyu } from './nyu/Nyu';
 import { VaultDialog } from './VaultDialog';
 
 export type SettingsSection =
-  'appearance' | 'terminal' | 'highlight' | 'vault' | 'data' | 'updates' | 'about';
+  'appearance' | 'terminal' | 'highlight' | 'vault' | 'sync' | 'data' | 'updates' | 'about';
 
 const SECTIONS: { id: SettingsSection; label: string }[] = [
   { id: 'appearance', label: N_('Darstellung') },
   { id: 'terminal', label: N_('Terminal') },
   { id: 'highlight', label: N_('Hervorhebung') },
   { id: 'vault', label: N_('Tresor & Keys') },
+  { id: 'sync', label: N_('Sync') },
   { id: 'data', label: N_('Import & Export') },
   { id: 'updates', label: N_('Updates') },
   { id: 'about', label: N_('Über UwUSSH') },
@@ -147,7 +153,7 @@ function Appearance() {
     <>
       <Row
         label="Sprache · Language"
-        description="„System“ folgt der Sprache von Windows. · “System” follows Windows."
+        description={`„System“ folgt der Sprache von ${systemName()}. · “System” follows ${systemName()}.`}
       >
         <Segmented
           label="Sprache · Language"
@@ -172,7 +178,10 @@ function Appearance() {
           ]}
         />
       </Row>
-      <Row label={t('Animationen')} description={t('„System“ folgt der Windows-Einstellung.')}>
+      <Row
+        label={t('Animationen')}
+        description={t('„System“ folgt der Einstellung von {system}.', { system: systemName() })}
+      >
         <Segmented
           label={t('Animationen')}
           value={settings.motion}
@@ -311,13 +320,7 @@ function TerminalSettings() {
           onChange={(ctrlVPastes) => updateSettings({ ctrlVPastes })}
         />
       </Row>
-      <Row label={t('Beim Start eine lokale Shell öffnen')}>
-        <Toggle
-          label={t('Beim Start eine lokale Shell öffnen')}
-          checked={settings.openShellOnStart}
-          onChange={(openShellOnStart) => updateSettings({ openShellOnStart })}
-        />
-      </Row>
+      <StartupRow />
       <Row
         label={t('Vor dem Schließen nachfragen')}
         description={t('Wenn noch SSH-Verbindungen offen sind.')}
@@ -353,6 +356,78 @@ function TerminalSettings() {
           <dd>{t('Einstellungen')}</dd>
         </dl>
       </div>
+    </>
+  );
+}
+
+/** What opens when UwUSSH starts: nothing (the default), a local shell, or chosen hosts. */
+function StartupRow() {
+  const settings = useSettings();
+  const [hosts, setHosts] = useState<HostRecord[] | null>(null);
+  useEffect(() => {
+    if (settings.startup !== 'hosts' || hosts) return;
+    void listHosts()
+      .then(setHosts)
+      .catch(() => setHosts([]));
+  }, [settings.startup, hosts]);
+  const chosen = new Set(settings.startupHosts);
+  const toggle = (id: string, on: boolean) =>
+    updateSettings({
+      startupHosts: on
+        ? [...settings.startupHosts.filter((other) => other !== id), id]
+        : settings.startupHosts.filter((other) => other !== id),
+    });
+  return (
+    <>
+      <Row
+        label={t('Beim Start öffnen')}
+        description={t(
+          'Normalerweise öffnet UwUSSH keine Verbindung von selbst. Hier kannst du eine lokale Shell oder bestimmte Hosts vorgeben.',
+        )}
+      >
+        <Segmented<StartupSetting>
+          label={t('Beim Start öffnen')}
+          value={settings.startup}
+          onChange={(startup) => updateSettings({ startup })}
+          options={[
+            { value: 'nothing', label: t('Nichts') },
+            { value: 'shell', label: t('Lokale Shell') },
+            { value: 'hosts', label: t('Hosts') },
+          ]}
+        />
+      </Row>
+      {settings.startup === 'hosts' && (
+        <div className="startup-hosts" role="group" aria-label={t('Hosts beim Start')}>
+          {hosts === null ? (
+            <p className="setting-description">{t('Hosts werden geladen…')}</p>
+          ) : hosts.length === 0 ? (
+            <p className="setting-description">{t('Noch keine Hosts angelegt.')}</p>
+          ) : (
+            [...hosts]
+              .sort((a, b) => a.name.localeCompare(b.name, 'de'))
+              .map((host) => (
+                <label key={host.id} className="check inline">
+                  <input
+                    type="checkbox"
+                    checked={chosen.has(host.id)}
+                    onChange={(event) => toggle(host.id, event.target.checked)}
+                  />
+                  <span>
+                    {host.name}
+                    <small>
+                      {host.username}@{host.address}
+                    </small>
+                  </span>
+                </label>
+              ))
+          )}
+          {hosts !== null && hosts.length > 0 && chosen.size === 0 && (
+            <p className="setting-description">
+              {t('Keiner gewählt – dann öffnet beim Start nichts.')}
+            </p>
+          )}
+        </div>
+      )}
     </>
   );
 }
@@ -617,7 +692,8 @@ function Vault({ onChanged }: { onChanged: () => void }) {
         <Row
           label={t('Auf diesem Gerät merken')}
           description={t(
-            'Windows öffnet den Tresor beim Start für dein Benutzerkonto, ohne Master-Passwort. Andere Konten und andere Rechner brauchen es weiter.',
+            '{system} öffnet den Tresor beim Start für dein Benutzerkonto, ohne Master-Passwort. Andere Konten und andere Rechner brauchen es weiter.',
+            { system: systemName() },
           )}
         >
           <Toggle
@@ -1014,6 +1090,7 @@ export function SettingsDialog({
           {section === 'terminal' && <TerminalSettings />}
           {section === 'highlight' && <Highlighting />}
           {section === 'vault' && <Vault onChanged={onChanged} />}
+          {section === 'sync' && <SyncSettings />}
           {section === 'data' && <Data onImport={onImport} />}
           {section === 'updates' && (
             <Updates

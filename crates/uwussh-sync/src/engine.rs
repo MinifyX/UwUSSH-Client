@@ -82,6 +82,11 @@ pub struct SyncReport {
 /// two, and anything beyond that is a bug rather than a busy household.
 pub const MAX_ROUNDS: u32 = 3;
 
+/// The most pages one pass pulls. Half a million records is more than any
+/// household of hosts, and a server that always says "there is more" must not
+/// keep the sync thread busy forever.
+const MAX_PAGES: usize = 1_000;
+
 /// Sync once: everything we have, then everything the server has.
 pub fn sync_once<T: Transport>(store: &Store, transport: &T) -> Result<SyncReport, SyncError> {
     let mut report = SyncReport::default();
@@ -105,14 +110,20 @@ fn pull_all<T: Transport>(
     transport: &T,
     report: &mut SyncReport,
 ) -> Result<(), SyncError> {
-    loop {
+    for _ in 0..MAX_PAGES {
         let cursor = store.sync_state()?.cursor;
         let page = transport.pull(SyncCursor(cursor), MAX_BATCH)?;
         if page.envelopes.is_empty() {
             return Ok(());
         }
         report.pulled += page.envelopes.len();
-        report.apply.add(store.apply_envelopes(&page.envelopes)?);
+        let applied = store.apply_envelopes(&page.envelopes)?;
+        report.apply.add(applied);
+        // A page of nothing but records that fail their seal is a server
+        // making things up. The next pass may ask again; this one stops.
+        if applied.rejected == page.envelopes.len() {
+            return Ok(());
+        }
         // Never move the cursor backwards: a server that answers with a
         // smaller one would make this device forget what it has already seen.
         if page.cursor.0 > cursor {
@@ -124,6 +135,7 @@ fn pull_all<T: Transport>(
             return Ok(());
         }
     }
+    Ok(())
 }
 
 /// Everything waiting here, in batches. Returns how many records the server

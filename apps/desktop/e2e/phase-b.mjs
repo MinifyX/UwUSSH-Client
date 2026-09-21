@@ -15,7 +15,7 @@ const terminalHas = (text) =>
 await page.send('Page.reload');
 await sleep(1500);
 await page.waitFor(
-  `window.__uwusshDriver && [...document.querySelectorAll('.host-name')].some(e => e.textContent === 'dev-sshd')`,
+  `'__uwusshDriver' in window && [...document.querySelectorAll('.host-name')].some(e => e.textContent === 'dev-sshd')`,
   { what: 'host list after reload' },
 );
 check('hosts survive a reload (they live in SQLite, not the page)', true);

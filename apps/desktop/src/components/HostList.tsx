@@ -26,9 +26,18 @@ type Props = {
   onlineIds: ReadonlySet<string>;
   /** Hosts a tab is connecting to right now. */
   connectingIds: ReadonlySet<string>;
+  /** Hosts with a terminal tab open, live or not. */
+  openIds: ReadonlySet<string>;
+  /** A local shell tab is open. */
+  shellOpen: boolean;
+  /** Brings the host's open tab to the front, or opens one. */
   onConnect: (host: HostRecord) => void;
+  /** Always a new tab, next to the ones already open. */
+  onConnectAnother: (host: HostRecord) => void;
   onOpenFiles: (host: HostRecord) => void;
+  /** Brings the open local shell to the front, or opens one. */
   onLocalShell: () => void;
+  onAnotherShell: () => void;
   onAdd: (workspace: Workspace, group: string | null) => void;
   onEdit: (host: HostRecord) => void;
   onImport: () => void;
@@ -80,7 +89,7 @@ function errorText(error: unknown): string {
 }
 
 export function HostList(props: Props) {
-  const { hosts, groups, activeId, onlineIds, connectingIds } = props;
+  const { hosts, groups, activeId, onlineIds, connectingIds, openIds } = props;
   const settings = useSettings();
   const workspace: Workspace = settings.workspaces ? settings.activeWorkspace : 'private';
   const [query, setQuery] = useState('');
@@ -195,7 +204,26 @@ export function HostList(props: Props) {
       x,
       y,
       items: [
-        { label: t('Verbinden'), icon: 'terminal', onSelect: () => props.onConnect(host) },
+        ...(openIds.has(host.id)
+          ? [
+              {
+                label: t('Zum offenen Tab'),
+                icon: 'terminal' as const,
+                onSelect: () => props.onConnect(host),
+              },
+              {
+                label: t('Weiteren Tab öffnen'),
+                icon: 'plus' as const,
+                onSelect: () => props.onConnectAnother(host),
+              },
+            ]
+          : [
+              {
+                label: t('Verbinden'),
+                icon: 'terminal' as const,
+                onSelect: () => props.onConnect(host),
+              },
+            ]),
         { label: t('Dateien öffnen'), icon: 'files', onSelect: () => props.onOpenFiles(host) },
         { label: t('Bearbeiten'), icon: 'pencil', onSelect: () => props.onEdit(host) },
         'separator',
@@ -220,6 +248,22 @@ export function HostList(props: Props) {
             ]
           : []),
       ],
+    });
+
+  const shellMenu = (x: number, y: number) =>
+    setMenu({
+      x,
+      y,
+      items: props.shellOpen
+        ? [
+            { label: t('Zum offenen Tab'), icon: 'terminal', onSelect: props.onLocalShell },
+            {
+              label: t('Weitere lokale Shell öffnen'),
+              icon: 'plus',
+              onSelect: props.onAnotherShell,
+            },
+          ]
+        : [{ label: t('Lokale Shell öffnen'), icon: 'terminal', onSelect: props.onLocalShell }],
     });
 
   const groupMenu = (x: number, y: number, name: string) =>
@@ -303,11 +347,22 @@ export function HostList(props: Props) {
             hostMenu(event.clientX, event.clientY, host);
           }}
           onKeyDown={(event) => menuKey(event, (x, y) => hostMenu(x, y, host))}
-          title={t('{user}@{address}:{port} · öffnet einen neuen Tab', {
-            user: host.username,
-            address: host.address,
-            port: host.port,
-          })}
+          title={
+            openIds.has(host.id)
+              ? t(
+                  '{user}@{address}:{port} · zeigt den offenen Tab, Rechtsklick für einen weiteren',
+                  {
+                    user: host.username,
+                    address: host.address,
+                    port: host.port,
+                  },
+                )
+              : t('{user}@{address}:{port} · öffnet einen neuen Tab', {
+                  user: host.username,
+                  address: host.address,
+                  port: host.port,
+                })
+          }
         >
           <span className="host-icon">
             <OsIcon os={host.os} size={20} title="" />
@@ -423,6 +478,16 @@ export function HostList(props: Props) {
               className="host"
               aria-current={activeId === 'shell'}
               onClick={props.onLocalShell}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                shellMenu(event.clientX, event.clientY);
+              }}
+              onKeyDown={(event) => menuKey(event, shellMenu)}
+              title={
+                props.shellOpen
+                  ? t('Zeigt die offene lokale Shell, Rechtsklick für eine weitere')
+                  : t('Öffnet eine lokale Shell')
+              }
             >
               <span className="host-icon host-glyph" aria-hidden>
                 <Icon name="terminal" size={17} />

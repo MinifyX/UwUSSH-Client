@@ -8,7 +8,13 @@
 // reinstalled server would, runs phase B, then swaps in a seeded database and a
 // key-authorizing server for phase C (logging in with a key from the vault),
 // then reads phase A's export back into a fresh database and imports a
-// fixture ~/.ssh/config for phase D, and stops everything again.
+// fixture ~/.ssh/config for phase D, then connects two app instances to a
+// real UwUSSH server for phase E (sync), and stops everything again.
+//
+//   node apps/desktop/e2e/run.mjs --only=e   just phase E
+//
+// Phase E needs the server built next to this repository:
+// ../UwUSSH-Server/target/debug/uwussh-server.exe (or UWUSSH_SERVER_EXE).
 //
 // Windows only: it drives WebView2 over the Chrome DevTools Protocol.
 
@@ -37,6 +43,11 @@ const authorizedKeys = join(runDir, 'authorized_key.pub');
 /** What dev_sshd serves over SFTP, and a folder for downloads and the export. */
 const filesDir = join(runDir, 'files');
 const workDir = join(runDir, 'work');
+const only = process.argv.find((arg) => arg.startsWith('--only='))?.slice('--only='.length);
+const serverExe =
+  process.env.UWUSSH_SERVER_EXE ??
+  join(repo, '..', 'UwUSSH-Server', 'target', 'debug', 'uwussh-server.exe');
+const appExe = join(repo, 'target', 'debug', 'uwussh-desktop.exe');
 
 rmSync(runDir, { recursive: true, force: true });
 mkdirSync(runDir, { recursive: true });
@@ -91,10 +102,10 @@ async function startSshd(name, env = {}) {
 }
 
 /** Wait until the app's DevTools endpoint answers with the app's page. */
-async function waitForApp() {
+async function waitForApp(port = 9223) {
   await until(async () => {
     try {
-      const list = await (await fetch('http://127.0.0.1:9223/json/list')).json();
+      const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
       return list.some((target) => target.url.startsWith('http://localhost:1420'));
     } catch {
       return false;
@@ -142,7 +153,69 @@ function phase(script, args) {
   });
 }
 
+/**
+ * Phase E: a UwUSSH server on this machine with its own certificate, and two
+ * app instances — one through `pnpm tauri dev`, one straight from the debug
+ * binary that build left behind, on its own DevTools port and its own
+ * database, against the same dev server page.
+ */
+async function phaseE() {
+  if (!existsSync(serverExe)) {
+    console.log(`\nphase E skipped: no ${serverExe} (build UwUSSH-Server first)`);
+    return false;
+  }
+  const data = join(runDir, 'server');
+  mkdirSync(data, { recursive: true });
+  const serverEnv = {
+    ...process.env,
+    UWUSSH_DATA: data,
+    UWUSSH_LISTEN: '127.0.0.1:18443',
+    UWUSSH_PUBLIC: 'https://127.0.0.1:18443',
+    UWUSSH_UPDATE_CHECK: 'off',
+  };
+  const invite = execSync(`"${serverExe}" invite`, { env: serverEnv, encoding: 'utf8' });
+  const setupCode = invite.match(/uwu1_[A-Za-z0-9_-]+/)?.[0];
+  if (!setupCode) throw new Error(`the server printed no setup code:\n${invite}`);
+  const server = start('uwussh-server', serverExe, [], { env: serverEnv });
+  await until(async () => {
+    try {
+      // Its own certificate: nothing here trusts it, which is the point.
+      return readFileSync(server.log, 'utf8').includes('server ready');
+    } catch {
+      return false;
+    }
+  }, 'the UwUSSH server');
+
+  const sshConfig = join(runDir, 'ssh_config-e');
+  writeFileSync(sshConfig, 'Host dev-sshd\n  HostName 127.0.0.1\n  Port 2222\n  User uwu\n');
+  const first = startApp('app-e1', join(runDir, 'e1.db'), { UWUSSH_SSH_CONFIG: sshConfig });
+  await waitForApp();
+  const second = start('app-e2', appExe, [], {
+    cwd: desktop,
+    env: {
+      ...process.env,
+      UWUSSH_DB: join(runDir, 'e2.db'),
+      WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:
+        '--remote-debugging-port=9224 --remote-debugging-address=127.0.0.1',
+      WEBVIEW2_USER_DATA_FOLDER: join(runDir, 'webview-app-e2'),
+    },
+  });
+  await waitForApp(9224);
+  const passed = await phase('phase-e.mjs', [setupCode, '9223', '9224']);
+  stop(second.child);
+  stop(first.child);
+  stop(server.child);
+  return passed;
+}
+
 try {
+  if (only === 'e') {
+    const ok = await phaseE();
+    console.log(ok ? '\nEND TO END OK' : '\nEND TO END FAILED');
+    for (const child of children) stop(child);
+    spawnSync('taskkill', ['/IM', 'uwussh-desktop.exe', '/T', '/F']);
+    process.exit(ok ? 0 : 1);
+  }
   // Always: cargo only rebuilds what changed, and a stale server tests nothing.
   execSync('cargo build -p uwussh-core --example dev_sshd --example seed_vault_key', {
     cwd: repo,
@@ -214,7 +287,15 @@ try {
     passedD = await phase('phase-d.mjs', [sshd.log]);
   }
 
-  const ok = passedA && passedB && passedC && passedD;
+  let passedE = passedD;
+  if (passedE) {
+    stop(app.child);
+    stop(sshd.child);
+    await waitForNoApp();
+    passedE = await phaseE();
+  }
+
+  const ok = passedA && passedB && passedC && passedD && passedE;
   console.log(ok ? '\nEND TO END OK' : '\nEND TO END FAILED');
   process.exitCode = ok ? 0 : 1;
 } catch (error) {

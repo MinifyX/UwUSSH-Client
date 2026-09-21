@@ -164,6 +164,11 @@ export function App() {
   tabsRef.current = tabs;
   const activeRef = useRef<string | null>(null);
   activeRef.current = activeId;
+  /** When each tab was last in front, so a click on its host can bring back the right one. */
+  const lastShown = useRef(new Map<string, number>());
+  useEffect(() => {
+    if (activeId) lastShown.current.set(activeId, Date.now());
+  }, [activeId]);
   /** The terminal of each tab, outside React. */
   const drivers = useRef(new Map<string, TerminalDriver>());
   /** Tabs with a start in flight, so a double click on "reconnect" starts one. */
@@ -641,7 +646,46 @@ export function App() {
     if (drivers.current.get(id) === driver) drivers.current.delete(id);
   }, []);
 
-  const connect = useCallback((host: HostRecord) => openTab({ kind: 'ssh', host }), [openTab]);
+  /** The open tab of this kind (and host) that was in front last, if there is one. */
+  const recentTab = (match: (tab: Tab) => boolean) =>
+    tabsRef.current
+      .filter(match)
+      .sort((a, b) => (lastShown.current.get(b.id) ?? 0) - (lastShown.current.get(a.id) ?? 0))[0];
+
+  /**
+   * A click in the sidebar: a host that already has a terminal tab gets that
+   * tab brought to the front, one without gets a new one. Another tab to the
+   * same host is in the host's context menu.
+   */
+  const connect = useCallback(
+    (host: HostRecord) => {
+      const open = recentTab((tab) => tab.kind === 'ssh' && tab.host.id === host.id);
+      if (open) {
+        setAppNotice(null);
+        setActiveId(open.id);
+        // A tab whose connection ended or never came up connects again: a
+        // click on the host means "connect me", not "show me the error".
+        if (open.status === 'failed' || open.status === 'ended') restart(open.id);
+        return open.id;
+      }
+      return openTab({ kind: 'ssh', host });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [openTab],
+  );
+  const connectAnother = useCallback(
+    (host: HostRecord) => openTab({ kind: 'ssh', host }),
+    [openTab],
+  );
+  const showShell = useCallback(() => {
+    const open = recentTab((tab) => tab.kind === 'shell');
+    if (open) {
+      setAppNotice(null);
+      setActiveId(open.id);
+      return open.id;
+    }
+    return openTab({ kind: 'shell' });
+  }, [openTab]);
   const openShell = useCallback(() => openTab({ kind: 'shell' }), [openTab]);
   const openFilesTab = useCallback(
     (host: HostRecord) => openTab({ kind: 'files', host }),
@@ -715,8 +759,18 @@ export function App() {
       // of on the first host that needs it.
       const vault = await vaultState().catch(() => null);
       if (!cancelled && vault?.status === 'locked' && !vault.remembered) setStartupVault(true);
-      if (!cancelled && getSettings().openShellOnStart && tabsRef.current.length === 0) {
+      // Nothing opens on its own unless the settings say so: a local shell,
+      // or the chosen hosts, each in its own tab, the first one in front.
+      if (cancelled || tabsRef.current.length > 0) return;
+      const { startup, startupHosts } = getSettings();
+      if (startup === 'shell') {
         openTab({ kind: 'shell' });
+      } else if (startup === 'hosts' && startupHosts.length > 0) {
+        const known = await listHosts().catch(() => [] as HostRecord[]);
+        if (cancelled || tabsRef.current.length > 0) return;
+        const chosen = startupHosts.flatMap((id) => known.filter((host) => host.id === id));
+        const ids = chosen.map((host) => openTab({ kind: 'ssh', host }));
+        if (ids[0]) setActiveId(ids[0]);
       }
     });
     return () => {
@@ -727,6 +781,12 @@ export function App() {
   // The server told what it runs: the host list gets its icon.
   useEffect(() => {
     const stop = listen<HostOsEvent>('host:os', () => void refreshHosts());
+    return () => void stop.then((unlisten) => unlisten());
+  }, [refreshHosts]);
+
+  // Another device changed hosts or groups: the list loads again.
+  useEffect(() => {
+    const stop = listen('sync:changed', () => void refreshHosts());
     return () => void stop.then((unlisten) => unlisten());
   }, [refreshHosts]);
 
@@ -774,6 +834,10 @@ export function App() {
   ).length;
   const liveRef = useRef(0);
   liveRef.current = liveConnections;
+  const openHostIds = useMemo(
+    () => new Set(tabs.flatMap((tab) => (tab.kind === 'ssh' ? [tab.host.id] : []))),
+    [tabs],
+  );
   const onlineIds = useMemo(
     () =>
       new Set(
@@ -926,9 +990,13 @@ export function App() {
             activeId={sidebarActive}
             onlineIds={onlineIds}
             connectingIds={connectingIds}
+            openIds={openHostIds}
+            shellOpen={tabs.some((tab) => tab.kind === 'shell')}
             onConnect={connect}
+            onConnectAnother={connectAnother}
             onOpenFiles={openFilesTab}
-            onLocalShell={openShell}
+            onLocalShell={showShell}
+            onAnotherShell={openShell}
             onAdd={(workspace, group) => setForm({ host: null, workspace, group })}
             onEdit={(host) => setForm({ host })}
             onImport={() => setImporting(true)}

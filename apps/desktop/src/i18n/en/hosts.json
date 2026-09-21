@@ -33,7 +33,6 @@
   "Aus Termius, PuTTY, KiTTY, ssh_config oder einer UwUSSH-Datei importieren": "Import from Termius, PuTTY, KiTTY, ssh_config or a UwUSSH file",
   "Hosts aus dem anderen Bereich hierher ziehen": "Drag hosts here from the other workspace",
   "Aktionen": "Actions",
-
   "Adresse fehlt": "Address is missing",
   "Die Adresse darf keine Leerzeichen enthalten": "The address can't contain spaces",
   "Benutzername fehlt": "Username is missing",
@@ -88,7 +87,6 @@
   "optional, z. B. homelab": "optional, e.g. homelab",
   "Das Passwort wird verschlüsselt im Tresor gespeichert.": "The password is stored encrypted in the vault.",
   "Für diesen Host verwenden": "Use for this host",
-
   "Passphrase": "Passphrase",
   "sudo-Passwort": "sudo password",
   "Der Server hat das Passwort abgelehnt.": "The server rejected the password.",
@@ -116,7 +114,6 @@
   "Bisher vertraut": "Trusted so far",
   "Jetzt präsentiert": "Presented now",
   "Akzeptiere nur, wenn du weißt, dass der Server neu aufgesetzt wurde oder seinen Schlüssel gewechselt hat. Im Zweifel: ablehnen und nachfragen.": "Only accept if you know the server was reinstalled or changed its key. If in doubt: reject and ask.",
-
   "Das Master-Passwort war falsch.": "The master password was wrong.",
   "Hat nicht geklappt: {error}": "That didn't work: {error}",
   "Tresor anlegen": "Create vault",
@@ -132,6 +129,11 @@
   "Wiederholen": "Repeat",
   "Die Passwörter stimmen nicht überein.": "The passwords don't match.",
   "Auf diesem Gerät merken": "Remember on this device",
-  "Windows öffnet den Tresor für dein Benutzerkonto automatisch – du gibst das Master-Passwort hier nicht noch einmal ein.": "Windows opens the vault for your user account automatically – you won't enter the master password here again.",
-  "Es gibt noch keine Wiederherstellung: Vergisst du das Master-Passwort, kommst du auf einem neuen Gerät nicht mehr an die gespeicherten Passwörter.": "There's no recovery yet: if you forget the master password, you can't get to the saved passwords on a new device."
+  "Es gibt noch keine Wiederherstellung: Vergisst du das Master-Passwort, kommst du auf einem neuen Gerät nicht mehr an die gespeicherten Passwörter.": "There's no recovery yet: if you forget the master password, you can't get to the saved passwords on a new device.",
+  "Zum offenen Tab": "Go to the open tab",
+  "Weiteren Tab öffnen": "Open another tab",
+  "{user}@{address}:{port} · zeigt den offenen Tab, Rechtsklick für einen weiteren": "{user}@{address}:{port} · shows the open tab, right-click for another",
+  "Zeigt die offene lokale Shell, Rechtsklick für eine weitere": "Shows the open local shell, right-click for another",
+  "Öffnet eine lokale Shell": "Opens a local shell",
+  "Weitere lokale Shell öffnen": "Open another local shell"
 }

@@ -20,7 +20,7 @@ const page = await connect();
 const shot = (name) => page.screenshot(`${SHOTS}${name}.png`);
 
 await page.waitFor(`document.querySelector('.sidebar')`, { what: 'app shell' });
-await page.waitFor(`window.__uwusshDriver`, { what: 'dev driver hook' });
+await page.waitFor(`'__uwusshDriver' in window`, { what: 'dev driver hook' });
 await sleep(500);
 
 // ── Import the export file ──────────────────────────────────────────────────

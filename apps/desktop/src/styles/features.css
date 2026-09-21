@@ -1140,3 +1140,220 @@ html[data-dragging] * {
     grid-template-columns: 1fr;
   }
 }
+
+/* ── Settings: hosts opened on start ───────────────────── */
+
+.startup-hosts {
+  display: grid;
+  gap: 8px;
+  max-height: 220px;
+  overflow: auto;
+  margin: -4px 0 8px;
+  padding: 10px 12px;
+  border-radius: var(--uwu-radius-control);
+  border: 1px solid var(--uwu-hairline);
+  background: var(--uwu-elevated);
+}
+
+.startup-hosts .check.inline span {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.startup-hosts small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Export: the file password ─────────────────────────── */
+
+.export-password {
+  display: grid;
+  gap: 10px;
+}
+
+.export-password > p {
+  margin: -4px 0 0;
+  min-height: 1.45em;
+}
+
+/* ── Settings: sync ────────────────────────────────────── */
+
+.sync-intro,
+.sync-kit,
+.sync-form {
+  display: grid;
+  gap: 12px;
+}
+
+.sync-scene {
+  width: 150px;
+  justify-self: center;
+  margin: -6px 0 -8px;
+}
+
+.sync-choices {
+  display: grid;
+  gap: 8px;
+}
+
+.sync-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  text-align: left;
+  border-radius: var(--uwu-radius-control);
+  border: 1px solid var(--uwu-hairline);
+  background: var(--uwu-elevated);
+}
+
+.sync-choice:hover {
+  border-color: var(--uwu-pink-solid);
+}
+
+.sync-choice > span {
+  display: grid;
+  gap: 2px;
+}
+
+.sync-choice small {
+  color: var(--uwu-muted);
+  font-size: 12px;
+  line-height: 1.45;
+  font-weight: 400;
+}
+
+.sync-code-input {
+  font: 12px/1.5 var(--uwu-mono);
+  width: 100%;
+  padding: 8px 10px;
+  resize: vertical;
+  border-radius: var(--uwu-radius-control);
+  border: 1px solid var(--uwu-border);
+  background: var(--uwu-canvas);
+  color: var(--uwu-ink);
+  word-break: break-all;
+}
+
+.sync-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sync-kit-card {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+  padding: 14px 16px;
+  border-radius: var(--uwu-radius-card);
+  border: 1px dashed var(--uwu-pink-solid);
+  background: var(--uwu-elevated);
+}
+
+.sync-kit-card dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 12.5px;
+}
+
+.sync-kit-card dt {
+  color: var(--uwu-muted);
+}
+
+.sync-kit-card dd {
+  margin: 0;
+  min-width: 0;
+  word-break: break-all;
+}
+
+.sync-kit-code {
+  font: 600 17px/1.4 var(--uwu-mono);
+  letter-spacing: 0.04em;
+  word-break: break-all;
+  user-select: all;
+}
+
+.sync-fingerprint {
+  font-size: 11.5px;
+  word-break: break-all;
+}
+
+.sync-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: 999px;
+  background: #3fb950;
+  vertical-align: 1px;
+}
+
+.sync-dot[data-state='paused'] {
+  background: var(--uwu-muted);
+}
+
+.sync-dot[data-state='error'] {
+  background: var(--uwu-alarm);
+}
+
+.sync-devices {
+  display: grid;
+  gap: 8px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--uwu-hairline);
+}
+
+.sync-device-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sync-device-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--uwu-radius-control);
+  border: 1px solid var(--uwu-hairline);
+  background: var(--uwu-elevated);
+}
+
+.sync-device-list li[data-revoked] {
+  opacity: 0.55;
+}
+
+.sync-device-text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.sync-device-text b {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sync-device-text small {
+  color: var(--uwu-muted);
+  font-size: 11.5px;
+}
+
+.sync-offer {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: var(--uwu-radius-card);
+  border: 1px solid var(--uwu-hairline);
+  background: var(--uwu-elevated);
+}

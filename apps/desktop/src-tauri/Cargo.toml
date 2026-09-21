@@ -54,3 +54,10 @@ windows-sys = { workspace = true, features = [
   "Win32_System_Memory",
   "Win32_System_Threading",
 ] }
+
+# Where there is no DPAPI: UwUSSH's own seal key in the Keychain or the Secret
+# Service, sealing with the same AEAD the vault uses. See `device.rs`.
+[target.'cfg(not(windows))'.dependencies]
+chacha20poly1305.workspace = true
+keyring = { version = "3", features = ["apple-native", "sync-secret-service", "crypto-rust"] }
+rand.workspace = true

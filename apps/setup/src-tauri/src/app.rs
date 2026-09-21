@@ -2,7 +2,8 @@
 //!
 //! Started plainly it installs (or reinstalls). `--update [--relaunch]
 //! [--wait-pid <pid>]` is how UwUSSH hands over to a downloaded update, and
-//! `--uninstall` comes from Windows' "Installed apps" list.
+//! `--uninstall` comes from Windows' "Installed apps" list. macOS and Linux
+//! have no such list: there the setup, started again, offers to uninstall.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -12,7 +13,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
 
-use crate::install::{self, Installed, Layout, Options, Step, APP_EXE};
+use crate::install::{self, Installed, Layout, Options, Step};
 use crate::system;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -57,6 +58,8 @@ struct Setup {
     mode: Mode,
     /// Where the uninstaller removes UwUSSH from.
     uninstall_dir: Option<PathBuf>,
+    /// Set when the page switched to uninstalling on macOS or Linux.
+    uninstall_dir_override: Mutex<Option<PathBuf>>,
     busy: Mutex<bool>,
 }
 
@@ -74,6 +77,9 @@ struct Info {
     sandbox: bool,
     /// Update mode: start UwUSSH again when done.
     relaunch: bool,
+    /// `windows`, `macos` or `linux`: the page words a few things differently
+    /// and offers a desktop shortcut only where there is such a thing.
+    platform: &'static str,
 }
 
 #[derive(Clone, Serialize)]
@@ -84,11 +90,22 @@ struct ProgressEvent {
 }
 
 fn current_dir(setup: &Setup) -> PathBuf {
+    if let Some(dir) = setup.uninstall_dir_override.lock().unwrap().clone() {
+        return dir;
+    }
     match &setup.mode {
         Mode::Uninstall { .. } => setup.uninstall_dir.clone().unwrap_or_default(),
         _ => PathBuf::from(setup.layout.remembered_options().dir),
     }
 }
+
+const PLATFORM: &str = if cfg!(windows) {
+    "windows"
+} else if cfg!(target_os = "macos") {
+    "macos"
+} else {
+    "linux"
+};
 
 #[tauri::command]
 fn info(setup: State<'_, Setup>) -> Info {
@@ -107,10 +124,13 @@ fn info(setup: State<'_, Setup>) -> Info {
         has_keygen: install::has_keygen(),
         sandbox: setup.layout.sandbox,
         relaunch: matches!(setup.mode, Mode::Update { relaunch: true, .. }),
+        platform: PLATFORM,
     }
 }
 
-/// Lets the user pick a folder; UwUSSH goes into a "UwUSSH" folder inside it.
+/// Lets the user pick a folder. On Windows and Linux UwUSSH goes into a
+/// "UwUSSH" folder inside it; on macOS the apps go straight in, the way they
+/// go into /Applications.
 #[tauri::command]
 async fn pick_folder(app: AppHandle, current: String) -> Option<String> {
     let start = Path::new(&current)
@@ -122,14 +142,8 @@ async fn pick_folder(app: AppHandle, current: String) -> Option<String> {
         .file()
         .set_directory(start)
         .blocking_pick_folder()?;
-    let mut path = picked.into_path().ok()?;
-    if !path
-        .file_name()
-        .is_some_and(|name| name.eq_ignore_ascii_case("UwUSSH"))
-    {
-        path.push("UwUSSH");
-    }
-    Some(path.display().to_string())
+    let path = picked.into_path().ok()?;
+    Some(install::folder_for(path).display().to_string())
 }
 
 #[tauri::command]
@@ -186,7 +200,7 @@ async fn install(app: AppHandle, options: Options) -> Result<(), String> {
         let setup = app.state::<Setup>();
         let _busy = guard(&setup)?;
         if let Mode::Update { wait_pid, .. } = setup.mode {
-            install::check_not_older(
+            crate::versions::check_not_older(
                 setup.layout.installed().and_then(|i| i.version).as_deref(),
                 VERSION,
             )?;
@@ -229,22 +243,37 @@ async fn uninstall(app: AppHandle, keep_data: bool) -> Result<(), String> {
 
 #[tauri::command]
 fn launch_app(setup: State<'_, Setup>) -> Result<(), String> {
-    let app = current_dir(&setup).join(APP_EXE);
-    if setup.layout.sandbox {
-        return Ok(());
+    install::launch(&setup.layout, &current_dir(&setup))
+}
+
+/// macOS and Linux have no "Installed apps" list to start the uninstaller
+/// from, so the setup itself offers it when UwUSSH is there.
+#[tauri::command]
+fn begin_uninstall(setup: State<'_, Setup>) -> Result<(), String> {
+    if cfg!(windows) {
+        return Err("On Windows, UwUSSH is removed from Installed apps.".into());
     }
-    system::spawn_detached(&app, &[])
+    let dir = setup
+        .layout
+        .installed()
+        .map(|installed| PathBuf::from(installed.dir))
+        .ok_or("UwUSSH isn't installed.")?;
+    *setup.uninstall_dir_override.lock().unwrap() = Some(dir);
+    Ok(())
 }
 
 #[tauri::command]
 fn finish(app: AppHandle) {
-    let setup = app.state::<Setup>();
-    if let Mode::Uninstall {
-        from_temp: true, ..
-    } = setup.mode
+    #[cfg(windows)]
     {
-        if let Ok(me) = std::env::current_exe() {
-            system::delete_after_exit(&me);
+        let setup = app.state::<Setup>();
+        if let Mode::Uninstall {
+            from_temp: true, ..
+        } = setup.mode
+        {
+            if let Ok(me) = std::env::current_exe() {
+                system::delete_after_exit(&me);
+            }
         }
     }
     app.exit(0);
@@ -273,6 +302,7 @@ pub fn run() {
 
     // Windows can't delete a running program, so the uninstaller works from a
     // copy in the temp folder that removes itself at the end.
+    #[cfg(windows)]
     if let (
         Mode::Uninstall {
             from_temp: false, ..
@@ -294,6 +324,7 @@ pub fn run() {
         }
     }
 
+    #[cfg(windows)]
     if !system::webview2_installed() {
         let (title, text) = if system_is_german() {
             (
@@ -319,24 +350,27 @@ pub fn run() {
         layout,
         mode,
         uninstall_dir,
+        uninstall_dir_override: Mutex::new(None),
         busy: Mutex::new(false),
     };
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(setup)
         .setup(|app| {
-            // The page's own browser data goes to the temp folder, not next to UwUSSH's.
-            let data = std::env::temp_dir().join("UwUSSH-Setup-WebView");
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("UwUSSH Setup")
-                .inner_size(460.0, 640.0)
-                .resizable(false)
-                .maximizable(false)
-                .decorations(false)
-                .shadow(true)
-                .center()
-                .data_directory(data)
-                .build()?;
+            let window =
+                WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+                    .title("UwUSSH Setup")
+                    .inner_size(460.0, 640.0)
+                    .resizable(false)
+                    .maximizable(false)
+                    .decorations(false)
+                    .shadow(true)
+                    .center();
+            // The page's own browser data goes to the temp folder, not next to
+            // UwUSSH's. WKWebView keeps its data by bundle id and takes no folder.
+            #[cfg(not(target_os = "macos"))]
+            let window = window.data_directory(std::env::temp_dir().join("UwUSSH-Setup-WebView"));
+            window.build()?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -346,12 +380,14 @@ pub fn run() {
             install,
             uninstall,
             launch_app,
+            begin_uninstall,
             finish
         ])
         .run(tauri::generate_context!())
         .expect("error while running UwUSSH Setup");
 }
 
+#[cfg(windows)]
 fn system_is_german() -> bool {
     use winreg::enums::HKEY_CURRENT_USER;
     use winreg::RegKey;

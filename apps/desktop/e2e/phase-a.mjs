@@ -23,7 +23,7 @@ const terminalHas = (text) =>
   `(() => { const t = window.__uwusshDriver?.term.buffer.active; if (!t) return false; for (let i = 0; i < t.length; i++) if (t.getLine(i)?.translateToString().includes(${JSON.stringify(text)})) return true; })()`;
 
 await page.waitFor(`document.querySelector('.sidebar')`, { what: 'app shell' });
-await page.waitFor(`window.__uwusshDriver`, { what: 'dev driver hook' });
+await page.waitFor(`'__uwusshDriver' in window`, { what: 'dev driver hook' });
 await sleep(800);
 check(
   'empty host list shows Nyu and an add button',
@@ -258,12 +258,25 @@ async function terminalFits() {
 const tabCount = () => page.eval(`document.querySelectorAll('.tab').length`);
 const tabsBefore = await tabCount();
 check(
-  'the start-up shell and the SSH connection each have a tab',
-  tabsBefore === 2,
+  'nothing opened on start: the SSH connection is the only tab',
+  tabsBefore === 1,
   `${tabsBefore} tabs`,
 );
 
+// A click on a host with an open tab brings that tab back; another tab to the
+// same host is in the host's context menu.
 await page.click('.host .host-name', 'dev-sshd');
+await sleep(300);
+check('clicking the connected host again opens no second tab', (await tabCount()) === tabsBefore);
+await page.rightClick('.host .host-name', 'dev-sshd');
+await page.waitFor(`document.querySelector('.context-menu')`, { what: 'host menu' });
+check(
+  'the host menu offers another tab',
+  (await page.text('.context-menu [role=menuitem]')).includes('Weiteren Tab öffnen'),
+  await page.text('.context-menu [role=menuitem]'),
+);
+await shot('10a-host-menu');
+await page.click('.context-menu [role=menuitem]', 'Weiteren Tab öffnen');
 await page.waitFor(
   `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Passwort'`,
   {
@@ -271,7 +284,7 @@ await page.waitFor(
     timeout: 15_000,
   },
 );
-check('clicking the host again opens another tab', (await tabCount()) === tabsBefore + 1);
+check('"another tab" opens another tab', (await tabCount()) === tabsBefore + 1);
 check(
   'the second tab to the same host is numbered',
   (await page.text('.tab[data-active="true"] .tab-ordinal')) === '2',
@@ -579,7 +592,7 @@ check(
 );
 
 // ── A stored password: connecting asks nothing ──────────────────────────────
-await page.click('.host .host-name', 'dev-sshd');
+await page.openHost('dev-sshd');
 await page.waitFor(terminalHas('toy shell'), {
   what: 'connected without a prompt',
   timeout: 15_000,
@@ -653,7 +666,7 @@ const order = await page.eval(
 check('dragging a host between hosts reorders the group', order.startsWith('nas,dev-sshd'), order);
 check(
   'a drag does not open a connection',
-  (await tabCount()) >= 1 && (await page.eval(`!document.querySelector('.modal')`)),
+  (await tabCount()) === 0 && (await page.eval(`!document.querySelector('.modal')`)),
 );
 // Into the other workspace.
 await drag('.host', 'nas', '.workspace-switch button', 'Business');
@@ -675,7 +688,7 @@ await page.click('.workspace-switch button', 'Privat');
 await sleep(300);
 
 // ── Files: the server's side, a download and an upload by dragging ─────────
-await page.click('.host .host-name', 'dev-sshd');
+await page.openHost('dev-sshd');
 await page.waitFor(terminalHas('toy shell'), {
   what: 'terminal for the files test',
   timeout: 15_000,

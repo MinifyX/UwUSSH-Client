@@ -209,10 +209,11 @@ pub fn wait_for_device(
         &offer.offer.words,
         &handover,
         deadline,
-    )?;
-    // Done either way: a session left open is a code that still works.
+    );
+    // Done either way — a wrong guess and a timeout included: a session left
+    // open is a code that still works. A retry makes new words.
     let _ = server.close_pairing(&offer.offer.id);
-    Ok(joined)
+    Ok(joined?)
 }
 
 /// Join an account from a code the other device showed.
