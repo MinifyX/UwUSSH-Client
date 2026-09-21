@@ -128,6 +128,15 @@ The point where I can stop using anything else.
   fixed, three of them in the protocol (revoking another device takes the
   master password, the enrolment token travels in a body, pairing sides are
   bound).
+- **0.1.1, the first release without "beta"**, after a security review of
+  client and server: each device publishes a sealed manifest, so a server that
+  serves old versions or holds records back is caught (and synced host keys are
+  not trusted meanwhile); a floor for Argon2 costs a server hands out; adding a
+  device takes the master password; pairing messages sealed per direction;
+  imports only trust host keys for hosts they add; files private to the user
+  on Unix. The server got connection deadlines and caps, a disk cap, a stricter
+  `update.sh` and a token limit. Still open from the review: rotating the vault
+  key when a device is revoked.
 - Still to come: a way to push everything again after the server was restored
   from a backup
 
