@@ -1,23 +1,23 @@
 {
-  "version": "0.1.0-beta.10",
-  "notes": "{\"de\":\"Aufgeräumte Seitenleiste ✧\\n\\n- Bei vielen Hosts rutschten die Einträge ohne Gruppe über die Gruppen darunter, bis alles übereinander lag. Jetzt behält jede Gruppe ihren Platz und die Liste scrollt\",\"en\":\"Tidy sidebar ✧\\n\\n- With many hosts, the ungrouped entries slid over the groups below until everything overlapped. Every group now keeps its place and the list scrolls\"}",
-  "pub_date": "2026-09-21T21:07:25Z",
+  "version": "0.1.1",
+  "notes": "{\"de\":\"Sicherheits-Update ✧ 0.1.1\\n\\nClient und Server wurden gründlich geprüft, alles Gefundene ist behoben. Aktualisiere auch deinen UwUSSH Server auf 0.1.1 – beide gehören zusammen.\\n\\n- Liefert ein Server alte Stände aus oder hält Datensätze zurück, merkt UwUSSH das jetzt und warnt. Host-Schlüssel aus dem Sync gelten so lange nicht als vertraut\\n- „Gerät hinzufügen“ fragt nach dem Master-Passwort\\n- Beim Koppeln wird der Tresor nicht mehr still gemerkt – das entscheidest du beim nächsten Entsperren\\n- Eine Importdatei kann keinem Host mehr vorab einen Schlüssel unterschieben\\n- Unter macOS und Linux sind Datenbank und gespeicherte private Schlüssel nur noch für dich lesbar\\n- Dazu mehrere kleinere Härtungen beim Koppeln, im Sync und beim Deinstallieren\",\"en\":\"Security update ✧ 0.1.1\\n\\nClient and server had a thorough review; everything it found is fixed. Update your UwUSSH Server to 0.1.1 as well – the two belong together.\\n\\n- If a server serves old versions or holds records back, UwUSSH now notices and warns you. Host keys from sync are not trusted until then\\n- “Add a device” asks for the master password\\n- Pairing no longer remembers the vault on its own – you decide the next time you unlock\\n- An import file can no longer slip a host key in for a host\\n- On macOS and Linux the database and saved private keys are readable by you alone\\n- Plus several smaller hardenings in pairing, sync and the uninstaller\"}",
+  "pub_date": "2026-09-21T22:16:23Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzJSVWIxYm1paTBjWGw2cmpvV1VKV0JqREN1SE43Tzd5dUJtc3FCTTJRek1WTUNiaDZLbnRGZ2JIRktOTDVPUmpDaFU0QlNlTk10STNYL1M3YU92MXd3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMDIyNTg2CWZpbGU6VXdVU1NILVNldHVwLTAuMS4wLWJldGEuMTAuZXhlCnJhN1hPTWt1UHlLK3NhS2ZRWUxpcUZJQjdNKzhza3d3dXRLSlVuVkxjNzhBQkRxck8rRFpBUHhzVXhhVXFGMTV2S2NQOXZUMmowK25YT0llbGd6YUFRPT0K",
-      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.0-beta.10/UwUSSH-Setup-0.1.0-beta.10.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6Sldob3lpZlVaTWQvbDhEeC8xUzdrQ1hVa09JVTdiUk13bzJhVDB2ODJQV2s3R3hlaUk5UU1DZ25heCtVbEdXOU12TVRlRjl3cThvNHNYQWVJZW5GOEJwVXdBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMDI2OTc2CWZpbGU6VXdVU1NILVNldHVwLTAuMS4xLmV4ZQpPV3NBV0tXMDhMNVlOT1MybjNQMVRRSnNQaWdEVjcwTlRLenozMHozYTBMZ0crWFBPb09IL2daQUFxM3E2OXMwa1JRUUxydnFCU0pPRno1MFY5LzhDZz09Cg==",
+      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.1/UwUSSH-Setup-0.1.1.exe"
     },
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzdlcDVWbHVtbHpuRysrMWJmaW1aQWRsY05UcitqazUreHZ6TkxCUXZ2UTU5RE5RMU9RYUhKQlBCczdmSytid3RTaWJpZm1IK2FwOG9va1lFeGd2a2c4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMDI0Nzk0CWZpbGU6VXdVU1NILVNldHVwLTAuMS4wLWJldGEuMTAtbWFjb3MtYXJtNjQtdXBkYXRlCllYMm5JSTNwZnVCQmVaWXdwY0lSZzI1bGU4bU1EOTFqYnkvTDRkVUJYQXJIUWdoTVY2UldOdzFVVkEwM1BLbmZweVBQTEMvSmh6RFlpNzNiTXNzekNRPT0K",
-      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.0-beta.10/UwUSSH-Setup-0.1.0-beta.10-macos-arm64-update"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6Sldob3hSTVRrNU9tYTFmQjEzdE4xbzhETlh3WC8vVk5hT0xsd2hKbTV0VVN3dHRHWjRnUEcvYmdZckVCODdIbTZLNllEdHczRUdOelU2dXd1NkNscnBEZWdjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMDI4OTM2CWZpbGU6VXdVU1NILVNldHVwLTAuMS4xLW1hY29zLWFybTY0LXVwZGF0ZQp0blhBcTkzWU83Y3d3MDVyekkxMzE1UkdkM2tvQ1FGNDQybUg4L1VEdEVLalQrSzkxYS9BNjBIa2FkaW1JRFc4ZHFOOElrQ2laS2ltMVhjS2RQNTBEQT09Cg==",
+      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.1/UwUSSH-Setup-0.1.1-macos-arm64-update"
     },
     "darwin-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzI4ZHJyNWZuVHlVSkxRM0g0ZGxjRWNQVmZkSFQ5Q0hGYklIQU5SVG5jOFlmU3k4ZDlYeUJ1ZTZ2VXVaYXc1dDBlbFpBc1N5c2FNT0MxQ0FUYlllWEFJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMDI0Nzk1CWZpbGU6VXdVU1NILVNldHVwLTAuMS4wLWJldGEuMTAtbWFjb3MteDY0LXVwZGF0ZQpnYzZsSEdWTVhUcSs3ZlZHSkZBYVlTOGNsUWFHUHhON1Q4RXVUOURORS9YR3piOVF0U3NyeTZIbXdlY09LQVowRWlUdFlTWTRYM1hYdkJSYnlyQThDdz09Cg==",
-      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.0-beta.10/UwUSSH-Setup-0.1.0-beta.10-macos-x64-update"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzJBbXpCTUZ5T2h6UHpJVThXOGhXMWs5VFZIMStsbTE3bGZKUzd4bmF2K3Uwc09pVmREQ01JS2pSSHBDTEt0d0VwQ2E4MUV2RnJsSUptUlpyektRRmdRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMDI4OTM3CWZpbGU6VXdVU1NILVNldHVwLTAuMS4xLW1hY29zLXg2NC11cGRhdGUKeVZuRDVteHo2SVk0eC9sMlRDeG5xcFJDTVc4eWNrbnJVRXpmYlk5TU9ubzlkekpNZGJKb2c3Y3hZUXRnY0JkTDVIYk9xbWlzVGFxWExLcjdtRGk5RGc9PQo=",
+      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.1/UwUSSH-Setup-0.1.1-macos-x64-update"
     },
     "linux-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6Sldob3hQY2RYdEFFZjN0bzJUSFFubjBvS1pidUtRdVVRQjd5TmhVNXlZNDl6MXAyS05HdnYrbDY4UGxiazI4QzIySXdPaFN2KzYxT21Jb0xva0hsd0oxTndvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMDI0Nzk2CWZpbGU6VXdVU1NILVNldHVwLTAuMS4wLWJldGEuMTAtbGludXgteDY0LkFwcEltYWdlCmwvTFQ2b0VOcDNCMHMyN292ZTBydnMvMFJOWjVpM3MrOXVRYlVERFk3bkh4TlFnMTlJY0pXM2FnelVUQ1BvejFtSDJzbU1OMlc2SVJBOFpUYTY2akJRPT0K",
-      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.0-beta.10/UwUSSH-Setup-0.1.0-beta.10-linux-x64.AppImage"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6Sldoby9QVi81TlJ2Zk9zRmRkSkJDZmZ4bVVxM2FmK0F1amd0c0tkdUg0VUsrTmNvM2xVYWE3bTVkWlIyR2ZLRmNhemY2djlNL29LQ3Z4Wk5zRlllS0I3M0FVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMDI4OTM3CWZpbGU6VXdVU1NILVNldHVwLTAuMS4xLWxpbnV4LXg2NC5BcHBJbWFnZQpkb3hMNjBkUXFMTjRidFpYSGVIZUVFc2JYejJqeDZuZ0pFdkh5U2I5WFRqVExMMU1qamxIbVMzb3I4Uk1FbWJNZnJxOG9JbHhOTGlES1lrb280eENBZz09Cg==",
+      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.1/UwUSSH-Setup-0.1.1-linux-x64.AppImage"
     }
   }
 }
