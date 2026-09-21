@@ -22,7 +22,7 @@ pub use entities::*;
 pub use merge::{resolve, Resolution, Version};
 pub use sync::{
     Accepted, Envelope, PullResponse, PushRequest, PushResponse, SyncCursor, MAX_BATCH,
-    MAX_BLOB_BYTES,
+    MAX_BATCH_BYTES, MAX_BLOB_BYTES,
 };
 
 /// Bumped whenever the wire format changes in a way older peers cannot read.

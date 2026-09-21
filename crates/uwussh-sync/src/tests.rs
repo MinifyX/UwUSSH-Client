@@ -557,6 +557,39 @@ fn a_batch_larger_than_the_protocol_allows_is_refused_by_the_server() {
 }
 
 #[test]
+fn many_large_records_travel_in_several_requests_and_all_arrive() {
+    use uwussh_proto::MAX_BATCH_BYTES;
+    let server = MemoryServer::new();
+    let a = first_device();
+    // Hosts with long passwords: each record is sealed at well over 100 KiB,
+    // so together they are more than one request may carry.
+    let count = MAX_BATCH_BYTES / (100 * 1024) + 10;
+    for index in 0..count {
+        let mut host = draft(&format!("big-{index}"), "10.0.0.1");
+        host.password = PasswordChange::Set {
+            value: SecretText::new("x".repeat(120 * 1024)),
+        };
+        a.save_host(host).unwrap();
+    }
+
+    let (first, _) = a.pending_envelopes(MAX_BATCH).unwrap();
+    let bytes: usize = first.iter().map(|env| env.blob.len()).sum();
+    assert!(first.len() < count, "one request does not take them all");
+    assert!(
+        bytes <= MAX_BATCH_BYTES,
+        "{bytes} sealed bytes in one request"
+    );
+
+    // The server refuses more than that, and the engine never sends it.
+    sync_once(&a, &server).unwrap();
+    assert!(a.pending_envelopes(MAX_BATCH).unwrap().0.is_empty());
+
+    let b = joined_device(&a);
+    sync_once(&b, &server).unwrap();
+    assert_eq!(names(&b).len(), count, "and the other device got every one");
+}
+
+#[test]
 fn a_vault_header_survives_the_trip_through_the_wire_form() {
     let account_key = uwussh_vault::AccountKey::generate();
     let (header, _) = uwussh_vault::create_with(

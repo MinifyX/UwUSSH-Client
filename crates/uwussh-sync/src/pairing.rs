@@ -81,27 +81,39 @@ pub struct ServerPostbox<'a> {
     server: &'a Server,
     id: String,
     side: &'static str,
+    /// For side `b`: the secret this device holds its side with. Side `a`
+    /// signs in instead, and needs none.
+    claim: Option<String>,
 }
 
 impl Server {
     /// The post box for a pairing session. `side` is `"a"` for the device that
     /// opened it and `"b"` for the one joining.
     pub fn postbox(&self, id: &str, side: &'static str) -> ServerPostbox<'_> {
+        use rand::RngCore;
+        let claim = (side == "b").then(|| {
+            let mut secret = [0u8; 32];
+            rand::thread_rng().fill_bytes(&mut secret);
+            crate::http::encode_base64(secret)
+        });
         ServerPostbox {
             server: self,
             id: id.to_string(),
             side,
+            claim,
         }
     }
 }
 
 impl Postbox for ServerPostbox<'_> {
     fn put(&self, message: &[u8]) -> Result<(), TransportError> {
-        self.server.pair_send(&self.id, self.side, message)
+        self.server
+            .pair_send(&self.id, self.side, self.claim.as_deref(), message)
     }
 
     fn take(&self, after: usize, wait: bool) -> Result<Vec<Vec<u8>>, TransportError> {
-        self.server.pair_receive(&self.id, self.side, after, wait)
+        self.server
+            .pair_receive(&self.id, self.side, self.claim.as_deref(), after, wait)
     }
 }
 

@@ -126,6 +126,35 @@ pub struct ChangePassword {
     pub auth_key: String,
 }
 
+/// Shutting a device out.
+///
+/// A device may always take itself out. Taking out **another** one needs the
+/// same proof a password change does: whoever holds a stolen laptop has its
+/// token, and a token alone must not be enough to lock the owner's other
+/// devices out, one after the other.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RevokeDevice {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_auth_key: Option<String>,
+}
+
+/// What a joining device asks for the vault's parameters with. In a body and
+/// not in the address, because addresses end up in the logs of every proxy
+/// in between.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultParamsRequest {
+    pub enrolment: String,
+}
+
+/// The header a joining device claims side `b` of a pairing session with: a
+/// random secret it makes up and sends with every request. The first one to
+/// arrive holds the side, so nobody who merely guessed the session id can
+/// post as the joining device or read in its place. Side `a` is the device
+/// that opened the session, and it proves that with its token.
+pub const PAIR_CLAIM_HEADER: &str = "x-uwussh-pair-claim";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChallengeRequest {

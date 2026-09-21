@@ -94,6 +94,13 @@ pub const MAX_BATCH: usize = 500;
 /// time.
 pub const MAX_BLOB_BYTES: usize = 256 * 1024;
 
+/// The most sealed bytes one request carries, either way: a push the client
+/// sends, and a page of a pull the server answers with. Five hundred records
+/// at the largest size would be 128 MiB in one body — a server on a NAS should
+/// never have to hold that for one request, let alone for several at once.
+/// A batch always holds at least one record, whatever its size.
+pub const MAX_BATCH_BYTES: usize = 8 * 1024 * 1024;
+
 /// Base64 for byte vectors, so envelopes stay readable in a JSON body.
 mod serde_bytes_vec {
     use serde::{Deserialize, Deserializer, Serializer};

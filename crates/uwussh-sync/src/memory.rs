@@ -16,7 +16,8 @@ use parking_lot::Mutex;
 use std::collections::BTreeMap;
 use uuid::Uuid;
 use uwussh_proto::{
-    Accepted, Envelope, PullResponse, PushResponse, SyncCursor, MAX_BATCH, MAX_BLOB_BYTES,
+    Accepted, Envelope, PullResponse, PushResponse, SyncCursor, MAX_BATCH, MAX_BATCH_BYTES,
+    MAX_BLOB_BYTES,
 };
 
 use crate::{Transport, TransportError};
@@ -83,8 +84,21 @@ impl Transport for MemoryServer {
         envelopes.sort_by_key(|env| env.seq.unwrap_or(0));
 
         let limit = limit.min(MAX_BATCH);
-        let has_more = envelopes.len() > limit;
-        envelopes.truncate(limit);
+        // A page ends at the count or at the byte budget, whichever comes
+        // first — and holds one record whatever its size.
+        let mut bytes = 0;
+        let fits = envelopes
+            .iter()
+            .take(limit)
+            .take_while(|env| {
+                bytes += env.blob.len();
+                bytes <= MAX_BATCH_BYTES
+            })
+            .count()
+            .max(1)
+            .min(envelopes.len());
+        let has_more = envelopes.len() > fits;
+        envelopes.truncate(fits);
         let cursor = envelopes
             .last()
             .and_then(|env| env.seq)
@@ -102,6 +116,12 @@ impl Transport for MemoryServer {
             return Err(TransportError::Refused(format!(
                 "{} records in one request, at most {MAX_BATCH} are allowed",
                 envelopes.len()
+            )));
+        }
+        let bytes: usize = envelopes.iter().map(|env| env.blob.len()).sum();
+        if envelopes.len() > 1 && bytes > MAX_BATCH_BYTES {
+            return Err(TransportError::Refused(format!(
+                "{bytes} sealed bytes in one request, at most {MAX_BATCH_BYTES} are allowed"
             )));
         }
         let mut inner = self.inner.lock();

@@ -28,7 +28,8 @@ use uuid::Uuid;
 use uwussh_proto::api::{
     self, Admitted, ChallengeRequest, ChallengeResponse, ChangePassword, CreateAccount,
     DeviceSummary, EnrolDevice, EnrolmentToken, Health, LoginRequest, LoginResponse, PairMessage,
-    PairMessages, PairOpened, WireVault, WireVaultParams,
+    PairMessages, PairOpened, RevokeDevice, VaultParamsRequest, WireVault, WireVaultParams,
+    PAIR_CLAIM_HEADER,
 };
 use uwussh_proto::{
     Envelope, PullResponse, PushRequest, PushResponse, SyncCursor, MAX_BATCH, SCHEMA_VERSION,
@@ -130,11 +131,14 @@ impl Server {
     /// What a joining device needs before it can prove it knows the master
     /// password: the salt, the costs, and whether an account key is wanted.
     pub fn vault_params(&self, enrolment: &str) -> Result<WireVaultParams, TransportError> {
+        let request = VaultParamsRequest {
+            enrolment: enrolment.to_string(),
+        };
         self.send(
             || {
                 self.client
-                    .get(self.url("/v1/vault/params"))
-                    .query(&[("enrolment", enrolment)])
+                    .post(self.url("/v1/vault/params"))
+                    .json(&request)
             },
             false,
         )
@@ -173,11 +177,18 @@ impl Server {
         self.send(|| self.client.get(self.url("/v1/devices")), true)
     }
 
-    pub fn revoke(&self, device: Uuid) -> Result<(), TransportError> {
+    /// Shut a device out. This device itself needs nothing more than its
+    /// token; any other one needs the login key, which comes from the master
+    /// password — so a stolen device cannot lock the others out.
+    pub fn revoke(&self, device: Uuid, login_key: Option<&[u8]>) -> Result<(), TransportError> {
+        let request = RevokeDevice {
+            current_auth_key: login_key.map(encode),
+        };
         self.send_empty(
             || {
                 self.client
-                    .delete(self.url(&format!("/v1/devices/{device}")))
+                    .post(self.url(&format!("/v1/devices/{device}/revoke")))
+                    .json(&request)
             },
             true,
         )
@@ -202,18 +213,31 @@ impl Server {
     }
 
     /// Leave a handshake message for the other side.
-    pub fn pair_send(&self, id: &str, side: &str, message: &[u8]) -> Result<(), TransportError> {
+    ///
+    /// Side `a` is the device that opened the session and signs in as itself;
+    /// side `b` has no account yet and holds its side with `claim`, a secret
+    /// it made up for this session.
+    pub fn pair_send(
+        &self,
+        id: &str,
+        side: &str,
+        claim: Option<&str>,
+        message: &[u8],
+    ) -> Result<(), TransportError> {
         let request = PairMessage {
             side: side.to_string(),
             message: encode(message),
         };
         self.send_empty(
             || {
-                self.client
-                    .post(self.url(&format!("/v1/pair/{id}")))
-                    .json(&request)
+                claimed(
+                    self.client
+                        .post(self.url(&format!("/v1/pair/{id}")))
+                        .json(&request),
+                    claim,
+                )
             },
-            false,
+            side == "a",
         )
     }
 
@@ -224,21 +248,25 @@ impl Server {
         &self,
         id: &str,
         side: &str,
+        claim: Option<&str>,
         after: usize,
         wait: bool,
     ) -> Result<Vec<Vec<u8>>, TransportError> {
         let answer: PairMessages = self.send(
             || {
-                self.client
-                    .get(self.url(&format!("/v1/pair/{id}")))
-                    .query(&[
-                        ("side", side.to_string()),
-                        ("after", after.to_string()),
-                        ("wait", wait.to_string()),
-                    ])
-                    .timeout(WAIT_TIMEOUT)
+                claimed(
+                    self.client
+                        .get(self.url(&format!("/v1/pair/{id}")))
+                        .query(&[
+                            ("side", side.to_string()),
+                            ("after", after.to_string()),
+                            ("wait", wait.to_string()),
+                        ])
+                        .timeout(WAIT_TIMEOUT),
+                    claim,
+                )
             },
-            false,
+            side == "a",
         )?;
         answer
             .messages
@@ -339,6 +367,14 @@ impl Server {
         request
             .send()
             .map_err(|error| TransportError::Unreachable(error.to_string()))
+    }
+}
+
+/// A request with the claim on side `b` of a pairing, when there is one.
+fn claimed(request: RequestBuilder, claim: Option<&str>) -> RequestBuilder {
+    match claim {
+        Some(claim) => request.header(PAIR_CLAIM_HEADER, claim),
+        None => request,
     }
 }
 

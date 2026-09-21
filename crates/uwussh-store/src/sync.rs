@@ -27,7 +27,8 @@ use serde::Serialize;
 use uuid::Uuid;
 use uwussh_proto::{
     resolve, EntityKind, Envelope, Extra, GroupPayload, Hlc, HostPayload, IdentityPayload,
-    KeyPayload, KnownHostPayload, Resolution, SnippetPayload, Version, MAX_BLOB_BYTES,
+    KeyPayload, KnownHostPayload, Resolution, SnippetPayload, Version, MAX_BATCH_BYTES,
+    MAX_BLOB_BYTES,
 };
 use uwussh_vault::{Sealed, UnlockedVault};
 use zeroize::Zeroizing;
@@ -354,8 +355,9 @@ impl Store {
         let vault_id = vault.vault_id();
 
         let mut envelopes = Vec::new();
+        let mut bytes = 0;
         let mut left_out = 0;
-        for kind in SYNCED_KINDS {
+        'kinds: for kind in SYNCED_KINDS {
             if envelopes.len() >= limit {
                 break;
             }
@@ -379,6 +381,11 @@ impl Store {
                     left_out += 1;
                     continue;
                 }
+                // The rest waits for the next request: it is still pending.
+                if !envelopes.is_empty() && bytes + sealed.blob.len() > MAX_BATCH_BYTES {
+                    break 'kinds;
+                }
+                bytes += sealed.blob.len();
                 envelopes.push(Envelope {
                     id: row.id,
                     vault_id,
