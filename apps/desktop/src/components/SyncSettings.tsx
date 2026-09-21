@@ -11,6 +11,7 @@ import {
   syncJoin,
   syncNow,
   syncOffer,
+  syncRecoveryCode,
   syncRevoke,
   syncStatus,
   syncWaitForDevice,
@@ -298,8 +299,16 @@ function ConnectForm({
   );
 }
 
-/** Shown once, right after the account was made. */
-function RecoveryKit({ kit, onDone }: { kit: Connected; onDone: () => void }) {
+/** Shown right after the account was made, and again when asked for. */
+function RecoveryKit({
+  kit,
+  again = false,
+  onDone,
+}: {
+  kit: Connected;
+  again?: boolean;
+  onDone: () => void;
+}) {
   useLanguage();
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -314,11 +323,17 @@ function RecoveryKit({ kit, onDone }: { kit: Connected; onDone: () => void }) {
   return (
     <div className="sync-kit">
       <NyuScene name="keys" className="sync-scene" />
-      <p className="setting-label">{t('Verbunden ✧ Jetzt das Recovery-Kit sichern')}</p>
+      <p className="setting-label">
+        {again ? t('Dein Recovery-Kit') : t('Verbunden ✧ Jetzt das Recovery-Kit sichern')}
+      </p>
       <p className="dialog-lead">
-        {t(
-          'Dein Tresor braucht ab jetzt das Master-Passwort und diesen Code. Deine Geräte merken sich den Code – aber sind alle Geräte weg und der Code auch, sind die Daten weg. UwUSSH zeigt ihn nur dieses eine Mal.',
-        )}
+        {again
+          ? t(
+              'Dein Tresor braucht das Master-Passwort und diesen Code. Deine Geräte merken sich den Code – aber sind alle Geräte weg und der Code auch, sind die Daten weg.',
+            )
+          : t(
+              'Dein Tresor braucht ab jetzt das Master-Passwort und diesen Code. Deine Geräte merken sich den Code – aber sind alle Geräte weg und der Code auch, sind die Daten weg. Später zeigt ihn jedes gekoppelte Gerät unter Sync → Recovery-Kit noch einmal.',
+            )}
       </p>
       <div className="sync-kit-card">
         <code className="sync-kit-code">{kit.recoveryCode}</code>
@@ -346,16 +361,21 @@ function RecoveryKit({ kit, onDone }: { kit: Connected; onDone: () => void }) {
           {copied ? t('Kopiert') : t('Kopieren')}
         </button>
       </div>
-      <label className="check">
-        <input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} />
-        <span>
-          <b>{t('Ich habe den Code sicher aufgeschrieben')}</b>
-          <small>{t('Auf Papier oder im Passwort-Manager – nicht nur auf diesem Rechner.')}</small>
-        </span>
-      </label>
+      {/* Asked for again, the kit was saved once already: no gate. */}
+      {!again && (
+        <label className="check">
+          <input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} />
+          <span>
+            <b>{t('Ich habe den Code sicher aufgeschrieben')}</b>
+            <small>
+              {t('Auf Papier oder im Passwort-Manager – nicht nur auf diesem Rechner.')}
+            </small>
+          </span>
+        </label>
+      )}
       <div className="sync-actions">
         <span className="spacer" />
-        <button className="primary" disabled={!saved} onClick={onDone}>
+        <button className="primary" disabled={!saved && !again} onClick={onDone}>
           {t('Fertig')}
         </button>
       </div>
@@ -532,6 +552,8 @@ function Paired({ status, onChanged }: { status: SyncStatus; onChanged: () => vo
   const [revoked, setRevoked] = useState<string | null>(null);
   const [leaving, setLeaving] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
+  const [askingKit, setAskingKit] = useState(false);
+  const [kit, setKit] = useState<Connected | null>(null);
 
   const loadDevices = useCallback(() => {
     void syncDevices()
@@ -549,6 +571,8 @@ function Paired({ status, onChanged }: { status: SyncStatus; onChanged: () => vo
   const last = status.last;
   const report = last?.report;
   const locked = status.vault !== 'unlocked';
+
+  if (kit) return <RecoveryKit kit={kit} again onDone={() => setKit(null)} />;
 
   let line: ReactNode;
   if (locked) {
@@ -703,6 +727,23 @@ function Paired({ status, onChanged }: { status: SyncStatus; onChanged: () => vo
 
       <div className="setting-row">
         <div className="setting-text">
+          <p className="setting-label">{t('Recovery-Kit')}</p>
+          <p className="setting-description">
+            {t(
+              'Der Code, den dein Tresor neben dem Master-Passwort braucht. Dieses Gerät zeigt ihn nach dem Master-Passwort noch einmal.',
+            )}
+          </p>
+        </div>
+        <div className="setting-control">
+          <button onClick={() => setAskingKit(true)}>
+            <Icon name="key" size={15} />
+            {t('Anzeigen…')}
+          </button>
+        </div>
+      </div>
+
+      <div className="setting-row">
+        <div className="setting-text">
           <p className="setting-label">{t('Trennen')}</p>
           <p className="setting-description">
             {t(
@@ -758,6 +799,22 @@ function Paired({ status, onChanged }: { status: SyncStatus; onChanged: () => vo
             setLeaving(false);
             onChanged();
           }}
+        />
+      )}
+      {askingKit && (
+        <PasswordConfirm
+          title={t('Recovery-Kit anzeigen')}
+          lead={t(
+            'Der Code öffnet zusammen mit dem Master-Passwort deinen Tresor auf jedem Gerät. Zeig ihn niemandem und schreib ihn nur dorthin, wo er sicher ist.',
+          )}
+          action={t('Anzeigen')}
+          tone="normal"
+          run={async (password) => {
+            const shown = await syncRecoveryCode(password);
+            setKit(shown);
+          }}
+          onCancel={() => setAskingKit(false)}
+          onDone={() => setAskingKit(false)}
         />
       )}
       {unlocking && (
@@ -878,6 +935,7 @@ function PasswordConfirm({
   title,
   lead,
   action,
+  tone = 'danger',
   run,
   onCancel,
   onDone,
@@ -885,6 +943,8 @@ function PasswordConfirm({
   title: string;
   lead: string;
   action: string;
+  /** `normal` for a question that changes nothing, only shows something. */
+  tone?: 'danger' | 'normal';
   run: (password: string) => Promise<void>;
   onCancel: () => void;
   onDone: () => void;
@@ -911,7 +971,7 @@ function PasswordConfirm({
   return (
     <Modal
       title={title}
-      tone="warning"
+      tone={tone === 'danger' ? 'warning' : 'default'}
       onCancel={onCancel}
       footer={
         <>
@@ -920,7 +980,7 @@ function PasswordConfirm({
             {t('Abbrechen')}
           </button>
           <button
-            className="danger"
+            className={tone === 'danger' ? 'danger' : 'primary'}
             data-secondary
             disabled={!password || busy}
             onClick={() => void submit()}

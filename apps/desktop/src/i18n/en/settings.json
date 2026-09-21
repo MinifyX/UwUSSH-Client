@@ -174,7 +174,6 @@
   "Deine Hosts und Keys kommen mit – nichts wird neu verschlüsselt.": "Your hosts and keys come along – nothing is encrypted again.",
   "Verbinde…": "Connecting…",
   "Verbunden ✧ Jetzt das Recovery-Kit sichern": "Connected ✧ Now keep the recovery kit safe",
-  "Dein Tresor braucht ab jetzt das Master-Passwort und diesen Code. Deine Geräte merken sich den Code – aber sind alle Geräte weg und der Code auch, sind die Daten weg. UwUSSH zeigt ihn nur dieses eine Mal.": "From now on your vault needs the master password and this code. Your devices remember the code – but if all devices and the code are gone, the data is gone. UwUSSH shows it only this once.",
   "Server": "Server",
   "Ich habe den Code sicher aufgeschrieben": "I've written the code down somewhere safe",
   "Auf Papier oder im Passwort-Manager – nicht nur auf diesem Rechner.": "On paper or in a password manager – not only on this computer.",
@@ -229,5 +228,13 @@
   "Langen Code zum Einfügen kopieren": "Copy the long code for pasting",
   "Warte auf das andere Gerät… noch {m}:{s}": "Waiting for the other device… {m}:{s} left",
   "Einen Moment…": "One moment…",
-  "gerade eben": "just now"
+  "gerade eben": "just now",
+  "Dein Recovery-Kit": "Your recovery kit",
+  "Dein Tresor braucht das Master-Passwort und diesen Code. Deine Geräte merken sich den Code – aber sind alle Geräte weg und der Code auch, sind die Daten weg.": "Your vault needs the master password and this code. Your devices remember the code – but if all devices and the code are gone, the data is gone.",
+  "Dein Tresor braucht ab jetzt das Master-Passwort und diesen Code. Deine Geräte merken sich den Code – aber sind alle Geräte weg und der Code auch, sind die Daten weg. Später zeigt ihn jedes gekoppelte Gerät unter Sync → Recovery-Kit noch einmal.": "From now on your vault needs the master password and this code. Your devices remember the code – but if all devices and the code are gone, the data is gone. Any paired device shows it again later under Sync → Recovery kit.",
+  "Recovery-Kit anzeigen": "Show recovery kit",
+  "Der Code öffnet zusammen mit dem Master-Passwort deinen Tresor auf jedem Gerät. Zeig ihn niemandem und schreib ihn nur dorthin, wo er sicher ist.": "Together with the master password, this code opens your vault on any device. Show it to no one and only write it down somewhere safe.",
+  "Recovery-Kit": "Recovery kit",
+  "Der Code, den dein Tresor neben dem Master-Passwort braucht. Dieses Gerät zeigt ihn nach dem Master-Passwort noch einmal.": "The code your vault needs besides the master password. This device shows it again after the master password.",
+  "Anzeigen…": "Show…"
 }

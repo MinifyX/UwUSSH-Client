@@ -128,24 +128,51 @@ impl Store {
         password: &[u8],
         account_key: Option<&uwussh_vault::AccountKey>,
     ) -> Result<VaultHeader> {
-        let mut conn = self.conn.lock();
+        let header = self.wrap_vault_key(password, account_key)?;
+        self.keep_vault_header(&header)?;
+        Ok(header)
+    }
+
+    /// The header [`Self::rewrap_vault`] would keep, without keeping it.
+    ///
+    /// For a change that only counts once someone else agreed — turning sync
+    /// on is the server taking the header first: until then the vault here has
+    /// to stay as it was, or a refusal leaves it wrapped under an account key
+    /// nobody has.
+    pub fn wrap_vault_key(
+        &self,
+        password: &[u8],
+        account_key: Option<&uwussh_vault::AccountKey>,
+    ) -> Result<VaultHeader> {
+        let conn = self.conn.lock();
         let guard = self.vault.lock();
         let vault = guard.as_ref().ok_or(StoreError::VaultLocked)?;
         let kdf = self
             .load_header_locked(&conn)?
             .map(|header| header.kdf)
             .unwrap_or(KdfParams::RECOMMENDED);
-        let header = vault.rewrap(password, account_key, kdf)?;
+        Ok(vault.rewrap(password, account_key, kdf)?)
+    }
+
+    /// Keep a header made by [`Self::wrap_vault_key`]. It has to wrap the key
+    /// of the vault that is open right now, or it is refused.
+    pub fn keep_vault_header(&self, header: &VaultHeader) -> Result<()> {
+        let mut conn = self.conn.lock();
+        let guard = self.vault.lock();
+        let vault = guard.as_ref().ok_or(StoreError::VaultLocked)?;
+        if vault.vault_id() != header.vault_id {
+            return Err(StoreError::NoVault);
+        }
 
         let tx = conn.transaction()?;
         tx.execute("DELETE FROM vault", [])?;
-        store_header(&tx, &header)?;
+        store_header(&tx, header)?;
         tx.commit()?;
         tracing::info!(
             account_key = header.needs_account_key,
             "the vault key was wrapped again"
         );
-        Ok(header)
+        Ok(())
     }
 
     /// Drop the key from memory. Idempotent.

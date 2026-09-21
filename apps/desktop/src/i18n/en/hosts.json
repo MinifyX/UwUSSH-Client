@@ -135,5 +135,7 @@
   "{user}@{address}:{port} · zeigt den offenen Tab, Rechtsklick für einen weiteren": "{user}@{address}:{port} · shows the open tab, right-click for another",
   "Zeigt die offene lokale Shell, Rechtsklick für eine weitere": "Shows the open local shell, right-click for another",
   "Öffnet eine lokale Shell": "Opens a local shell",
-  "Weitere lokale Shell öffnen": "Open another local shell"
+  "Weitere lokale Shell öffnen": "Open another local shell",
+  "Speichere…": "Saving…",
+  "Ein abgebrochener Sync-Versuch hat deinen Tresor so verschlüsselt, dass das Master-Passwort allein ihn nicht mehr öffnet. Dieses Gerät kommt noch hinein – leg ein neues Master-Passwort fest, dann ist alles wieder wie vorher.": "A sync attempt that failed left your vault encrypted so that the master password alone no longer opens it. This device can still get in – set a new master password and everything is back as it was."
 }

@@ -102,14 +102,15 @@ pub fn create_account(
     protect: impl Fn(&[u8]) -> std::io::Result<Vec<u8>>,
 ) -> Result<(Server, Paired)> {
     let account_key = AccountKey::generate();
-    let header = match store.vault_header()? {
-        // A vault that is already here: same key, new wrapping.
-        Some(_) => store.rewrap_vault(password, Some(&account_key))?,
-        None => {
-            store.create_synced_vault(password, &account_key, KdfParams::RECOMMENDED)?;
-            store.vault_header()?.ok_or(FlowError::VaultLocked)?
-        }
-    };
+    // A device starting fresh gets a vault under the password alone first:
+    // should the server say no, that is a vault like any other.
+    if store.vault_header()?.is_none() {
+        store.create_vault_with(password, KdfParams::RECOMMENDED)?;
+    }
+    // Same key, new wrapping — made here, kept only once the server has it.
+    // Kept before, a refusal left the vault needing an account key that was
+    // thrown away with the error, and the password alone never opened it again.
+    let header = store.wrap_vault_key(password, Some(&account_key))?;
     let login_key = header.login_key(password, Some(&account_key))?;
 
     let (seed, public_key) = device_key();
@@ -133,6 +134,9 @@ pub fn create_account(
         Some(&account_key),
         protect,
     )?;
+    // Last: this device keeps the account key by now, so the vault is never
+    // wrapped under one it does not have.
+    store.keep_vault_header(&header)?;
     Ok((
         server.as_device(admitted.account_id, admitted.device_id, &seed),
         Paired {
@@ -393,6 +397,45 @@ fn remember(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A server that isn't there: nothing listens on port 1.
+    fn nowhere() -> Setup {
+        Setup {
+            server_url: "http://127.0.0.1:1".into(),
+            tls_fingerprint: None,
+            invite: "X".into(),
+        }
+    }
+
+    fn no_os(_: &[u8]) -> std::io::Result<Vec<u8>> {
+        unreachable!("nothing is kept when the server says no")
+    }
+
+    #[test]
+    fn a_server_that_says_no_leaves_the_vault_as_it_was() {
+        let store = Store::open_in_memory().unwrap();
+        store
+            .create_vault_with(b"master", KdfParams::INSECURE_FOR_TESTS)
+            .unwrap();
+
+        assert!(create_account(&store, &nowhere(), b"master", "Desk", no_os).is_err());
+
+        assert!(!store.vault_needs_account_key().unwrap());
+        assert!(!store.sync_state().unwrap().paired());
+        store.lock_vault();
+        store.unlock_vault(b"master").unwrap();
+    }
+
+    #[test]
+    fn a_fresh_device_the_server_turns_away_keeps_a_plain_vault() {
+        let store = Store::open_in_memory().unwrap();
+
+        assert!(create_account(&store, &nowhere(), b"master", "Desk", no_os).is_err());
+
+        assert!(!store.vault_needs_account_key().unwrap());
+        store.lock_vault();
+        store.unlock_vault(b"master").unwrap();
+    }
 
     #[test]
     fn a_setup_code_reads_back_as_what_the_server_printed() {

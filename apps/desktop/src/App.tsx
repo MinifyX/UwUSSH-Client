@@ -759,6 +759,8 @@ export function App() {
       // of on the first host that needs it.
       const vault = await vaultState().catch(() => null);
       if (!cancelled && vault?.status === 'locked' && !vault.remembered) setStartupVault(true);
+      // A vault a refused sync connect left stranded gets its password back now.
+      if (!cancelled && vault?.stranded && vault.remembered) setStartupVault(true);
       // Nothing opens on its own unless the settings say so: a local shell,
       // or the chosen hosts, each in its own tab, the first one in front.
       if (cancelled || tabsRef.current.length > 0) return;

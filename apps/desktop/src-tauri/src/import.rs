@@ -38,6 +38,12 @@ pub(crate) struct VaultState {
     /// and this device has lost the copy it kept: the recovery kit's code has
     /// to be typed with the password.
     needs_recovery_code: bool,
+    /// Needs an account key, but this device isn't paired: a sync connect
+    /// that the server refused left the vault like this in 0.1.0-beta.8 and
+    /// before, with the key thrown away. Nobody has it — only a key this
+    /// device remembered opens the vault, and then a new master password
+    /// sets it free (see [`repair_vault`]).
+    stranded: bool,
 }
 
 #[tauri::command]
@@ -48,7 +54,46 @@ pub(crate) fn vault_state(state: State<'_, AppState>) -> CommandResult<VaultStat
         remembered: state.store.vault_is_remembered().map_err(err)?,
         needs_recovery_code: needs_account_key
             && crate::sync::kept_account_key(&state.store).is_none(),
+        stranded: is_stranded(&state.store).map_err(err)?,
     })
+}
+
+fn is_stranded(store: &Store) -> uwussh_store::Result<bool> {
+    Ok(store.vault_needs_account_key()? && !store.sync_state()?.paired())
+}
+
+/// Free a stranded vault: open it with the key this device remembered and
+/// wrap it again under a new master password alone.
+///
+/// No weaker than before: whoever runs as this user opens a remembered vault
+/// anyway (see `uwussh_store::device`); this only lets them give it a
+/// password again.
+#[tauri::command]
+pub(crate) async fn repair_vault(
+    state: State<'_, AppState>,
+    password: String,
+    remember: bool,
+) -> CommandResult<()> {
+    let password = Zeroizing::new(password);
+    if password.trim().is_empty() {
+        return Err("the master password cannot be empty".into());
+    }
+    with_store(&state, move |store| {
+        if !is_stranded(store).map_err(err)? {
+            return Err("this vault needs no repair".into());
+        }
+        if store.vault_status().map_err(err)? != VaultStatus::Unlocked
+            && !store
+                .unlock_remembered_vault(crate::device::unprotect)
+                .map_err(err)?
+        {
+            return Err("this device no longer keeps the vault's key".into());
+        }
+        store.rewrap_vault(password.as_bytes(), None).map_err(err)?;
+        tracing::info!("a stranded vault has a master password of its own again");
+        set_remembered(store, remember)
+    })
+    .await
 }
 
 /// Keep the vault key for this Windows user (`true`), or stop (`false`).

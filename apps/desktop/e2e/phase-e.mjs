@@ -88,6 +88,27 @@ await a.waitFor(
 );
 check('the first device is paired', (await invoke(a, 'sync_status')).paired);
 
+// The kit again, later: only for the master password.
+const wrongKit = await a.eval(
+  `window.__TAURI_INTERNALS__.invoke('sync_recovery_code', { password: 'nope' }).then(() => null, (e) => e.kind)`,
+);
+check('the kit is not shown again for a wrong password', wrongKit === 'password-wrong', wrongKit);
+await a.click('.setting-row button', 'Anzeigen');
+await a.waitFor(`${top}?.querySelector('input[type=password]')`, { what: 'kit password prompt' });
+await a.eval(`${top}.querySelector('input[type=password]').focus()`);
+await a.type(MASTER);
+await a.click('.modal-footer button', 'Anzeigen');
+await a.waitFor(`document.querySelector('.sync-kit-code')`, { what: 'kit again', timeout: 30_000 });
+check(
+  'a paired device shows the same recovery code again',
+  (await a.text('.sync-kit-code')).trim() === recovery,
+);
+await a.click('.sync-actions button', 'Fertig');
+await a.waitFor(
+  `(document.querySelector('.settings-content')?.textContent ?? '').includes('Verbunden mit')`,
+  { what: 'paired status after the kit' },
+);
+
 // Close settings, import a host through ssh_config.
 await a.click('.settings-close');
 await a.click('.sidebar-head [aria-label="Importieren"]');
@@ -124,7 +145,7 @@ await a.waitFor(`document.querySelector('.sync-offer .sync-kit-code')`, {
 const spoken = (await a.text('.sync-offer .sync-kit-code')).trim();
 check(
   'the pairing code is an id and three words',
-  /^[0-9A-Z]{5}(-[a-z]+){3}$/.test(spoken),
+  /^[0-9A-Z]{5}(-[a-zäöü]+){3}$/u.test(spoken),
   spoken,
 );
 const fingerprint = (await a.text('.sync-offer .sync-fingerprint')).trim();

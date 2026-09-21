@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { t, useLanguage } from '../lib/i18n';
 import { systemName } from '../lib/platform';
-import { createVault, unlockVault, vaultState } from '../lib/session';
+import { createVault, repairVault, unlockVault, vaultState } from '../lib/session';
 import { Modal } from './Modal';
 import { NyuScene } from './nyu/scenes';
 
@@ -20,10 +20,14 @@ type Props = {
  * once-per-device thing (see `uwussh_store::device`). One dialog for every
  * place that needs the vault: app start, a host with a stored password, the
  * host form, an import, keys.
+ *
+ * And one more case: a vault a refused sync connect left needing an account
+ * key nobody has. If this device still opens it on its own, the dialog asks
+ * for a new master password instead (`repair_vault`).
  */
 export function VaultDialog({ reason, cancelLabel = t('Abbrechen'), onDone, onCancel }: Props) {
   useLanguage();
-  const [mode, setMode] = useState<'loading' | 'create' | 'unlock'>('loading');
+  const [mode, setMode] = useState<'loading' | 'create' | 'unlock' | 'repair'>('loading');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [needsCode, setNeedsCode] = useState(false);
@@ -41,7 +45,8 @@ export function VaultDialog({ reason, cancelLabel = t('Abbrechen'), onDone, onCa
   useEffect(() => {
     void vaultState()
       .then((state) => {
-        if (state.status === 'unlocked') onDone();
+        if (state.stranded && state.remembered) setMode('repair');
+        else if (state.status === 'unlocked') onDone();
         else {
           setNeedsCode(state.needsRecoveryCode);
           setMode(state.status === 'absent' ? 'create' : 'unlock');
@@ -51,7 +56,9 @@ export function VaultDialog({ reason, cancelLabel = t('Abbrechen'), onDone, onCa
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const mismatch = mode === 'create' && confirm.length > 0 && password !== confirm;
+  // Both ask for a new password, twice.
+  const fresh = mode === 'create' || mode === 'repair';
+  const mismatch = fresh && confirm.length > 0 && password !== confirm;
   const ready =
     !busy &&
     password.length > 0 &&
@@ -65,6 +72,7 @@ export function VaultDialog({ reason, cancelLabel = t('Abbrechen'), onDone, onCa
     setError(null);
     try {
       if (mode === 'create') await createVault(password, remember);
+      else if (mode === 'repair') await repairVault(password, remember);
       else await unlockVault(password, remember, needsCode ? code : null);
       setPassword('');
       setConfirm('');
@@ -92,9 +100,11 @@ export function VaultDialog({ reason, cancelLabel = t('Abbrechen'), onDone, onCa
       title={
         mode === 'create'
           ? t('Tresor anlegen')
-          : mode === 'unlock'
-            ? t('Tresor entsperren')
-            : t('Tresor')
+          : mode === 'repair'
+            ? t('Neues Master-Passwort')
+            : mode === 'unlock'
+              ? t('Tresor entsperren')
+              : t('Tresor')
       }
       onCancel={onCancel}
       footer={
@@ -107,10 +117,14 @@ export function VaultDialog({ reason, cancelLabel = t('Abbrechen'), onDone, onCa
             {busy
               ? mode === 'create'
                 ? t('Lege an…')
-                : t('Entsperre…')
+                : mode === 'repair'
+                  ? t('Speichere…')
+                  : t('Entsperre…')
               : mode === 'create'
                 ? t('Anlegen')
-                : t('Entsperren')}
+                : mode === 'repair'
+                  ? t('Speichern')
+                  : t('Entsperren')}
           </button>
         </>
       }
@@ -119,12 +133,16 @@ export function VaultDialog({ reason, cancelLabel = t('Abbrechen'), onDone, onCa
       {mode !== 'loading' && (
         <form className="form" onSubmit={submit}>
           <p className="dialog-lead">
-            {reason ??
-              (mode === 'create'
-                ? t(
-                    'Passwörter und Keys liegen verschlüsselt im Tresor. Dafür brauchst du einmal ein Master-Passwort.',
-                  )
-                : t('Passwörter und Keys liegen verschlüsselt im Tresor.'))}
+            {mode === 'repair'
+              ? t(
+                  'Ein abgebrochener Sync-Versuch hat deinen Tresor so verschlüsselt, dass das Master-Passwort allein ihn nicht mehr öffnet. Dieses Gerät kommt noch hinein – leg ein neues Master-Passwort fest, dann ist alles wieder wie vorher.',
+                )
+              : (reason ??
+                (mode === 'create'
+                  ? t(
+                      'Passwörter und Keys liegen verschlüsselt im Tresor. Dafür brauchst du einmal ein Master-Passwort.',
+                    )
+                  : t('Passwörter und Keys liegen verschlüsselt im Tresor.')))}
           </p>
           <label className="field">
             <span>{t('Master-Passwort')}</span>
@@ -132,7 +150,7 @@ export function VaultDialog({ reason, cancelLabel = t('Abbrechen'), onDone, onCa
               ref={passwordRef}
               type="password"
               value={password}
-              autoComplete={mode === 'create' ? 'new-password' : 'current-password'}
+              autoComplete={fresh ? 'new-password' : 'current-password'}
               onChange={(e) => setPassword(e.target.value)}
               aria-invalid={Boolean(error)}
             />
@@ -154,7 +172,7 @@ export function VaultDialog({ reason, cancelLabel = t('Abbrechen'), onDone, onCa
               </em>
             </label>
           )}
-          {mode === 'create' && (
+          {fresh && (
             <label className="field">
               <span>{t('Wiederholen')}</span>
               <input

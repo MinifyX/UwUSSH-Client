@@ -418,7 +418,8 @@ fn keep_remembered(store: &Store, was_remembered: bool) {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Connected {
-    /// The account key as the recovery kit shows it. Given out once, here.
+    /// The account key as the recovery kit shows it: right after the account
+    /// was made, and again on a paired device for its master password.
     recovery_code: String,
     server_url: String,
     tls_fingerprint: Option<String>,
@@ -739,6 +740,35 @@ pub(crate) async fn sync_disconnect(app: AppHandle, password: String) -> SyncRes
         }
         let _ = app.emit("sync:status", ());
         Ok(())
+    })
+    .await
+}
+
+/// The recovery kit again, for a device that kept the account key: the kit
+/// shown when the account was made is easily lost, and every paired device
+/// holds the key anyway. The master password first, so an unattended but
+/// unlocked window does not hand it out.
+#[tauri::command]
+pub(crate) async fn sync_recovery_code(app: AppHandle, password: String) -> SyncResult<Connected> {
+    let password = Zeroizing::new(password);
+    blocking(&app, move |_, store, _| {
+        let state = store.sync_state()?;
+        if !state.paired() {
+            return Err(SyncFailure::error("this device is not paired"));
+        }
+        let header = store
+            .vault_header()?
+            .ok_or_else(|| SyncFailure::error("there is no vault"))?;
+        let account_key = flow::account_key(store, crate::device::unprotect_sync)?
+            .ok_or_else(|| SyncFailure::error("this device kept no account key"))?;
+        header
+            .unlock_with(password.as_bytes(), Some(&account_key))
+            .map_err(|_| SyncFailure::PasswordWrong)?;
+        Ok(Connected {
+            recovery_code: account_key.to_code(),
+            server_url: state.server_url.unwrap_or_default(),
+            tls_fingerprint: state.tls_fingerprint,
+        })
     })
     .await
 }

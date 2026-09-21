@@ -270,7 +270,14 @@ which puts the steps in their order once: **Connect a server** takes the
 setup code the server prints, the master password (checked against the vault
 that is here, or a new one) and a device name, makes the account and shows the
 recovery kit — the account key in its printed form, with the server and its
-fingerprint — exactly once, closable only after "I've written it down".
+fingerprint — closable only after "I've written it down". The vault here is
+wrapped under the account key only once the server has taken the account and
+this device has kept the key: a refusal leaves it as it was. (Up to
+0.1.0-beta.8 it was wrapped first, and a refused connect left a vault needing
+a key nobody had; the vault dialog now offers a device that still opens such a
+vault on its own a new master password.) **Recovery kit** shows the kit again
+on any paired device, for the master password — every one of them keeps the
+key anyway, and a kit seen once is easily lost.
 **Pair with a device** takes the long code another device shows (`uwu2_…`, which
 carries the address and fingerprint) or the short one read out loud plus the
 address; a vault already on this device is opened first, because its secrets

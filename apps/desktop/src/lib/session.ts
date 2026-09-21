@@ -306,6 +306,12 @@ export type VaultState = {
   remembered: boolean;
   /** Synced, and this device lost its copy of the account key: the kit's code is needed. */
   needsRecoveryCode: boolean;
+  /**
+   * Needs an account key although this device isn't paired — a refused sync
+   * connect left it so in 0.1.0-beta.8 and before. With `remembered`, a new
+   * master password frees it (`repairVault`).
+   */
+  stranded: boolean;
 };
 
 export function vaultState(): Promise<VaultState> {
@@ -328,6 +334,11 @@ export function unlockVault(
   recoveryCode: string | null = null,
 ): Promise<void> {
   return invoke('unlock_vault', { password, remember, recoveryCode });
+}
+
+/** A new master password for a stranded vault this device still opens. */
+export function repairVault(password: string, remember: boolean): Promise<void> {
+  return invoke('repair_vault', { password, remember });
 }
 
 export function setVaultRemembered(remember: boolean): Promise<void> {

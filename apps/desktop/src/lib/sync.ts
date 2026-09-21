@@ -4,7 +4,8 @@
  *
  * Every secret the page types — the master password, the codes — goes
  * straight into one command and is not kept. What comes back holds no secret
- * except the recovery code, once, right after the account was made.
+ * except the recovery code: right after the account was made, and when asked
+ * for again with the master password.
  */
 
 import { invoke } from '@tauri-apps/api/core';
@@ -93,6 +94,9 @@ export const syncRevoke = (deviceId: string, password: string) =>
   invoke<void>('sync_revoke', { deviceId, password });
 export const syncNow = () => invoke<void>('sync_now');
 export const syncDisconnect = (password: string) => invoke<void>('sync_disconnect', { password });
+/** The recovery kit again, on a paired device that kept the account key. */
+export const syncRecoveryCode = (password: string) =>
+  invoke<Connected>('sync_recovery_code', { password });
 
 /** A pasted setup code, from `uwussh-server invite`. */
 export const isSetupCode = (text: string) => text.trim().startsWith('uwu1_');
