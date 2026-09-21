@@ -93,6 +93,13 @@ button:has(> .icon):not(.icon-button):not(.host):not(.group-toggle) {
   flex: 1;
 }
 
+/* Once the list is taller than the sidebar, the flex column would squeeze its
+   sections (the ungrouped list has only a 6px floor) and they'd overlap. They
+   keep their height and the column scrolls instead. */
+.host-scroll > * {
+  flex-shrink: 0;
+}
+
 .workspace-switch {
   display: flex;
   padding: 3px;
