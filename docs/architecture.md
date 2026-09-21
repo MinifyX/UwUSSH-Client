@@ -266,7 +266,7 @@ the same duplicate detection as an import.
 | `POST /v1/records`                   | Batch push, each record with its `base_seq`                                 |
 | `GET /v1/events`                     | Server-sent events: "changes from seq N"                                    |
 | `POST /v1/pair`, `/v1/pair/{id}`     | Relay for device pairing (SPAKE2), ten minutes                              |
-| `GET`/`DELETE /v1/devices`           | List and revoke devices                                                     |
+| `GET /v1/devices`, `POST …/revoke`  | List and revoke devices; another one only with the master password         |
 
 The cursor is a monotonic server sequence number, not a timestamp: clocks across
 devices are a bug source. That number is also a record's version — a push

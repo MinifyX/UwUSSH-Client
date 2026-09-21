@@ -112,8 +112,15 @@ The point where I can stop using anything else.
   once, add a device, list and revoke them, say what the last pass did), the
   Tauri commands behind it, and an end-to-end phase with two app instances
   against a real server
-- Still to come on the server: the published image, and a security review of
-  both halves together
+- **The server is ready to release**: `install.sh` sets it up with one
+  question, `update.sh` updates it with a backup first and the old version back
+  if the new one does not come up, and CI runs both on a real Docker before an
+  image is published. Reviewed by someone who had not written it; every finding
+  fixed, three of them in the protocol (revoking another device takes the
+  master password, the enrolment token travels in a body, pairing sides are
+  bound).
+- Still to come: a way to push everything again after the server was restored
+  from a backup
 - Settings → Sync: connect, device list, what happened on the last pass, and
   the honest sentence about rotating keys after revoking a device
 

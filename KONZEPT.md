@@ -258,7 +258,7 @@ deshalb einen leeren Inhalt, statt gar keinen zu haben.
 | `POST /v1/records`                   | Batch-Push, jeder Record mit `base_seq`                       |
 | `GET /v1/events`                     | Server-Sent Events: „neu ab seq N" → Client pullt             |
 | `POST /v1/pair`, `/v1/pair/{id}`     | Relay für die Gerätekopplung (SPAKE2), 10 min                 |
-| `GET`/`DELETE /v1/devices`           | Geräte listen, widerrufen                                     |
+| `GET /v1/devices`, `POST …/revoke`  | Geräte listen, widerrufen (ein anderes nur mit Master-PW)     |
 | `GET /healthz`                       | Ops                                                           |
 
 Der Cursor ist eine **monotone Server-Sequenznummer**, kein Zeitstempel.
@@ -716,10 +716,30 @@ Wörtern bekommt nichts, und in den gespeicherten Records steht nichts Lesbares.
 Der Test hat beim ersten Lauf einen echten Fehler gefunden (ein Header mit
 eigenem SQL, dem ein Feld fehlte).
 
+**Der Server ist release-fertig.** Installiert wird er mit einem Befehl:
+`install.sh` installiert bei Bedarf Docker, fragt nur, wie die Geräte die
+Maschine erreichen, startet den Server und zeigt den Einrichtungscode.
+`update.sh` folgt dem Verfahren von UwUMail-Server — erst sich selbst
+aktualisieren (mit Prüfsumme), dann Backup, neues Image, Healthcheck, und wenn
+der nicht grün wird, zurück zur alten Version. Image für amd64 und arm64,
+distroless, ohne Root und ohne Capabilities; CI fährt Installation, Update und
+Rollback auf echtem Docker durch, bevor ein Image veröffentlicht wird.
+
+Vorher hat ihn jemand geprüft, der ihn nicht geschrieben hat: nichts Kritisches,
+kein Weg in ein fremdes Konto, aber umgehbare Rate-Limits, ein Konto, das den
+Server erschöpfen kann, und ein Widerruf ohne Passwortbeweis — alles behoben
+(`UwUSSH-Server/docs/security-review-2026-09.md`). Drei Fixes haben das
+Protokoll berührt: ein **anderes Gerät widerrufen braucht das Master-Passwort**
+(ein geklauter Laptop sperrt sonst den Besitzer aus), der Enrolment-Token reist
+im Body statt in der URL, und die Seiten einer Kopplung sind gebunden (Seite a
+mit Token, Seite b mit einem selbst gewählten Geheimnis). Pushes und Pull-Seiten
+enden zusätzlich bei 8 MiB.
+
 Als Nächstes: **die Oberfläche** unter Einstellungen → Sync (Server verbinden,
-Recovery-Kit einmal zeigen, Gerät hinzufügen, Geräteliste, Status) samt
-Tauri-Commands und einer E2E-Phase mit zwei App-Instanzen gegen einen echten
-Server. Danach der Rest von **M1** — Splits, Agent-Login, ProxyJump-Ketten (der
+Recovery-Kit einmal zeigen, Gerät hinzufügen, Geräteliste mit Widerruf per
+Master-Passwort, Status) samt Tauri-Commands und einer E2E-Phase mit zwei
+App-Instanzen gegen einen echten Server. Dazu ein „alles neu hochladen" für
+die Zeit nach einem Server-Restore. Danach der Rest von **M1** — Splits, Agent-Login, ProxyJump-Ketten (der
 Import merkt sich den Jump-Host, verknüpft die Kette aber noch nicht). Offen:
 die von PuTTY schon vertrauten Host-Keys (eigenes Registry-Format, braucht
 einen echten Dump zum Verifizieren).
