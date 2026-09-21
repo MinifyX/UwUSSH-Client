@@ -15,13 +15,17 @@ without it. The text appears under "Was ist neu?" in UwUSSH's update hint and on
 1. Set the version in `Cargo.toml` (workspace), the `tauri.conf.json` of `apps/desktop`, `apps/setup` and
    `apps/keygen`, and the `package.json` files.
 2. Add `release-notes/<version>.json`.
-3. Commit, tag `v<version>` and push both.
+3. Commit, tag `v<version>` and push both. The tag starts `.github/workflows/installers.yml`, which
+   checks the workspace on macOS and Linux and builds their setups — unsigned, since CI holds no key.
 4. Run `pnpm release` on Windows, with the tag checked out.
 
-`pnpm release` builds the app, packs it into `UwUSSH-Setup-<version>.exe` (`pnpm build:setup`), signs the
-setup for the updater, checks the signature against the key in `tauri.conf.json`, creates the GitHub
-release and writes the update feeds to the `updates` branch. It waits until both are online and checks
-them.
+`pnpm release` builds the app, packs it into `UwUSSH-Setup-<version>.exe` (`pnpm build:setup`), waits
+for the tag's CI run and downloads the macOS disk images, the macOS update programs, the Linux AppImage
+and the `.deb`, signs every file the updater runs, checks each signature against the key in
+`tauri.conf.json`, creates the GitHub release with all of it and a `SHA256SUMS.txt`, and writes the
+update feeds (Windows, macOS on both architectures, Linux) to the `updates` branch. It waits until
+everything is online and checks it. If CI can't build for some reason, `pnpm release --windows-only`
+publishes Windows alone.
 
 It needs the update signing key, either as `TAURI_SIGNING_PRIVATE_KEY` +
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` or as a folder with `uwussh-update.key` and `PASSWORT.txt` in

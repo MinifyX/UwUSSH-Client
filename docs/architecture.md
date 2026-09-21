@@ -158,6 +158,14 @@ account, not against malware already running as you. That matches the trust
 boundary the app already has — such malware could type into your local shell —
 and it is one checkbox — "remember on this device", ticked by default in the vault dialog, off again in Settings with one click.
 
+macOS and Linux have no DPAPI. There a random key of UwUSSH's own lives in the
+Keychain or the Secret Service (GNOME Keyring, KWallet), made on first use and
+read back once to be sure it was kept, and seals with XChaCha20-Poly1305. Where
+no Secret Service answers, the key falls back to a file only this user can
+read, and the install guide says what that costs. Every seal carries a label
+for its purpose — the remembered vault key, or what a paired device keeps — so
+a blob made for one never opens as the other (see `device.rs`).
+
 ### Secrets per host
 
 A host keeps a password or a vault key of its own. Identities (user, key,
@@ -254,6 +262,36 @@ record is bound to its vault — the vault id is rewritten everywhere, the key
 this device had sealed for itself is dropped, and everything is marked waiting,
 because to the account it is all new. What was already there then goes through
 the same duplicate detection as an import.
+
+### Settings → Sync
+
+The interface is `sync.rs` in the app, a thin layer over `uwussh_sync::flow`,
+which puts the steps in their order once: **Connect a server** takes the
+setup code the server prints, the master password (checked against the vault
+that is here, or a new one) and a device name, makes the account and shows the
+recovery kit — the account key in its printed form, with the server and its
+fingerprint — exactly once, closable only after "I've written it down".
+**Pair with a device** takes the long code another device shows (`uwu2_…`, which
+carries the address and fingerprint) or the short one read out loud plus the
+address; a vault already on this device is opened first, because its secrets
+move into the account's. **Add a device** shows both codes with a ten-minute
+countdown and waits; **Revoke** needs the master password; **Disconnect**
+re-wraps the vault without the account key once the password opened it, so the
+password alone opens it again, and tells the server this device left.
+
+A worker thread, not the terminals' runtime, runs the passes: every five
+seconds it looks whether something waits to be pushed, pulls once a minute, and
+at once when the page asks. It runs only while the vault is open, drops its
+connection after any failure (the next pass connects afresh) and backs off for
+half a minute. A pass that brought changes tells the page, which loads the host
+list again. Unlocking a synced vault takes the account key the device kept; a
+device that lost it asks for the recovery kit's code next to the password.
+
+The transport is careful about a server that lies: addresses are parsed the
+way reqwest parses them (plain HTTP only to a loopback host), redirects are
+not followed, answers are read up to a limit, a pass pulls at most a thousand
+pages, and a failed pairing always closes its session. Phase E of the
+end-to-end run drives two app instances against a real server (see below).
 
 ### The protocol
 
@@ -421,6 +459,15 @@ in `PublicKeyFile`, and the `homelab/prox-1` folder names people fake in
 session names. A missing key is not an error, just nothing to import; the reader
 is tested against a throwaway registry tree written and read back on Windows.
 
+A portable KiTTY keeps the same sessions as files instead (`savemode=dir`): a
+`Sessions` folder next to `kitty.exe`, one file per session, named like the
+registry key and holding `Name\Value\` lines. And people move PuTTY sessions
+between machines as `.reg` exports. **KiTTY / PuTTY sessions from a folder…**
+takes either — the KiTTY folder, its `Sessions` folder, or a folder with
+`.reg` files — through a folder picker; the page never names a path itself.
+`session_files.rs` reads both shapes (UTF-16 or ANSI, sizes and counts capped,
+`Default Settings` left out) into the same mapping as the registry.
+
 These hosts reference their key by file path and type their password, so this
 import carries **no secrets** and needs no vault — unlike Termius. The store
 requires an unlocked vault only when a set actually seals something, so a PuTTY
@@ -585,9 +632,12 @@ paths (a mapped drive is its share, case doesn't matter), and never deeper than
 ## Tabs
 
 Every session has its own tab, and every tab its own xterm.js terminal and
-`TerminalDriver`. Clicking a host always opens a new tab, so several
-connections to the same server run side by side; a small number tells them
-apart. Background tabs stay mounted with `display: none` and keep streaming, so
+`TerminalDriver`. Clicking a host opens a tab — or, when one is open, brings
+the one shown last back to the front (and reconnects it if its connection
+ended). **Open another tab** in the host's context menu starts a second
+connection next to it; a small number tells them apart. The local shell in
+the sidebar works the same way. Nothing opens on start unless Settings →
+Terminal → Open on start names a local shell or hosts. Background tabs stay mounted with `display: none` and keep streaming, so
 switching is instant and nothing scrolls out of view while you look elsewhere;
 the resize observer refits a tab once it shows again.
 
@@ -632,8 +682,8 @@ connections asks first (Settings → Terminal can turn that off).
 
 ## Installer and updates
 
-Windows gets UwUSSH's own setup, the same one UwUMail uses: a small Tauri app in
-`apps/setup` with the release builds of the app and of UwUKeygen packed inside
+Every system gets UwUSSH's own setup, the same one UwUMail uses: a small Tauri
+app in `apps/setup` with Nyu in it. On Windows it is with the release builds of the app and of UwUKeygen packed inside
 (two zstd payloads; UwUKeygen is optional, ticked by default, and remembered for
 updates). It installs
 per user into `%LOCALAPPDATA%\Programs\UwUSSH` without an admin prompt, adds
@@ -657,6 +707,28 @@ update at all when it can't tell which version is installed. While another UwUSS
 running from the same file, nothing hands over, so its connections aren't cut
 off. `pnpm release` builds, signs, verifies and publishes; see
 [release-notes/README.md](../release-notes/README.md).
+
+**macOS and Linux** run the same setup page on `install_unix.rs`. The apps
+arrive as folders — `UwUSSH.app` and `UwUKeygen.app`, or the two AppImages
+unpacked into AppDirs — packed as one tar archive with a 256 MiB zstd window,
+so the second AppDir's copy of WebKitGTK costs almost nothing. The setup
+unpacks only those two folders, entry by entry, next to where they go, and
+swaps each in by moving the old one aside first. macOS gets them in
+`/Applications` (or `~/Applications`), registered with Launch Services; Linux in
+`~/.local/share/uwussh`, with menu entries and an optional desktop icon,
+unpacked so that no FUSE is needed. What went where is kept in `install.json`
+in the setup's config folder; there is no "Installed apps" list, so the setup,
+started again, offers **Uninstall …**. People download a `.dmg` on macOS and
+the setup AppImage on Linux; the updater runs the bare setup program on macOS
+(no quarantine mark, since it never passed a browser) and the same AppImage on
+Linux, with the same two signature checks and the same refusal to go back —
+and only for a copy the setup installed: an app from the `.deb` updates the
+way it came. Bundles are signed ad hoc on macOS, which Apple silicon requires;
+nothing is notarized.
+
+CI (`.github/workflows/installers.yml`) checks the workspace on macOS and
+Linux and builds both macOS architectures and Linux when a tag is pushed. It
+holds no key: `pnpm release` downloads what it built and signs it here.
 
 ## UwUKeygen
 
@@ -747,6 +819,20 @@ the vault key sealed with DPAPI when the vault is remembered on this device (see
   device remembers, dragging hosts between groups and workspaces, a file tab
   downloading and uploading by drag and drop, and an export that a fourth phase
   reads back into a fresh database, wrong password first.
+
+  Phase E (0.1.0-beta.8) is sync, for real: a UwUSSH server from the sibling
+  repository with its own certificate, and two app instances — one through
+  `pnpm tauri dev`, one straight from the debug binary on its own DevTools port
+  and database. The first connects with the setup code, is shown the recovery
+  kit, imports a host and offers a pairing code; the second types the short
+  code with the address and fingerprint and gets the host; a group made on the
+  second reaches the first; the first revokes the second with the master
+  password (a wrong one first), whose next pass is refused; and the revoked
+  device leaves, after which the master password alone opens its vault and its
+  hosts are still there. `run.mjs --only=e` runs just that.
+
+- **macOS and Linux** are checked by CI on every tag and on `ci/**` branches:
+  formatting, clippy and the whole test suite on both, then the setups built.
 
 The end-to-end run earned its place on its first outing. It found four bugs no
 other test could see: the password asked for before a changed host key was

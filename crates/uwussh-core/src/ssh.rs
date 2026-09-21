@@ -829,15 +829,22 @@ mod tests {
 
     #[test]
     fn a_key_on_a_network_share_is_never_opened() {
-        for path in [
-            r"\\attacker\share\id",
-            "//attacker/share/id",
-            r"\\?\UNC\attacker\share\id",
-            r"/\attacker\share\id",
-            r"\??\UNC\attacker\share\id",
-            r"~/\\attacker\share\id",
-            "relative\\id",
-        ] {
+        // Backslashes are separators only on Windows; elsewhere these spell
+        // plain file names, and only the forward-slash share is a network path.
+        let paths: &[&str] = if cfg!(windows) {
+            &[
+                r"\\attacker\share\id",
+                "//attacker/share/id",
+                r"\\?\UNC\attacker\share\id",
+                r"/\attacker\share\id",
+                r"\??\UNC\attacker\share\id",
+                r"~/\\attacker\share\id",
+                "relative\\id",
+            ]
+        } else {
+            &["//attacker/share/id", "relative/id"]
+        };
+        for &path in paths {
             assert!(is_network_path(path), "{path}");
             let err = prepare_credential(&SshAuth::Key {
                 path: path.into(),
@@ -845,7 +852,10 @@ mod tests {
             });
             assert!(matches!(err, Err(SshError::KeyUnreadable { .. })), "{path}");
         }
+        #[cfg(windows)]
         assert!(!is_network_path(r"C:\keys\id"));
+        #[cfg(not(windows))]
+        assert!(!is_network_path("/home/nyu/.ssh/id_ed25519"));
         assert!(!is_network_path("~/.ssh/id_ed25519"));
     }
 

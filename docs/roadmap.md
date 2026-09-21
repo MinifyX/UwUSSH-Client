@@ -38,13 +38,15 @@ The point where I can stop using anything else.
   all); `~/.ssh/config` is read with its `Include` directives followed. All keep
   keys as files and type their passwords, so those imports hold no secrets and
   need no vault. Import is source-agnostic: pick a source, preview it, write it.
+  Since 0.1.0-beta.8 also from a folder: a portable KiTTY's `Sessions`, or
+  `.reg` exports of PuTTY and KiTTY.
 - Still to import: the host keys PuTTY already trusts, whose registry format is
   PuTTY's own and wants a real dump to verify before it is promised. And
   ProxyJump: `ssh_config` records the jump host, but linking the chain is the
   ProxyJump feature below, not the import.
 - **Tabs are done.** Every connection gets its own tab, several to the same
-  server too, each with its own terminal and its own login; closing one leaves
-  the others alone. Keyboard: Ctrl+Shift+T/W/D, Ctrl+Tab, Ctrl+Shift+1…9. See
+  server too (a click shows an open one, the context menu opens another), each
+  with its own terminal and its own login; closing one leaves the others alone. Keyboard: Ctrl+Shift+T/W/D, Ctrl+Tab, Ctrl+Shift+1…9. See
   [architecture](architecture.md#tabs).
 - **Settings are done**: theme and animations, terminal font size, cursor,
   scrollback, copy and paste keys, locking the vault, the update channel.
@@ -108,10 +110,13 @@ The point where I can stop using anything else.
   spoken words over SPAKE2 — with the secret handed over only after the other
   side has proved it derived the same key. The server repository's
   `tests/client.rs` runs both halves against each other.
-- Still to do here: Settings → Sync (connect a server, show the recovery kit
-  once, add a device, list and revoke them, say what the last pass did), the
-  Tauri commands behind it, and an end-to-end phase with two app instances
-  against a real server
+- **Settings → Sync is done** (0.1.0-beta.8): connect a server with its setup
+  code, the recovery kit shown once and closable only when saved, adding a
+  device with a code read out or pasted, the device list with revoking by
+  master password and the honest sentence about what a revoked device still
+  knows, what the last pass did, and leaving again. A worker thread keeps the
+  device in step. An end-to-end phase drives two app instances against a real
+  server. See [architecture](architecture.md#settings--sync).
 - **The server is ready to release**: `install.sh` sets it up with one
   question, `update.sh` updates it with a backup first and the old version back
   if the new one does not come up, and CI runs both on a real Docker before an
@@ -121,8 +126,6 @@ The point where I can stop using anything else.
   bound).
 - Still to come: a way to push everything again after the server was restored
   from a backup
-- Settings → Sync: connect, device list, what happened on the last pass, and
-  the honest sentence about rotating keys after revoking a device
 
 ## M3 · SFTP and tunnels
 
@@ -144,8 +147,11 @@ The point where I can stop using anything else.
   signed automatic updates in a Stable and a Beta channel. Releases and feeds
   live in this repository, so there is no `UwUSSH-Releases`. See
   [architecture](architecture.md#installer-and-updates).
+- **Linux and macOS builds are done** (0.1.0-beta.8): the same setup with Nyu
+  for macOS on Apple silicon and Intel and for Linux, with automatic updates
+  on all three, built by CI and signed where the key is. Plus a `.deb`.
+  Windows and Linux on ARM are still to come.
 - Portable build
-- Linux and macOS builds
 - Onboarding, accessibility pass, the full Nyu scene set
 
 ## M5 · Homelab

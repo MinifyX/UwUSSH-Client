@@ -342,8 +342,25 @@ fn device_name() -> String {
             .map(|name| name.trim().to_string())
             .filter(|name| !name.is_empty())
     };
+    // Apps started from the Dock or a menu get no HOSTNAME. macOS keeps the
+    // name people gave their Mac apart from the network one.
+    let from_command = || {
+        let (program, args): (&str, &[&str]) = if cfg!(target_os = "macos") {
+            ("/usr/sbin/scutil", &["--get", "ComputerName"])
+        } else {
+            ("hostname", &[])
+        };
+        std::process::Command::new(program)
+            .args(args)
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+            .filter(|name| !name.is_empty())
+    };
     from_env
         .or_else(from_file)
+        .or_else(from_command)
         .unwrap_or_else(|| {
             if cfg!(target_os = "macos") {
                 "Mac".into()

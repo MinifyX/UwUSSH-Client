@@ -735,11 +735,26 @@ im Body statt in der URL, und die Seiten einer Kopplung sind gebunden (Seite a
 mit Token, Seite b mit einem selbst gewählten Geheimnis). Pushes und Pull-Seiten
 enden zusätzlich bei 8 MiB.
 
-Als Nächstes: **die Oberfläche** unter Einstellungen → Sync (Server verbinden,
-Recovery-Kit einmal zeigen, Gerät hinzufügen, Geräteliste mit Widerruf per
-Master-Passwort, Status) samt Tauri-Commands und einer E2E-Phase mit zwei
-App-Instanzen gegen einen echten Server. Dazu ein „alles neu hochladen" für
-die Zeit nach einem Server-Restore. Danach der Rest von **M1** — Splits, Agent-Login, ProxyJump-Ketten (der
+~~Die Oberfläche~~ — **steht seit 0.1.0-beta.8**: Einstellungen → Sync verbindet
+den Server mit dem Einrichtungscode, zeigt das Recovery-Kit genau einmal (erst
+schließbar nach „aufgeschrieben“), koppelt Geräte per langem oder gesprochenem
+Code, listet sie mit Widerruf per Master-Passwort samt dem ehrlichen Satz, was
+ein widerrufenes Gerät noch weiß, und trennt wieder (der Tresor braucht danach
+nur noch das Passwort). Ein eigener Thread synchronisiert, solange der Tresor
+offen ist. Die E2E-Phase E fährt zwei App-Instanzen gegen einen echten Server.
+Vorher hat ein unabhängiger Review den Transport gehärtet: Adressen wie reqwest
+parsen (`http://localhost:1@evil` war ein Loch), keine Redirects, Antworten mit
+Obergrenze, endliche Pulls.
+
+Im selben Release kamen **macOS (Apple-Chip und Intel) und Linux** dazu, mit
+demselben Setup samt Nyu: unter macOS nach `/Applications`, unter Linux als
+entpackte AppDirs nach `~/.local/share/uwussh` (kein FUSE nötig), beide mit
+automatischen Updates. Gebaut wird in GitHub Actions, signiert lokal — der
+Update-Schlüssel verlässt den Rechner nie. Dazu: KiTTY-Sitzungen aus Ordnern
+und `.reg`-Exporten, ein Klick auf einen offenen Host zeigt seinen Tab (ein
+weiterer per Rechtsklick), und beim Start öffnet sich nichts mehr von selbst.
+
+Als Nächstes: ein „alles neu hochladen“ für die Zeit nach einem Server-Restore. Danach der Rest von **M1** — Splits, Agent-Login, ProxyJump-Ketten (der
 Import merkt sich den Jump-Host, verknüpft die Kette aber noch nicht). Offen:
 die von PuTTY schon vertrauten Host-Keys (eigenes Registry-Format, braucht
 einen echten Dump zum Verifizieren).
