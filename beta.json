@@ -1,23 +1,27 @@
 {
-  "version": "0.1.1",
-  "notes": "{\"de\":\"Sicherheits-Update ✧ 0.1.1\\n\\nClient und Server wurden gründlich geprüft, alles Gefundene ist behoben. Aktualisiere auch deinen UwUSSH Server auf 0.1.1 – beide gehören zusammen.\\n\\n- Liefert ein Server alte Stände aus oder hält Datensätze zurück, merkt UwUSSH das jetzt und warnt. Host-Schlüssel aus dem Sync gelten so lange nicht als vertraut\\n- „Gerät hinzufügen“ fragt nach dem Master-Passwort\\n- Beim Koppeln wird der Tresor nicht mehr still gemerkt – das entscheidest du beim nächsten Entsperren\\n- Eine Importdatei kann keinem Host mehr vorab einen Schlüssel unterschieben\\n- Unter macOS und Linux sind Datenbank und gespeicherte private Schlüssel nur noch für dich lesbar\\n- Dazu mehrere kleinere Härtungen beim Koppeln, im Sync und beim Deinstallieren\",\"en\":\"Security update ✧ 0.1.1\\n\\nClient and server had a thorough review; everything it found is fixed. Update your UwUSSH Server to 0.1.1 as well – the two belong together.\\n\\n- If a server serves old versions or holds records back, UwUSSH now notices and warns you. Host keys from sync are not trusted until then\\n- “Add a device” asks for the master password\\n- Pairing no longer remembers the vault on its own – you decide the next time you unlock\\n- An import file can no longer slip a host key in for a host\\n- On macOS and Linux the database and saved private keys are readable by you alone\\n- Plus several smaller hardenings in pairing, sync and the uninstaller\"}",
-  "pub_date": "2026-09-21T22:16:23Z",
+  "version": "0.1.2",
+  "notes": "{\"de\":\"UwUSSH 0.1.2 ✧ jetzt auch für Windows auf ARM\\n\\n- Tabs im Hintergrund behalten ihre Größe: Ausgaben, die dort ankamen, wurden bisher wortweise auf ein schmales Fenster umgebrochen\\n- Scrollbalken passen jetzt zum Design, statt weiß daneben zu stehen\\n- Neues Setup für Windows auf ARM (z. B. Snapdragon), mit eigenen automatischen Updates\",\"en\":\"UwUSSH 0.1.2 ✧ now for Windows on ARM too\\n\\n- Tabs in the background keep their size: output that arrived there used to be wrapped word by word to a narrow window\\n- Scrollbars match the design instead of standing out in white\\n- A new setup for Windows on ARM (Snapdragon and the like), with automatic updates of its own\"}",
+  "pub_date": "2026-09-22T07:09:59Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6Sldob3lpZlVaTWQvbDhEeC8xUzdrQ1hVa09JVTdiUk13bzJhVDB2ODJQV2s3R3hlaUk5UU1DZ25heCtVbEdXOU12TVRlRjl3cThvNHNYQWVJZW5GOEJwVXdBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMDI2OTc2CWZpbGU6VXdVU1NILVNldHVwLTAuMS4xLmV4ZQpPV3NBV0tXMDhMNVlOT1MybjNQMVRRSnNQaWdEVjcwTlRLenozMHozYTBMZ0crWFBPb09IL2daQUFxM3E2OXMwa1JRUUxydnFCU0pPRno1MFY5LzhDZz09Cg==",
-      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.1/UwUSSH-Setup-0.1.1.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzY1WVVuYWcwZjlDdUZrTEZUbVdHRXI4WVkrVmFMNlFWck9jam1MSGVwVUtpeEJKMHVNQXlYbXF5ZTk1a0NLNjgvcEI5SHFGL1VoRTRLTWtKQVV0bUF3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMDYwOTI3CWZpbGU6VXdVU1NILVNldHVwLTAuMS4yLmV4ZQpSSTlCZFhtYUxrY0s5R0RCTklWakFsazBKNktLcFZxT0h2S0NCSExVd1VSeit1UHBBZWNwOUhMNXVyMDRLanU4MWViYlJRakg2eFpiZ1RxT2IzbmhCQT09Cg==",
+      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.2/UwUSSH-Setup-0.1.2.exe"
+    },
+    "windows-aarch64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6Sldob3hLL2Y3YVFXaUFBUnVHMk9OT2o4Z3U1WGtwejk2REpodmozejVWQisrVy9zNWxzQmhNTzU3dS9JMVpMNzV3RXllODhNWC9SeEFsNFRNT3RUcDVFNndZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMDYwOTUwCWZpbGU6VXdVU1NILVNldHVwLTAuMS4yLXdpbmRvd3MtYXJtNjQuZXhlCnEvUDNwQlBqak9ybnk2MllMamcxUHJ4RVVmcFZyZlNLY1dOK3p6eEVCUkRMQkVWL1REdHFyaEVlSmhObEs2ZWl3aHRkdmZJcHRvdVBpdkp2ZEZ0M0NnPT0K",
+      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.2/UwUSSH-Setup-0.1.2-windows-arm64.exe"
     },
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6Sldob3hSTVRrNU9tYTFmQjEzdE4xbzhETlh3WC8vVk5hT0xsd2hKbTV0VVN3dHRHWjRnUEcvYmdZckVCODdIbTZLNllEdHczRUdOelU2dXd1NkNscnBEZWdjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMDI4OTM2CWZpbGU6VXdVU1NILVNldHVwLTAuMS4xLW1hY29zLWFybTY0LXVwZGF0ZQp0blhBcTkzWU83Y3d3MDVyekkxMzE1UkdkM2tvQ1FGNDQybUg4L1VEdEVLalQrSzkxYS9BNjBIa2FkaW1JRFc4ZHFOOElrQ2laS2ltMVhjS2RQNTBEQT09Cg==",
-      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.1/UwUSSH-Setup-0.1.1-macos-arm64-update"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6Sldobzc3Y2NLN0J2a09IL1V0TEJPNVpoYkhFSDkraGJaMVIrN2JTckFsY2RCRm5lV0dxclBDbkZmWG5mdXpTdmY0TXh6VXhqRkZqajR6WVY5R3NuRXpjdFE4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMDYwOTUwCWZpbGU6VXdVU1NILVNldHVwLTAuMS4yLW1hY29zLWFybTY0LXVwZGF0ZQphZEJPTE1DZjlqbnBQWDdRTG9HcGc5TkJEK280REFOMnZMMTduRGluK2hiSHMyUC9McTJVaWZxNzBZK09MNEpUQWFuYXdVMG5uM05ZTE5ERDFNUW5DQT09Cg==",
+      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.2/UwUSSH-Setup-0.1.2-macos-arm64-update"
     },
     "darwin-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzJBbXpCTUZ5T2h6UHpJVThXOGhXMWs5VFZIMStsbTE3bGZKUzd4bmF2K3Uwc09pVmREQ01JS2pSSHBDTEt0d0VwQ2E4MUV2RnJsSUptUlpyektRRmdRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMDI4OTM3CWZpbGU6VXdVU1NILVNldHVwLTAuMS4xLW1hY29zLXg2NC11cGRhdGUKeVZuRDVteHo2SVk0eC9sMlRDeG5xcFJDTVc4eWNrbnJVRXpmYlk5TU9ubzlkekpNZGJKb2c3Y3hZUXRnY0JkTDVIYk9xbWlzVGFxWExLcjdtRGk5RGc9PQo=",
-      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.1/UwUSSH-Setup-0.1.1-macos-x64-update"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6Sldob3hOd3VGODN5UW0vczh1N2tLMEtoWGk1SGF2anNYbXdFd2psSEI4bUk0bEZXRjFqNmF5WG1XV3YrUFlwbnRRSUcxRWZyaE84WkZZeHVoNzA1M1lqK2dzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMDYwOTUxCWZpbGU6VXdVU1NILVNldHVwLTAuMS4yLW1hY29zLXg2NC11cGRhdGUKZXdGRWhZbWM4OGhPcTdKSDNadzIzOW9jNDBDZEUxYjFweEJzMllJQnVFOG5TMy92M3pyWSsxUlZ0V0hmWWxiWVYzTEVJMzg4U2E5Y0NTVVliS0V1QUE9PQo=",
+      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.2/UwUSSH-Setup-0.1.2-macos-x64-update"
     },
     "linux-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6Sldoby9QVi81TlJ2Zk9zRmRkSkJDZmZ4bVVxM2FmK0F1amd0c0tkdUg0VUsrTmNvM2xVYWE3bTVkWlIyR2ZLRmNhemY2djlNL29LQ3Z4Wk5zRlllS0I3M0FVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMDI4OTM3CWZpbGU6VXdVU1NILVNldHVwLTAuMS4xLWxpbnV4LXg2NC5BcHBJbWFnZQpkb3hMNjBkUXFMTjRidFpYSGVIZUVFc2JYejJqeDZuZ0pFdkh5U2I5WFRqVExMMU1qamxIbVMzb3I4Uk1FbWJNZnJxOG9JbHhOTGlES1lrb280eENBZz09Cg==",
-      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.1/UwUSSH-Setup-0.1.1-linux-x64.AppImage"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzNEZmZmTGV4L3I5a3dVOG9jdmVWdUt5Q3YramtjYVp3TEFzNXpTNCtOMXEzSjhPY0UxU0lpemNaZ1Z3ZTRBdVdYS1JjNVVIY0U2cnUvaS9SSGRWNFE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMDYwOTUyCWZpbGU6VXdVU1NILVNldHVwLTAuMS4yLWxpbnV4LXg2NC5BcHBJbWFnZQpId2pCK3Rjb3lYc01qM0FacWdlOXJaSFUyN2JySExIZ3MxRHA5M0hDeUJGeTlTUW8wZkNSYmhQMWp5clNwZm9sdkd3ckRRYmQzMnFVZVZwaUlvcm5BUT09Cg==",
+      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.2/UwUSSH-Setup-0.1.2-linux-x64.AppImage"
     }
   }
 }
