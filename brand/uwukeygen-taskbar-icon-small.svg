@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="UwUKeygen: a golden key whose bow is a cat head">
+  <title>UwUKeygen</title>
+  <!--
+    16 and 24 px cut of uwukeygen-taskbar-icon.svg: a bigger head, a wider
+    shaft and bits, thicker outlines, no face or inner ears.
+  -->
+  <g transform="translate(256 256) scale(1.08) translate(-256 -253)"><g stroke-linecap="round" stroke-linejoin="round">
+    <g fill="#FFFFFF" stroke="#FFFFFF" stroke-width="30">
+      <path d="M160 150 L166 58 Q168 40 184 48 L250 96 Z"/>
+      <path d="M352 150 L346 58 Q344 40 328 48 L262 96 Z"/>
+      <rect x="280" y="372" width="76" height="42" rx="12"/>
+      <rect x="280" y="426" width="58" height="38" rx="12"/>
+      <rect x="218" y="290" width="76" height="176" rx="20"/>
+      <circle cx="256" cy="190" r="124"/>
+    </g>
+    <g fill="#FFD66E" stroke="#4B1D3F" stroke-width="26">
+      <rect x="280" y="372" width="76" height="42" rx="12"/>
+      <rect x="280" y="426" width="58" height="38" rx="12"/>
+      <rect x="218" y="290" width="76" height="176" rx="20"/>
+    </g>
+    <g fill="#FF6FA6" stroke="#4B1D3F" stroke-width="26">
+      <path d="M160 150 L166 58 Q168 40 184 48 L250 96 Z"/>
+      <path d="M352 150 L346 58 Q344 40 328 48 L262 96 Z"/>
+    </g>
+    <g fill="#FF6FA6" stroke="#4B1D3F" stroke-width="26"><circle cx="256" cy="190" r="124"/></g>
+    <circle cx="256" cy="212" r="70" fill="#FFB8D3"/>
+  </g></g>
+</svg>

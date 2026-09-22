@@ -6,7 +6,8 @@
 // brand/uwussh-taskbar-icon.svg, upright, on a transparent background. At 16 and 24 px the ICO
 // uses brand/uwussh-taskbar-icon-small.svg instead, with thicker outlines and a smaller screen,
 // which otherwise turn to mush at that size. The macOS icon.icns and the Square*/StoreLogo tiles
-// come from the app icon, brand/uwussh-app-icon.svg, like the website and GitHub.
+// come from the app icon, brand/uwussh-app-icon.svg, like the website and GitHub. UwUKeygen
+// (apps/keygen) gets the same from brand/uwukeygen-*.svg.
 
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -76,16 +77,22 @@ function writeIco(path, entries) {
   writeFileSync(path, Buffer.concat([header, ...sizes.map((size) => entries.get(size))]));
 }
 
-const app = render('uwussh-app-icon.svg');
-const large = render('uwussh-taskbar-icon.svg');
-const small = render('uwussh-taskbar-icon-small.svg');
-try {
-  for (const file of TILE_FILES) copyFileSync(join(app, file), join(icons, file));
-  for (const file of DESKTOP_FILES) copyFileSync(join(large, file), join(icons, file));
-  const ico = readIco(join(large, 'icon.ico'));
-  for (const [size, image] of readIco(join(small, 'icon.ico')))
-    if (SMALL.has(size)) ico.set(size, image);
-  writeIco(join(icons, 'icon.ico'), ico);
-} finally {
-  for (const dir of [app, large, small]) rmSync(dir, { recursive: true, force: true });
+/** Tile icons from the app icon, desktop icons from the taskbar symbol, per app. */
+function build(name, iconDir) {
+  const app = render(`${name}-app-icon.svg`);
+  const large = render(`${name}-taskbar-icon.svg`);
+  const small = render(`${name}-taskbar-icon-small.svg`);
+  try {
+    for (const file of TILE_FILES) copyFileSync(join(app, file), join(iconDir, file));
+    for (const file of DESKTOP_FILES) copyFileSync(join(large, file), join(iconDir, file));
+    const ico = readIco(join(large, 'icon.ico'));
+    for (const [size, image] of readIco(join(small, 'icon.ico')))
+      if (SMALL.has(size)) ico.set(size, image);
+    writeIco(join(iconDir, 'icon.ico'), ico);
+  } finally {
+    for (const dir of [app, large, small]) rmSync(dir, { recursive: true, force: true });
+  }
 }
+
+build('uwussh', icons);
+build('uwukeygen', join(root, 'apps/keygen/src-tauri/icons'));

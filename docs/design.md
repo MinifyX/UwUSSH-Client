@@ -104,10 +104,12 @@ screen is the face: UwU eyes, `w` mouth, blush.
   fixed artwork and stay the same in dark mode; the white edge keeps the
   outlines readable on dark backgrounds.
 - **App icon** (website, GitHub, macOS Dock). Built like UwUMail's: Nyu as a
-  pink terminal window with cat ears, slightly tilted on a pastel tile with two
-  sparkles and a heart. The tile is **lavender** so it isn't mistaken for
-  UwUMail's pink one; the dark screen shows the UwU face and a small `>_`
-  prompt.
+  pink terminal window with cat ears, slightly tilted, the dark screen showing
+  the UwU face and a small `>_` prompt. A big star top left, a small one top
+  right, the heart bottom left.
+- **The tile.** Every UwU app's icon for the website and GitHub sits on
+  UwUMail's pastel pink tile (`#FFF3F8` to `#FFD3E5`), never another colour.
+  Each one gets sparkles and a heart, arranged differently around it.
 - **Taskbar icon.** The dark tile of the first version swallowed the ears and
   the window at 16–24 px. On the Windows taskbar, in the setup and in Linux
   menus Nyu now stands alone: upright, no tile, white die-cut edge, and a
@@ -115,8 +117,13 @@ screen is the face: UwU eyes, `w` mouth, blush.
   terminal; the ears and blush say Nyu (`brand/uwussh-taskbar-icon.svg`). At
   16 and 24 px a simplified cut takes over (`uwussh-taskbar-icon-small.svg`).
   `node scripts/icons.mjs` regenerates all desktop icons from these three.
-- **UwUKeygen's icon** is its sibling: a violet tile with a golden key whose
-  bow is a cat's head (`brand/uwukeygen-app-icon.svg`).
+- **UwUKeygen's icons** are its siblings: a golden key whose bow is Nyu's
+  head with the UwU face, on the same pink tile for the website and GitHub
+  (`brand/uwukeygen-app-icon.svg`, also `apps/keygen/public/icon.svg`), and
+  upright without a tile for the taskbar (`uwukeygen-taskbar-icon.svg`, with
+  a bolder `-small` cut for 16 and 24 px). `scripts/icons.mjs` builds both apps.
+- **The face.** Wherever Nyu has one, it's UwU: two U eyes and a **round `w`**
+  (two soft arcs, never a zigzag).
 - **System icons** (`OsIcon`): one small rounded tile per system — Ubuntu,
   Debian, Fedora, Red Hat, Arch, Alpine, Windows, macOS, Cisco, MikroTik,
   Proxmox, Raspberry Pi, Synology and more, plus a plain Linux and a plain server — each

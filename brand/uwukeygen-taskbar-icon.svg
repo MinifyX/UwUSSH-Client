@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="UwUKeygen: a golden key whose bow is a cat head">
+  <title>UwUKeygen</title>
+  <!--
+    Taskbar and window: Nyu alone, upright, no tile. A key standing on its
+    bits, the bow her head with ears and the UwU face. The white die-cut edge
+    keeps it visible on dark and light taskbars.
+  -->
+  <g transform="translate(256 256) scale(1.08) translate(-256 -253)"><g stroke-linecap="round" stroke-linejoin="round">
+    <g fill="#FFFFFF" stroke="#FFFFFF" stroke-width="40">
+      <path d="M160 150 L166 58 Q168 40 184 48 L250 96 Z"/>
+      <path d="M352 150 L346 58 Q344 40 328 48 L262 96 Z"/>
+      <rect x="262" y="378" width="72" height="34" rx="10"/>
+      <rect x="262" y="428" width="54" height="30" rx="10"/>
+      <rect x="230" y="290" width="52" height="176" rx="18"/>
+      <circle cx="256" cy="196" r="112"/>
+    </g>
+    <g fill="#FFD66E" stroke="#4B1D3F" stroke-width="17">
+      <rect x="262" y="378" width="72" height="34" rx="10"/>
+      <rect x="262" y="428" width="54" height="30" rx="10"/>
+      <rect x="230" y="290" width="52" height="176" rx="18"/>
+    </g>
+    <g fill="#FF6FA6" stroke="#4B1D3F" stroke-width="17">
+      <path d="M160 150 L166 58 Q168 40 184 48 L250 96 Z"/>
+      <path d="M352 150 L346 58 Q344 40 328 48 L262 96 Z"/>
+    </g>
+    <g fill="#FFB8D3">
+      <path d="M180 120 L184 82 Q185 74 192 78 L224 102 Z"/>
+      <path d="M332 120 L328 82 Q327 74 320 78 L288 102 Z"/>
+    </g>
+    <g fill="#FF6FA6" stroke="#4B1D3F" stroke-width="17"><circle cx="256" cy="196" r="112"/></g>
+    <circle cx="256" cy="212" r="80" fill="#FFB8D3"/>
+    <g fill="#FF4D8D" opacity="0.6"><ellipse cx="200" cy="242" rx="14" ry="8"/><ellipse cx="312" cy="242" rx="14" ry="8"/></g>
+    <g fill="none" stroke="#4B1D3F" stroke-width="15">
+      <path d="M210 188 v6 a15 15 0 0 0 30 0 v-6"/>
+      <path d="M272 188 v6 a15 15 0 0 0 30 0 v-6"/>
+      <path d="M232 232 q12 14 24 0 q12 14 24 0"/>
+    </g>
+  </g></g>
+</svg>
