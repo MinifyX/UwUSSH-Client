@@ -1,11 +1,11 @@
 // Publishes the UwUSSH version in tauri.conf.json, for Windows, macOS and
 // Linux, from this PC.
 //
-//   pnpm release                build and sign the Windows setup, fetch and sign
-//                               the macOS and Linux setups CI built for the tag,
-//                               check everything, publish it
+//   pnpm release                build and sign the Windows x64 setup, fetch and
+//                               sign the Windows ARM, macOS and Linux setups CI
+//                               built for the tag, check everything, publish it
 //   pnpm release --no-build     use the Windows setup already in target/installers
-//   pnpm release --windows-only leave macOS and Linux out, when CI can't help
+//   pnpm release --windows-only only Windows x64, when CI can't help
 //
 // Needs a clean tree whose HEAD carries the pushed tag v<version>,
 // release-notes/<version>.json, the GitHub CLI signed in with write access and
@@ -14,7 +14,7 @@
 // (default: Documents\UwUSSH-Update-Schluessel).
 //
 // The key never leaves this machine: CI (.github/workflows/installers.yml)
-// builds the macOS and Linux setups unsigned when the tag is pushed, and this
+// builds the other setups unsigned when the tag is pushed, and this
 // script downloads them and signs the files the updater runs here.
 //
 // Creates the GitHub release with every setup and updates the feeds on the
@@ -62,6 +62,11 @@ const windowsSetup = join(installers, windowsName);
  */
 const PLATFORMS = [
   { artifact: null, file: windowsName, feed: 'windows-x86_64' },
+  {
+    artifact: 'installers-windows-arm64',
+    file: `UwUSSH-Setup-${version}-windows-arm64.exe`,
+    feed: 'windows-aarch64',
+  },
   {
     artifact: 'installers-macos-arm64',
     file: `UwUSSH-Setup-${version}-macos-arm64-update`,
@@ -124,7 +129,7 @@ const work = mkdtempSync(join(tmpdir(), 'uwussh-release-'));
 try {
   const files = new Map([[windowsName, windowsSetup]]);
   if (!windowsOnly) {
-    console.log('\n▸ Fetching the macOS and Linux setups CI built for this tag');
+    console.log('\n▸ Fetching the Windows ARM, macOS and Linux setups CI built for this tag');
     const ci = join(work, 'ci');
     const run = await ciRun(head);
     execFileSync('gh', ['run', 'download', String(run), '--repo', REPOSITORY, '--dir', ci], {
@@ -138,7 +143,7 @@ try {
       copyFileSync(from, to);
       files.set(entry.file, to);
     }
-    console.log('\n▸ Signing what the updater runs on macOS and Linux');
+    console.log('\n▸ Signing what the updater runs on Windows ARM, macOS and Linux');
     for (const entry of PLATFORMS.filter((p) => p.artifact && p.feed)) {
       const file = files.get(entry.file);
       rmSync(`${file}.sig`, { force: true });
@@ -266,11 +271,13 @@ try {
 function releaseBody() {
   const guide = `https://github.com/${REPOSITORY}/blob/main/docs/install.md`;
   const has = (name) => PLATFORMS.some((p) => p.file === name);
+  const armName = `UwUSSH-Setup-${version}-windows-arm64.exe`;
+  const arm = has(armName);
   const de = [
-    `### Windows 10/11 (64 Bit)\n\`${windowsName}\` herunterladen und starten. Warnt Windows („Der Computer wurde durch Windows geschützt“): **Weitere Informationen → Trotzdem ausführen**.`,
+    `### Windows 10/11\n${arm ? `x64 (fast alle PCs): \`${windowsName}\`, ARM (z. B. Snapdragon): \`${armName}\`.` : `\`${windowsName}\`.`} Herunterladen und starten. Warnt Windows („Der Computer wurde durch Windows geschützt“): **Weitere Informationen → Trotzdem ausführen**.`,
   ];
   const en = [
-    `### Windows 10/11 (64-bit)\nDownload \`${windowsName}\` and run it. If Windows warns that it "protected your PC": **More info → Run anyway**.`,
+    `### Windows 10/11\n${arm ? `x64 (almost every PC): \`${windowsName}\`, ARM (Snapdragon and the like): \`${armName}\`.` : `\`${windowsName}\`.`} Download and run it. If Windows warns that it "protected your PC": **More info → Run anyway**.`,
   ];
   if (has(`UwUSSH-Setup-${version}-macos-arm64.dmg`)) {
     de.push(

@@ -137,6 +137,10 @@ The point where I can stop using anything else.
   on Unix. The server got connection deadlines and caps, a disk cap, a stricter
   `update.sh` and a token limit. Still open from the review: rotating the vault
   key when a device is revoked.
+- **0.1.2**: a tab in the background keeps its terminal size (it was fitted to
+  about ten columns while hidden, and the server wrapped its output to that),
+  scrollbars in the app's colours, and a setup for Windows on ARM, built
+  natively in CI and updated through its own feed entry (`windows-aarch64`).
 - Still to come: a way to push everything again after the server was restored
   from a backup
 

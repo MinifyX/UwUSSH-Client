@@ -8,6 +8,7 @@
 // Everything lands in target/installers/:
 //
 //   Windows  UwUSSH-Setup-<v>.exe                    what people run, and what updates run
+//            UwUSSH-Setup-<v>-windows-arm64.exe      the same for ARM
 //   macOS    UwUSSH-Setup-<v>-macos-<arch>.dmg       what people open
 //            UwUSSH-Setup-<v>-macos-<arch>-update    the setup program inside it, for updates
 //   Linux    UwUSSH-Setup-<v>-linux-<arch>.AppImage  what people run, and what updates run
@@ -122,7 +123,13 @@ if (process.platform === 'win32') {
     UWUSSH_SETUP_PAYLOAD: app,
     UWUSSH_SETUP_KEYGEN_PAYLOAD: keygen,
   });
-  const setup = join(out, `UwUSSH-Setup-${version}.exe`);
+  // x64 keeps the name it always had: installed apps look for it.
+  const setup = join(
+    out,
+    arch() === 'arm64'
+      ? `UwUSSH-Setup-${version}-windows-arm64.exe`
+      : `UwUSSH-Setup-${version}.exe`,
+  );
   copyFileSync(join(release, 'uwussh-setup.exe'), setup);
   // Where the Windows release has always looked for it.
   copyFileSync(setup, join(release, `UwUSSH-Setup-${version}.exe`));

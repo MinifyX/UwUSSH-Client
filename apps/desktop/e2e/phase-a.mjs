@@ -308,12 +308,23 @@ await page.waitFor(terminalHas('flood <MiB>'), { what: 'help output in the secon
 await shot('10b-second-tab');
 
 // Back to the first connection: its terminal is its own.
+const secondSize = await page.eval(
+  `(window.__uwusshSecond = window.__uwusshDriver.term, [window.__uwusshSecond.cols, window.__uwusshSecond.rows])`,
+);
 await page.click('.tab .tab-select', 'dev-sshd');
 await sleep(300);
 check(
   'switching tabs shows the other terminal',
   !(await page.text('.tab[data-active="true"] .tab-ordinal')) &&
     !(await page.eval(terminalHas('flood <MiB>'))),
+);
+// Hidden, it has no size to fit to; it once shrank to ten columns there and
+// the server wrapped all its output to that width.
+const hiddenSize = await page.eval(`[window.__uwusshSecond.cols, window.__uwusshSecond.rows]`);
+check(
+  'a tab in the background keeps its size',
+  secondSize[0] > 20 && hiddenSize[0] === secondSize[0] && hiddenSize[1] === secondSize[1],
+  `${secondSize.join('x')} → ${hiddenSize.join('x')}`,
 );
 
 // Closing the second tab leaves the first one working.

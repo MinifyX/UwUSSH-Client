@@ -1,8 +1,8 @@
 name: Installers
 
 # macOS and Linux: the checks Windows gets on Lorin's machine, and the setups
-# `pnpm release` publishes. Windows is built there too, next to the update
-# signing key; nothing here holds that key or any other secret. The files the
+# `pnpm release` publishes, Windows on ARM among them. Windows x64 is built
+# there, next to the update signing key; nothing here holds that key or any other secret. The files the
 # updater runs are signed by `pnpm release` after it downloads them from here.
 
 on:
@@ -89,6 +89,11 @@ jobs:
           - name: linux-x64
             os: ubuntu-22.04
             target: ''
+          # Natively on ARM: ring's assembly wants clang for this target, which
+          # the ARM runner brings, and nothing has to be cross-linked.
+          - name: windows-arm64
+            os: windows-11-arm
+            target: aarch64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -134,9 +139,10 @@ jobs:
 
       # The setup unpacks what it carries into a scratch folder and checks both
       # apps arrived startable — the part of an install no window is needed
-      # for. The Intel build can't run on this Apple silicon runner.
+      # for. The Intel build can't run on this Apple silicon runner; the
+      # Windows setup has no such mode and is checked by what it was built from.
       - name: Check what the setup carries
-        if: matrix.name != 'macos-x64'
+        if: matrix.name != 'macos-x64' && runner.os != 'Windows'
         shell: bash
         run: |
           set -e

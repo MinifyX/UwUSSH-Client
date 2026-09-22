@@ -2,19 +2,20 @@
 
 [Deutsch weiter unten](#uwussh-installieren)
 
-UwUSSH is in beta. It runs on **Windows 10 and 11 (64-bit)**, **macOS 11 or
-newer** (Apple silicon and Intel) and **Linux** (x86_64). The setup installs for
+UwUSSH runs on **Windows 10 and 11** (x64 and ARM), **macOS 11 or newer**
+(Apple silicon and Intel) and **Linux** (x86_64). The setup installs for
 your user only — no admin rights. UwUSSH speaks English or German, following
 the system; **Settings → Appearance → Language** switches.
 
 Every system gets the same setup with Nyu in it. Download it from the
 [releases](https://github.com/MinifyX/UwUSSH-Client/releases): take the newest
-one at the top. Right now every version is a beta, so it is marked
-**Pre-release** — that's expected.
+one at the top. Betas are marked **Pre-release**; the newest version without
+that mark is the stable one.
 
 | System                   | File under **Assets**                        |
 | ------------------------ | -------------------------------------------- |
 | Windows 10/11            | `UwUSSH-Setup-<version>.exe`                 |
+| Windows 11 on ARM        | `UwUSSH-Setup-<version>-windows-arm64.exe`   |
 | macOS, Apple silicon (M) | `UwUSSH-Setup-<version>-macos-arm64.dmg`     |
 | macOS, Intel             | `UwUSSH-Setup-<version>-macos-x64.dmg`       |
 | Linux, x86_64            | `UwUSSH-Setup-<version>-linux-x64.AppImage`  |
@@ -112,7 +113,7 @@ only your user can read, which protects less against someone with your disk.
 UwUSSH updates itself: about 20 seconds after it starts, and every six hours,
 it looks for a newer version, downloads it quietly (signed and checked) and
 offers a restart. **Settings → Updates** switches between the Beta and Stable
-channels. As long as there are only betas, stay on Beta.
+channels. Stable only gets versions without a beta mark.
 
 A newer setup can also simply be run over an installed UwUSSH. Hosts, the vault
 and settings stay.
@@ -141,7 +142,8 @@ other computer reads back in.
 - **macOS says the app is damaged**: that happens when the quarantine mark
   survives on the installed app, which the setup avoids. Running
   `xattr -dr com.apple.quarantine /Applications/UwUSSH.app` clears it.
-- **Windows on ARM and Linux on ARM** haven't been built yet.
+- **Linux on ARM** hasn't been built yet. Windows on ARM has its own setup
+  (`…-windows-arm64.exe`); the x64 one runs there too, emulated and slower.
 - Something else? [Open an issue](https://github.com/MinifyX/UwUSSH-Client/issues)
   — no promises on how fast, see the README.
 
@@ -151,20 +153,21 @@ Building it yourself instead: [Development](../README.md#development).
 
 # UwUSSH installieren
 
-UwUSSH ist in der Beta. Es läuft unter **Windows 10 und 11 (64 Bit)**, **macOS
-11 oder neuer** (Apple-Chip und Intel) und **Linux** (x86_64). Das Setup
+UwUSSH läuft unter **Windows 10 und 11** (x64 und ARM), **macOS 11 oder
+neuer** (Apple-Chip und Intel) und **Linux** (x86_64). Das Setup
 installiert nur für deinen Benutzer — ohne Adminrechte. UwUSSH spricht Deutsch
 oder Englisch, je nach System; **Einstellungen → Darstellung → Sprache**
 schaltet um.
 
 Jedes System bekommt dasselbe Setup mit Nyu. Lade es von den
 [Releases](https://github.com/MinifyX/UwUSSH-Client/releases) herunter: das
-neueste ganz oben. Im Moment ist jede Version eine Beta und deshalb als
-**Pre-release** markiert — das ist so gewollt.
+neueste ganz oben. Betas sind als **Pre-release** markiert; die neueste
+Version ohne diese Markierung ist die stabile.
 
 | System                | Datei unter **Assets**                         |
 | --------------------- | ---------------------------------------------- |
 | Windows 10/11         | `UwUSSH-Setup-<Version>.exe`                   |
+| Windows 11 auf ARM    | `UwUSSH-Setup-<Version>-windows-arm64.exe`     |
 | macOS, Apple-Chip (M) | `UwUSSH-Setup-<Version>-macos-arm64.dmg`       |
 | macOS, Intel          | `UwUSSH-Setup-<Version>-macos-x64.dmg`         |
 | Linux, x86_64         | `UwUSSH-Setup-<Version>-linux-x64.AppImage`    |
@@ -267,8 +270,8 @@ gegen jemanden mit deiner Festplatte.
 UwUSSH aktualisiert sich selbst: etwa 20 Sekunden nach dem Start und danach
 alle sechs Stunden sucht es nach einer neuen Version, lädt sie still herunter
 (signiert und geprüft) und bietet einen Neustart an. **Einstellungen → Updates**
-wechselt zwischen den Kanälen Beta und Stabil. Solange es nur Betas gibt, bleib
-auf Beta.
+wechselt zwischen den Kanälen Beta und Stabil. Stabil bekommt nur Versionen
+ohne Beta-Markierung.
 
 Ein neueres Setup kann auch einfach über ein installiertes UwUSSH laufen. Hosts,
 Tresor und Einstellungen bleiben.
@@ -299,6 +302,8 @@ anderen Rechner wieder einliest.
   Quarantäne-Markierung an der installierten App hängen bleibt, was das Setup
   vermeidet. `xattr -dr com.apple.quarantine /Applications/UwUSSH.app` entfernt
   sie.
-- **Windows und Linux auf ARM** sind noch nicht gebaut.
+- **Linux auf ARM** ist noch nicht gebaut. Windows auf ARM hat ein eigenes
+  Setup (`…-windows-arm64.exe`); das x64-Setup läuft dort auch, emuliert und
+  langsamer.
 - Etwas anderes? [Issue aufmachen](https://github.com/MinifyX/UwUSSH-Client/issues)
   — ohne Versprechen, wie schnell, siehe README.

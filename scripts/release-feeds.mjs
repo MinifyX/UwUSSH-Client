@@ -15,8 +15,8 @@ export const downloadUrl = (version, name) =>
 /**
  * Feed file name → content.
  *
- * `setups` maps a Tauri platform key (`windows-x86_64`, `darwin-aarch64`,
- * `darwin-x86_64`, `linux-x86_64`) to `{ name, signature }`.
+ * `setups` maps a Tauri platform key (`windows-x86_64`, `windows-aarch64`,
+ * `darwin-aarch64`, `darwin-x86_64`, `linux-x86_64`) to `{ name, signature }`.
  */
 export function releaseFeeds({ version, notes, setups, date = new Date() }) {
   const channels = version.includes('-') ? ['beta'] : ['stable', 'beta'];

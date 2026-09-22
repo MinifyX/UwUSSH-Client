@@ -1,0 +1,4 @@
+{
+  "de": "UwUSSH 0.1.2 ✧ jetzt auch für Windows auf ARM\n\n- Tabs im Hintergrund behalten ihre Größe: Ausgaben, die dort ankamen, wurden bisher wortweise auf ein schmales Fenster umgebrochen\n- Scrollbalken passen jetzt zum Design, statt weiß daneben zu stehen\n- Neues Setup für Windows auf ARM (z. B. Snapdragon), mit eigenen automatischen Updates",
+  "en": "UwUSSH 0.1.2 ✧ now for Windows on ARM too\n\n- Tabs in the background keep their size: output that arrived there used to be wrapped word by word to a narrow window\n- Scrollbars match the design instead of standing out in white\n- A new setup for Windows on ARM (Snapdragon and the like), with automatic updates of its own"
+}

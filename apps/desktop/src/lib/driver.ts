@@ -90,6 +90,7 @@ export class TerminalDriver {
   lastDataAt = performance.now();
 
   private readonly fit = new FitAddon();
+  private readonly host: HTMLElement;
   private readonly resizeObserver: ResizeObserver;
   private sessionId: SessionId | null = null;
   /** Bumped on every attach/detach, so stragglers from an old session are ignored. */
@@ -103,6 +104,7 @@ export class TerminalDriver {
   private readonly promptListeners = new Set<(prompt: PasswordPrompt | null) => void>();
 
   constructor(host: HTMLElement, options: TerminalOptions) {
+    this.host = host;
     this.term = new Terminal({
       fontFamily: "'JetBrains Mono', ui-monospace, Consolas, monospace",
       lineHeight: 1.25,
@@ -125,7 +127,7 @@ export class TerminalDriver {
     this.term.loadAddon(this.fit);
     this.term.open(host);
     this.loadWebgl();
-    this.fit.fit();
+    this.refit();
 
     this.term.onData((data) => {
       if (this.sessionId) void writeSession(this.sessionId, data);
@@ -139,8 +141,8 @@ export class TerminalDriver {
       this.promptTimer = window.setTimeout(() => this.setPrompt(this.prompt()), PROMPT_IDLE_MS);
     });
 
-    // A tab in the background has no size (display: none). Fitting then
-    // would propose nothing; the observer fires again once the tab shows.
+    // A tab in the background has no size (display: none); refit() skips
+    // it, and the observer fires again once the tab shows.
     this.resizeObserver = new ResizeObserver(() => this.refit());
     this.resizeObserver.observe(host);
   }
@@ -193,6 +195,11 @@ export class TerminalDriver {
   }
 
   private refit() {
+    // A hidden tab (display: none) has no layout box, but the fit addon reads
+    // the computed style, which then is the declared `100%` — 100 px. That
+    // fitted a background session to about ten columns and told the server so,
+    // which wrapped everything it printed meanwhile word by word.
+    if (this.host.getClientRects().length === 0) return;
     const proposed = this.fit.proposeDimensions();
     if (!proposed || !Number.isFinite(proposed.cols) || proposed.cols < 2) return;
     const { cols, rows } = this.term;

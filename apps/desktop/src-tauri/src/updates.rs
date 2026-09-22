@@ -199,6 +199,7 @@ fn setup_name(version: &str) -> String {
         ("macos", _) => format!("UwUSSH-Setup-{version}-macos-x64-update"),
         ("linux", "aarch64") => format!("UwUSSH-Setup-{version}-linux-arm64.AppImage"),
         ("linux", _) => format!("UwUSSH-Setup-{version}-linux-x64.AppImage"),
+        (_, "aarch64") => format!("UwUSSH-Setup-{version}-windows-arm64.exe"),
         _ => format!("UwUSSH-Setup-{version}.exe"),
     }
 }
@@ -567,8 +568,10 @@ mod tests {
         let file = setup_file(dir, "0.1.0-beta.2");
         let name = file.file_name().unwrap().to_string_lossy().into_owned();
         assert!(name.starts_with("UwUSSH-Setup-0.1.0-beta.2"), "{name}");
-        #[cfg(windows)]
+        #[cfg(all(windows, target_arch = "x86_64"))]
         assert_eq!(name, "UwUSSH-Setup-0.1.0-beta.2.exe");
+        #[cfg(all(windows, target_arch = "aarch64"))]
+        assert_eq!(name, "UwUSSH-Setup-0.1.0-beta.2-windows-arm64.exe");
         #[cfg(target_os = "linux")]
         assert!(name.ends_with(".AppImage"));
         #[cfg(target_os = "macos")]
@@ -586,5 +589,7 @@ mod tests {
         );
         #[cfg(all(windows, target_arch = "x86_64"))]
         assert_eq!(target, "windows-x86_64");
+        #[cfg(all(windows, target_arch = "aarch64"))]
+        assert_eq!(target, "windows-aarch64");
     }
 }
