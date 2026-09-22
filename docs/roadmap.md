@@ -99,7 +99,7 @@ The point where I can stop using anything else.
   a server that flips a tombstone flag or replays an old version, which gets
   nowhere. See [architecture](architecture.md#sync).
 - **The server's first half is done**, in
-  [UwUSSH-Server](https://github.com/MinifyX/UwUSSH-Server): accounts, devices,
+  [UwUSync-Server](https://github.com/MinifyX/UwUSync-Server): accounts, devices,
   records with the version check, an event stream, rate limits, a command line,
   a Docker image and nightly backups — plus its own TLS certificate, whose
   fingerprint a device pins like an SSH host key, and the post box two devices

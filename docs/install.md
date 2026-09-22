@@ -116,7 +116,7 @@ only your user can read, which protects less against someone with your disk.
 - Nothing opens on its own when UwUSSH starts. **Settings → Terminal → Open on
   start** can open a local shell or chosen hosts instead.
 - **Several computers?** Settings → Sync connects a
-  [UwUSSH server](https://github.com/MinifyX/UwUSSH-Server) of your own, and
+  [UwUSync server](https://github.com/MinifyX/UwUSync-Server) of your own, and
   keeps hosts, keys and passwords the same everywhere, end-to-end encrypted.
 
 ## Updates
@@ -288,7 +288,7 @@ gegen jemanden mit deiner Festplatte.
 - Beim Start öffnet UwUSSH nichts von selbst. **Einstellungen → Terminal → Beim
   Start öffnen** kann stattdessen eine lokale Shell oder bestimmte Hosts öffnen.
 - **Mehrere Rechner?** Einstellungen → Sync verbindet einen eigenen
-  [UwUSSH-Server](https://github.com/MinifyX/UwUSSH-Server) und hält Hosts, Keys
+  [UwUSync-Server](https://github.com/MinifyX/UwUSync-Server) und hält Hosts, Keys
   und Passwörter überall gleich, Ende-zu-Ende-verschlüsselt.
 
 ## Updates

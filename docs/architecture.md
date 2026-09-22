@@ -396,7 +396,7 @@ on account creation, login and pairing. A record too large for that is left out
 of a push rather than offered and refused, so one oversized snippet cannot stop
 everything else from syncing.
 
-`UWUSSH_TLS=auto` generates a certificate on first start and logs its
+`UWUSYNC_TLS=auto` generates a certificate on first start and logs its
 fingerprint; the app pins it, which is the model an SSH client uses anyway, and
 pairing passes the fingerprint to the joining device inside the SPAKE2 channel.
 No domain, no Let's Encrypt, works over a Tailscale address. A reverse proxy
@@ -898,7 +898,7 @@ the vault key sealed with DPAPI when the vault is remembered on this device (see
   downloading and uploading by drag and drop, and an export that a fourth phase
   reads back into a fresh database, wrong password first.
 
-  Phase E (0.1.0-beta.8) is sync, for real: a UwUSSH server from the sibling
+  Phase E (0.1.0-beta.8) is sync, for real: a UwUSync server from the sibling
   repository with its own certificate, and two app instances — one through
   `pnpm tauri dev`, one straight from the debug binary on its own DevTools port
   and database. The first connects with the setup code, is shown the recovery

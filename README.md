@@ -95,7 +95,7 @@ headed; the status below says what already works today.
 >   [how](docs/architecture.md#termius-which-has-no-export)), PuTTY and KiTTY
 >   from the registry or from a portable KiTTY's folder and `.reg` exports, and
 >   `~/.ssh/config` with its `Include`s.
-> - **Sync** through a [UwUSSH server](https://github.com/MinifyX/UwUSSH-Server)
+> - **Sync** through a [UwUSync server](https://github.com/MinifyX/UwUSync-Server)
 >   of your own: hosts, keys and passwords end-to-end encrypted, a recovery kit
 >   shown once, a new device paired by three words, and revoking one with the
 >   master password.
@@ -129,7 +129,7 @@ goes wrong. [Auf Deutsch](docs/install.md#uwussh-installieren).
 
 ## The sync server
 
-The server is a separate repo, [UwUSSH-Server](https://github.com/MinifyX/UwUSSH-Server):
+The server is a separate repo, [UwUSync-Server](https://github.com/MinifyX/UwUSync-Server):
 one Rust binary, one Docker image, one SQLite file, its own TLS certificate
 whose fingerprint each device pins like an SSH host key. It installs with one
 command and prints a setup code; paste that into **Settings → Sync → Connect a
@@ -190,7 +190,7 @@ Checks:
 ```bash
 pnpm typecheck && pnpm lint
 cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
-node apps/desktop/e2e/run.mjs     # end to end, Windows (phase E needs ../UwUSSH-Server built)
+node apps/desktop/e2e/run.mjs     # end to end, Windows (phase E needs ../UwUSync-Server built)
 ```
 
 The installer, with the app packed inside:

@@ -94,7 +94,7 @@ Das war der eine Punkt, an dem Tauri hätte wehtun können: Terminal-Ausgabe üb
 └──────────────┬────────────────────────────────────────┘
                │ HTTPS + WSS (nur Chiffrat)
 ┌──────────────┴────────────────────────────────────────┐
-│  UwUSSH Sync Server (Axum, selfhosted)                │
+│  UwUSync Server (Axum, selfhosted)                    │
 │  sieht: id, seq, updated_at, blob                     │
 │  sieht nicht: Hostnamen, Keys, Passwörter             │
 └───────────────────────────────────────────────────────┘
@@ -335,18 +335,18 @@ Schlaue — verschlüsseln, mergen, entscheiden — passiert im Client.
 
 ```yaml
 services:
-  uwussh:
-    image: ghcr.io/minifyx/uwussh-server:latest
+  uwusync:
+    image: ghcr.io/minifyx/uwusync-server:latest
     ports: ['8443:8443']
     volumes: ['./data:/data']
     environment:
-      UWUSSH_DATA: /data
-      UWUSSH_TLS: auto # auto = eigenes Zertifikat | off = hinter Reverse-Proxy
-      UWUSSH_REGISTRATION: invite # open | invite | closed
+      UWUSYNC_DATA: /data
+      UWUSYNC_TLS: auto # auto = eigenes Zertifikat | off = hinter Reverse-Proxy
+      UWUSYNC_REGISTRATION: invite # open | invite | closed
 ```
 
 ```
-UwUSSH-Server/
+UwUSync-Server/
   src/main.rs      serve | invite | devices | revoke | backup | fingerprint
   src/config.rs    Umgebungsvariablen, nichts anderes
   src/tls.rs       selbstsigniertes Zertifikat beim ersten Start (rustls)
@@ -366,13 +366,13 @@ invites  (code_hash, expires_ms, used_ms)
 
 ### TLS gehört dazu, nicht daneben
 
-`UWUSSH_TLS=auto` erzeugt beim ersten Start ein eigenes Zertifikat und schreibt
+`UWUSYNC_TLS=auto` erzeugt beim ersten Start ein eigenes Zertifikat und schreibt
 seinen Fingerprint ins Log. Die App merkt ihn sich bei der Einrichtung und pinnt
 ihn — **genau das Modell, das ein SSH-Client sowieso benutzt**, und beim Koppeln
 reicht Gerät A den Fingerprint durch den SPAKE2-Kanal weiter. Damit braucht ein
 Homelab keine Domain und kein Let's Encrypt, und der Server läuft auch über eine
 Tailscale-Adresse. Wer schon einen Reverse-Proxy mit echtem Zertifikat hat,
-setzt `UWUSSH_TLS=off` und bekommt die normale Prüfung. Reines HTTP lehnt die
+setzt `UWUSYNC_TLS=off` und bekommt die normale Prüfung. Reines HTTP lehnt die
 App ab, außer gegen `localhost`.
 
 ### Grenzen, die der Server durchsetzt
@@ -383,7 +383,7 @@ Rate-Limits auf Kontoanlage, Login und Kopplung.
 
 ### Betrieb
 
-- **Admin-CLI:** `uwussh-server invite`, `devices`, `revoke`, `backup`,
+- **Admin-CLI:** `uwusync-server invite`, `devices`, `revoke`, `backup`,
   `fingerprint`.
 - **Backup** per `VACUUM INTO` — eine laufende WAL-Datenbank einfach
   wegzukopieren ist nicht zuverlässig. Dazu jede Nacht automatisch ein
@@ -597,7 +597,7 @@ Gleiche Aufteilung wie bei UwUMail — drei Repos, GPL-3.0:
 | Repo                | Inhalt                                      | Status                                                                                            |
 | ------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------- |
 | **UwUSSH-Client**   | Die App: React-UI, Rust-Engine, Brand, Docs | angelegt                                                                                          |
-| **UwUSSH-Server**   | Der Sync-Server (Axum, Docker)              | angelegt, erste Hälfte steht                                                                      |
+| **UwUSync-Server**  | Der Sync-Server (Axum, Docker)              | angelegt, erste Hälfte steht                                                                      |
 | ~~UwUSSH-Releases~~ | Downloads und Update-Feed                   | entfällt: Releases und Feeds (Branch `updates`) liegen im Client-Repo, wie inzwischen bei UwUMail |
 
 ```
@@ -680,7 +680,7 @@ das nicht zurückkommt, ein Gerät, das mit eigenen Hosts beitritt, und ein
 Server, der schwindelt und damit nirgends hinkommt.
 
 ~~Der Server~~ — **steht**, in
-[MinifyX/UwUSSH-Server](https://github.com/MinifyX/UwUSSH-Server) (public,
+[MinifyX/UwUSync-Server](https://github.com/MinifyX/UwUSync-Server) (public,
 GPL-3.0): ein Rust-Binary mit Axum und SQLite, das Sequenznummern vergibt, von
 jedem Record die neueste Version hält und einen Schreibvorgang mit falscher
 Version ablehnt — lesen kann es keinen. Geräte melden sich per signierter
@@ -709,7 +709,7 @@ einen SSH-Host-Key und meldet sich bei abgelaufenem Token selbst neu an. Die
 von 128 Wörtern, und das Geheimnis geht erst raus, nachdem die andere Seite
 bewiesen hat, dass sie denselben Schlüssel hat.
 
-Und beides ist gegeneinander geprüft: `UwUSSH-Server/tests/client.rs` fährt die
+Und beides ist gegeneinander geprüft: `UwUSync-Server/tests/client.rs` fährt die
 echten Client-Crates gegen den echten Server — ein Host mit Passwort wandert zu
 einem Gerät, dem nur drei Wörter gesagt wurden, ein Gerät mit falsch gehörten
 Wörtern bekommt nichts, und in den gespeicherten Records steht nichts Lesbares.
@@ -728,7 +728,7 @@ Rollback auf echtem Docker durch, bevor ein Image veröffentlicht wird.
 Vorher hat ihn jemand geprüft, der ihn nicht geschrieben hat: nichts Kritisches,
 kein Weg in ein fremdes Konto, aber umgehbare Rate-Limits, ein Konto, das den
 Server erschöpfen kann, und ein Widerruf ohne Passwortbeweis — alles behoben
-(`UwUSSH-Server/docs/security-review-2026-09.md`). Drei Fixes haben das
+(`UwUSync-Server/docs/security-review-2026-09.md`). Drei Fixes haben das
 Protokoll berührt: ein **anderes Gerät widerrufen braucht das Master-Passwort**
 (ein geklauter Laptop sperrt sonst den Besitzer aus), der Enrolment-Token reist
 im Body statt in der URL, und die Seiten einer Kopplung sind gebunden (Seite a
