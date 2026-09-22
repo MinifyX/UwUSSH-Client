@@ -220,7 +220,7 @@ try {
 
   console.log(`\n▸ Creating the release on ${REPOSITORY}`);
   const notesPath = join(work, 'notes.md');
-  writeFileSync(notesPath, releaseBody());
+  writeFileSync(notesPath, releaseBody(await aurExists('uwussh-bin')));
   const channel = version.includes('-') ? '--prerelease' : '--latest';
   execFileSync(
     'gh',
@@ -308,7 +308,7 @@ try {
 }
 
 /** The release page: what changed, then which file is for which system. */
-function releaseBody() {
+function releaseBody(aurLive) {
   const guide = `https://github.com/${REPOSITORY}/blob/main/docs/install.md`;
   const has = (name) => PLATFORMS.some((p) => p.file === name);
   const code = (name) => `\`${name}\``;
@@ -331,7 +331,14 @@ function releaseBody() {
       'Fedora / openSUSE',
       `${code('UwUSSH-linux-x64.rpm')} · ARM: ${code('UwUSSH-linux-arm64.rpm')}`,
     ],
-    ['Arch Linux', 'Arch Linux', 'AUR: `yay -S uwussh-bin`'],
+    // The AUR package only once it exists there; AUR registration can be closed for a while.
+    aurLive
+      ? ['Arch Linux', 'Arch Linux', 'AUR: `yay -S uwussh-bin`']
+      : [
+          'Arch Linux',
+          'Arch Linux',
+          `${code('UwUSSH-linux-x64-portable.tar.gz')} (AUR: ${code('uwussh-bin')} folgt / coming)`,
+        ],
     [
       'Linux portabel',
       'Linux portable',
@@ -517,6 +524,19 @@ function checkSignature(file, signatureBase64, pubkeyBase64, expectedName) {
     .split('\t')
     .map((part) => part.trim().replace(/^file:/, ''));
   if (!names.includes(expectedName)) fail(`The signature doesn't name ${expectedName}.`);
+}
+
+/** Whether the AUR has this package; false when it doesn't or doesn't answer. */
+async function aurExists(name) {
+  try {
+    const response = await fetch(`https://aur.archlinux.org/rpc/v5/info?arg[]=${name}`, {
+      headers: { 'user-agent': 'uwussh-release' },
+      signal: AbortSignal.timeout(15_000),
+    });
+    return response.ok && (await response.json()).resultcount > 0;
+  } catch {
+    return false;
+  }
 }
 
 async function github(path) {
