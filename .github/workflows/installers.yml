@@ -1,9 +1,11 @@
 name: Installers
 
-# macOS and Linux: the checks Windows gets on Lorin's machine, and the setups
-# `pnpm release` publishes, Windows on ARM among them. Windows x64 is built
-# there, next to the update signing key; nothing here holds that key or any other secret. The files the
-# updater runs are signed by `pnpm release` after it downloads them from here.
+# macOS and Linux: the checks Windows gets on Lorin's machine, and every file
+# `pnpm release` publishes except the Windows x64 setup: Windows on ARM, the
+# universal macOS disk image, and .deb, .rpm and portable folder for Linux x64
+# and arm64. Windows x64 is built there, next to the update signing key;
+# nothing here holds that key or any other secret. The files the updater runs
+# are signed by `pnpm release` after it downloads them from here.
 
 on:
   push:
@@ -76,24 +78,27 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: macos-arm64
+          # One disk image for Intel and Apple silicon: both built on Apple
+          # silicon (the runner images for Intel Macs come and go) and joined.
+          - name: macos-universal
             os: macos-latest
-            target: aarch64-apple-darwin
-          # Built on Apple silicon for Intel: the runner images for Intel Macs
-          # come and go, the cross target stays.
-          - name: macos-x64
-            os: macos-latest
-            target: x86_64-apple-darwin
-          # The oldest supported Ubuntu, so the AppImage runs on anything as
-          # new or newer.
+            target: universal-apple-darwin
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+          # The oldest supported Ubuntu, so the packages and the portable
+          # folder run on anything as new or newer.
           - name: linux-x64
             os: ubuntu-22.04
+            target: ''
+          # Natively on ARM, same Ubuntu: nothing has to be cross-linked.
+          - name: linux-arm64
+            os: ubuntu-22.04-arm
             target: ''
           # Natively on ARM: ring's assembly wants clang for this target, which
           # the ARM runner brings, and nothing has to be cross-linked.
           - name: windows-arm64
             os: windows-11-arm
             target: aarch64-pc-windows-msvc
+            rust-targets: aarch64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -120,7 +125,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           toolchain: stable
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.rust-targets }}
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: ${{ matrix.name }}
@@ -139,24 +144,62 @@ jobs:
 
       # The setup unpacks what it carries into a scratch folder and checks both
       # apps arrived startable — the part of an install no window is needed
-      # for. The Intel build can't run on this Apple silicon runner; the
-      # Windows setup has no such mode and is checked by what it was built from.
+      # for. The universal one runs as arm64 here, its Intel half is checked
+      # for being there. The Windows setup has no such mode and is checked by
+      # what it was built from.
       - name: Check what the setup carries
-        if: matrix.name != 'macos-x64' && runner.os != 'Windows'
+        if: runner.os == 'macOS' || matrix.name == 'linux-x64'
         shell: bash
         run: |
           set -e
           check="$RUNNER_TEMP/payload-check"
           if [ "$RUNNER_OS" = "macOS" ]; then
-            setup=$(ls target/installers/*-update)
+            setup=target/installers/UwUSSH-update-macos-universal
             chmod +x "$setup"
+            lipo "$setup" -verify_arch arm64 x86_64
             "$setup" --check-payload "$check"
-            for app in "$check"/*.app; do codesign --verify --deep --strict "$app"; echo "signed: $app"; done
+            for app in "$check"/*.app; do
+              codesign --verify --deep --strict "$app"
+              lipo "$app"/Contents/MacOS/* -verify_arch arm64 x86_64
+              echo "signed, universal: $app"
+            done
           else
-            setup=$(ls target/installers/*.AppImage)
+            setup=target/installers/UwUSSH-update-linux-x64.AppImage
             "$setup" --check-payload "$check"
             ldd "$check/UwUSSH/usr/bin/"* | grep "not found" && exit 1 || echo "every library found"
           fi
+
+      # The .deb installs through dpkg as package `uwussh` (what the app checks
+      # before it updates itself), the .rpm is named the same, and the portable
+      # folder has everything it needs next to it. No display here, so no start.
+      - name: Check the Linux packages
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          ARCH: ${{ matrix.name == 'linux-arm64' && 'arm64' || 'x64' }}
+        run: |
+          set -e
+          arch="$ARCH"
+          sudo apt-get install -y ./target/installers/UwUSSH-linux-$arch.deb
+          test -f /var/lib/dpkg/info/uwussh.list
+          grep -qx /usr/bin/uwussh-desktop /var/lib/dpkg/info/uwussh.list
+          grep -q '^Name=UwUSSH$' /usr/share/applications/uwussh.desktop
+          ldd /usr/bin/uwussh-desktop | grep "not found" && exit 1 || echo "every library found"
+          sudo apt-get remove -y uwussh
+          test ! -e /usr/bin/uwussh-desktop
+
+          sudo apt-get install -y rpm
+          test "$(rpm -qp --queryformat '%{NAME}' target/installers/UwUSSH-linux-$arch.rpm)" = uwussh
+          rpm -qpl target/installers/UwUSSH-linux-$arch.rpm | grep -qx /usr/bin/uwussh-desktop
+
+          portable="$RUNNER_TEMP/portable"
+          mkdir -p "$portable"
+          tar -xzf target/installers/UwUSSH-linux-$arch-portable.tar.gz -C "$portable"
+          test "$(ls "$portable")" = UwUSSH
+          test -x "$portable/UwUSSH/uwussh" && test -x "$portable/UwUSSH/AppRun"
+          test -f "$portable/UwUSSH/README.txt"
+          LD_LIBRARY_PATH="$portable/UwUSSH/usr/lib" ldd "$portable/UwUSSH/usr/bin/uwussh-desktop" \
+            | grep "not found" && exit 1 || echo "every library found"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

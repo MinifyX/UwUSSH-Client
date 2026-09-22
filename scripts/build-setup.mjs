@@ -1,25 +1,34 @@
-// Builds UwUSSH's own installer for the system it runs on: the app and
-// UwUKeygen, packed into the setup with Nyu in it.
+// Builds UwUSSH's downloads for the system it runs on: on Windows and macOS
+// the app and UwUKeygen packed into the setup with Nyu in it, on Linux the
+// app as .deb, .rpm and a portable folder.
 //
 //   pnpm build:setup                       for this machine
 //   pnpm build:setup --target <triple>     another architecture (macOS:
-//                                          x86_64-apple-darwin on Apple silicon)
+//                                          universal-apple-darwin for both
+//                                          Intel and Apple silicon, as the
+//                                          release has it)
 //
-// Everything lands in target/installers/:
+// Everything lands in target/installers/, under the names the release
+// publishes — no version in them, so a link to the newest release's file
+// stays the same forever:
 //
-//   Windows  UwUSSH-Setup-<v>.exe                    what people run, and what updates run
-//            UwUSSH-Setup-<v>-windows-arm64.exe      the same for ARM
-//   macOS    UwUSSH-Setup-<v>-macos-<arch>.dmg       what people open
-//            UwUSSH-Setup-<v>-macos-<arch>-update    the setup program inside it, for updates
-//   Linux    UwUSSH-Setup-<v>-linux-<arch>.AppImage  what people run, and what updates run
-//            UwUSSH-<v>-linux-<arch>.deb             the app alone, for apt; no setup, no updater
+//   Windows  UwUSSH-windows-x64-setup.exe           what people run, and what updates run
+//            UwUSSH-windows-arm64-setup.exe         the same for ARM
+//   macOS    UwUSSH-macos-universal.dmg             what people open
+//            UwUSSH-update-macos-universal          the setup program inside it, for updates
+//   Linux    UwUSSH-linux-<arch>.deb                the app for apt/dpkg, updates itself
+//            UwUSSH-linux-<arch>.rpm                the app for dnf/zypper/rpm, updates itself
+//            UwUSSH-linux-<arch>-portable.tar.gz    unpack and run, no updates
+//            UwUSSH-update-linux-x64.AppImage       x64 only: the setup, for copies an
+//                                                   earlier setup installed; not a download
 //
-// With TAURI_SIGNING_PRIVATE_KEY (and _PASSWORD) set, the files the updater
-// runs are signed too, with a .sig next to each. The release signs on the
-// machine that holds the key; CI builds without it.
+// Nothing here signs anything: `pnpm release` signs what the updater runs,
+// under the versioned names installed apps expect, on the machine that holds
+// the key. The builds below never see it.
 
 import { execFileSync, execSync } from 'node:child_process';
 import {
+  chmodSync,
   copyFileSync,
   existsSync,
   mkdirSync,
@@ -38,12 +47,8 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const run = (command, env = {}) =>
   execSync(command, { cwd: root, stdio: 'inherit', env: { ...process.env, ...env } });
 
-// Keep the update-signing key out of the app build. Only `tauri signer sign`
-// needs it; the builds below run hundreds of third-party build scripts (Cargo
-// build.rs, npm) that would otherwise see it in their environment. Captured
-// here and removed from the environment, then handed only to the signing command.
-const signingKey = process.env.TAURI_SIGNING_PRIVATE_KEY;
-const signingPassword = process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD ?? '';
+// Keep the update-signing key out of the builds: they run hundreds of
+// third-party build scripts (Cargo build.rs, npm) that would otherwise see it.
 delete process.env.TAURI_SIGNING_PRIVATE_KEY;
 delete process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD;
 
@@ -66,11 +71,6 @@ for (const part of ['setup', 'keygen']) {
   if (conf.version !== version) fail(`apps/${part} says ${conf.version}, the app says ${version}.`);
 }
 
-// Safety net against a future refactor: the builds must never run with the signing key in reach.
-if (process.env.TAURI_SIGNING_PRIVATE_KEY || process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD) {
-  throw new Error('The update-signing key must be removed from the environment before building.');
-}
-
 const release = join(root, 'target', ...(target ? [target] : []), 'release');
 const bundles = join(release, 'bundle');
 const out = join(root, 'target', 'installers');
@@ -78,6 +78,7 @@ mkdirSync(out, { recursive: true });
 
 /** The architecture as release file names say it. */
 function arch() {
+  if (target === 'universal-apple-darwin') return 'universal';
   const name = target ?? `${process.arch === 'arm64' ? 'aarch64' : 'x86_64'}-host`;
   return name.startsWith('aarch64') ? 'arm64' : 'x64';
 }
@@ -87,16 +88,6 @@ function configFile(name, config) {
   const path = join(mkdtempSync(join(tmpdir(), 'uwussh-build-')), `${name}.json`);
   writeFileSync(path, JSON.stringify(config));
   return path;
-}
-
-function sign(file) {
-  if (!signingKey) return;
-  console.log(`\n▸ Signing ${file} for the updater`);
-  run(`pnpm --filter @uwussh/desktop exec tauri signer sign "${file}"`, {
-    TAURI_SIGNING_PRIVATE_KEY: signingKey,
-    TAURI_SIGNING_PRIVATE_KEY_PASSWORD: signingPassword,
-  });
-  if (!existsSync(`${file}.sig`)) fail('The signer reported success but wrote no .sig.');
 }
 
 function only(dir, test, what) {
@@ -123,18 +114,8 @@ if (process.platform === 'win32') {
     UWUSSH_SETUP_PAYLOAD: app,
     UWUSSH_SETUP_KEYGEN_PAYLOAD: keygen,
   });
-  // x64 keeps the name it always had: installed apps look for it.
-  const setup = join(
-    out,
-    arch() === 'arm64'
-      ? `UwUSSH-Setup-${version}-windows-arm64.exe`
-      : `UwUSSH-Setup-${version}.exe`,
-  );
+  const setup = join(out, `UwUSSH-windows-${arch()}-setup.exe`);
   copyFileSync(join(release, 'uwussh-setup.exe'), setup);
-  // Where the Windows release has always looked for it.
-  copyFileSync(setup, join(release, `UwUSSH-Setup-${version}.exe`));
-  sign(setup);
-  if (signingKey) copyFileSync(`${setup}.sig`, join(release, `UwUSSH-Setup-${version}.exe.sig`));
   produced.push(setup);
 } else if (process.platform === 'darwin') {
   // Ad-hoc signed: no Apple developer ID, but a sealed bundle, which Apple
@@ -164,19 +145,18 @@ if (process.platform === 'win32') {
       UWUSSH_SETUP_PAYLOAD: apps,
     },
   );
-  const dmg = join(out, `UwUSSH-Setup-${version}-macos-${arch()}.dmg`);
+  const dmg = join(out, `UwUSSH-macos-${arch()}.dmg`);
   copyFileSync(
     only(join(bundles, 'dmg'), (name) => name.endsWith('.dmg'), 'disk image'),
     dmg,
   );
-  const update = join(out, `UwUSSH-Setup-${version}-macos-${arch()}-update`);
+  const update = join(out, `UwUSSH-update-macos-${arch()}`);
   copyFileSync(join(release, 'uwussh-setup'), update);
-  sign(update);
   produced.push(dmg, update);
   rmSync(apps, { recursive: true, force: true });
 } else {
-  // AppImages, unpacked: the installed app runs from its AppDir and needs no
-  // FUSE; the setup stays one AppImage that brings its own WebKit.
+  // The AppImage, unpacked, is both the portable folder and what the setup
+  // installs: it runs from its AppDir, brings its own WebKit and needs no FUSE.
   const apps = mkdtempSync(join(tmpdir(), 'uwussh-apps-'));
   const unpackAppImage = (image, name) => {
     const work = mkdtempSync(join(tmpdir(), 'uwussh-appimage-'));
@@ -187,46 +167,111 @@ if (process.platform === 'win32') {
   };
 
   console.log(`\n▸ Building UwUSSH ${version}`);
-  run(`pnpm --filter @uwussh/desktop tauri build --bundles appimage,deb${targetArg}`);
+  run(`pnpm --filter @uwussh/desktop tauri build --bundles appimage${targetArg}`);
   unpackAppImage(
     only(join(bundles, 'appimage'), (name) => name.endsWith('.AppImage'), 'AppImage of UwUSSH'),
     'UwUSSH',
   );
-  const deb = join(out, `UwUSSH-${version}-linux-${arch()}.deb`);
+  // The next build bundles into the same folders.
+  rmSync(join(bundles, 'appimage'), { recursive: true, force: true });
+
+  // The packages install system-wide, to /usr, as package `uwussh`. Tauri
+  // names the package after productName in kebab case, which would make
+  // "UwUSSH" `uw-ussh`; the menu entry keeps saying UwUSSH through the
+  // template in tauri.conf.json. The app looks for `uwussh` when it checks that
+  // dpkg or rpm owns it (apps/desktop/src-tauri/src/updates.rs).
+  console.log(`\n▸ Packaging UwUSSH ${version} as .deb and .rpm`);
+  run(
+    `pnpm --filter @uwussh/desktop tauri build --bundles deb,rpm${targetArg} --config "${configFile('packages', { productName: 'uwussh' })}"`,
+  );
+  const deb = join(out, `UwUSSH-linux-${arch()}.deb`);
   copyFileSync(
     only(join(bundles, 'deb'), (name) => name.endsWith('.deb'), 'deb'),
     deb,
   );
-  // The next build bundles into the same folders.
-  rmSync(join(bundles, 'appimage'), { recursive: true, force: true });
-
-  console.log(`\n▸ Building UwUKeygen ${version}`);
-  run(`pnpm --filter @uwussh/keygen tauri build --bundles appimage${targetArg}`);
-  unpackAppImage(
-    only(join(bundles, 'appimage'), (name) => name.endsWith('.AppImage'), 'AppImage of UwUKeygen'),
-    'UwUKeygen',
-  );
-  rmSync(join(bundles, 'appimage'), { recursive: true, force: true });
-
-  console.log('\n▸ Packing both into the setup');
-  const setupConfig = configFile('setup', { bundle: { active: true, targets: ['appimage'] } });
-  run(
-    `pnpm --filter @uwussh/setup tauri build --bundles appimage${targetArg} --config "${setupConfig}"`,
-    { UWUSSH_SETUP_PAYLOAD: apps },
-  );
-  const image = join(out, `UwUSSH-Setup-${version}-linux-${arch()}.AppImage`);
+  const rpm = join(out, `UwUSSH-linux-${arch()}.rpm`);
   copyFileSync(
-    only(join(bundles, 'appimage'), (name) => name.endsWith('.AppImage'), 'AppImage of the setup'),
-    image,
+    only(join(bundles, 'rpm'), (name) => name.endsWith('.rpm'), 'rpm'),
+    rpm,
   );
-  execFileSync('chmod', ['+x', image]);
-  sign(image);
-  produced.push(image, deb);
+  produced.push(deb, rpm);
+
+  // One folder, UwUSSH/, that runs where it lands. tar, not zip: the AppDir
+  // needs its modes and symlinks.
+  console.log('\n▸ Packing the portable folder');
+  const staging = mkdtempSync(join(tmpdir(), 'uwussh-portable-'));
+  const folder = join(staging, 'UwUSSH');
+  execFileSync('cp', ['-a', join(apps, 'UwUSSH'), folder]);
+  const launcher = join(folder, 'uwussh');
+  writeFileSync(
+    launcher,
+    '#!/bin/sh\n# Starts UwUSSH from this folder.\nhere=$(dirname "$(readlink -f "$0")")\nexec "$here/AppRun" "$@"\n',
+  );
+  chmodSync(launcher, 0o755);
+  writeFileSync(
+    join(folder, 'README.txt'),
+    [
+      `UwUSSH ${version}, portable`,
+      '',
+      'Start it with ./uwussh (or ./AppRun) in this folder. Nothing is installed:',
+      'the folder can live anywhere and be deleted when you are done.',
+      '',
+      'This copy does not update itself. For updates, install the .deb or .rpm',
+      '(or the AUR package uwussh-bin) instead, or fetch the newest',
+      'UwUSSH-linux-<arch>-portable.tar.gz from',
+      'https://github.com/MinifyX/UwUSSH-Client/releases/latest',
+      '',
+    ].join('\n'),
+  );
+  const portable = join(out, `UwUSSH-linux-${arch()}-portable.tar.gz`);
+  execFileSync('tar', [
+    '--owner=0',
+    '--group=0',
+    '--numeric-owner',
+    '-czf',
+    portable,
+    '-C',
+    staging,
+    'UwUSSH',
+  ]);
+  rmSync(staging, { recursive: true, force: true });
+  produced.push(portable);
+
+  // Copies an earlier setup AppImage installed (~/.local/share/uwussh) update
+  // by running the next setup. There only ever was one for x64.
+  if (arch() === 'x64') {
+    console.log(`\n▸ Building UwUKeygen ${version}`);
+    run(`pnpm --filter @uwussh/keygen tauri build --bundles appimage${targetArg}`);
+    unpackAppImage(
+      only(
+        join(bundles, 'appimage'),
+        (name) => name.endsWith('.AppImage'),
+        'AppImage of UwUKeygen',
+      ),
+      'UwUKeygen',
+    );
+    rmSync(join(bundles, 'appimage'), { recursive: true, force: true });
+
+    console.log('\n▸ Packing both into the setup, for the updater');
+    const setupConfig = configFile('setup', { bundle: { active: true, targets: ['appimage'] } });
+    run(
+      `pnpm --filter @uwussh/setup tauri build --bundles appimage${targetArg} --config "${setupConfig}"`,
+      { UWUSSH_SETUP_PAYLOAD: apps },
+    );
+    const image = join(out, `UwUSSH-update-linux-${arch()}.AppImage`);
+    copyFileSync(
+      only(
+        join(bundles, 'appimage'),
+        (name) => name.endsWith('.AppImage'),
+        'AppImage of the setup',
+      ),
+      image,
+    );
+    execFileSync('chmod', ['+x', image]);
+    produced.push(image);
+  }
   rmSync(apps, { recursive: true, force: true });
 }
 
-if (!signingKey) {
-  console.log('\n▸ No TAURI_SIGNING_PRIVATE_KEY, so nothing is signed for the updater:');
-  console.log('  fine for trying out and for CI; `pnpm release` signs.');
-}
+console.log('\n▸ Nothing is signed for the updater here; `pnpm release` does that.');
 for (const file of produced) console.log(`✧ ${file}`);

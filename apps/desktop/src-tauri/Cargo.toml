@@ -61,3 +61,7 @@ windows-sys = { workspace = true, features = [
 chacha20poly1305.workspace = true
 keyring = { version = "3", features = ["apple-native", "sync-secret-service", "crypto-rust"] }
 rand.workspace = true
+
+# A package update is handed to the package manager from a private scratch folder.
+[target.'cfg(target_os = "linux")'.dependencies]
+tempfile = "3"

@@ -3,28 +3,36 @@
 [Deutsch weiter unten](#uwussh-installieren)
 
 UwUSSH runs on **Windows 10 and 11** (x64 and ARM), **macOS 11 or newer**
-(Apple silicon and Intel) and **Linux** (x86_64). The setup installs for
-your user only — no admin rights. UwUSSH speaks English or German, following
-the system; **Settings → Appearance → Language** switches.
+(Apple silicon and Intel) and **Linux** (x86_64 and arm64). On Windows and
+macOS the setup installs for your user only — no admin rights. UwUSSH speaks
+English or German, following the system; **Settings → Appearance → Language**
+switches.
 
-Every system gets the same setup with Nyu in it. Download it from the
+Windows and macOS get UwUSSH's own setup with Nyu in it, Linux a package for
+your distribution or a portable folder. Download from the
 [releases](https://github.com/MinifyX/UwUSSH-Client/releases): take the newest
 one at the top. Betas are marked **Pre-release**; the newest version without
-that mark is the stable one.
+that mark is the stable one. The file names carry no version, so
+`https://github.com/MinifyX/UwUSSH-Client/releases/latest/download/<file>`
+always gets the newest stable one.
 
-| System                   | File under **Assets**                        |
-| ------------------------ | -------------------------------------------- |
-| Windows 10/11            | `UwUSSH-Setup-<version>.exe`                 |
-| Windows 11 on ARM        | `UwUSSH-Setup-<version>-windows-arm64.exe`   |
-| macOS, Apple silicon (M) | `UwUSSH-Setup-<version>-macos-arm64.dmg`     |
-| macOS, Intel             | `UwUSSH-Setup-<version>-macos-x64.dmg`       |
-| Linux, x86_64            | `UwUSSH-Setup-<version>-linux-x64.AppImage`  |
-| Linux, as a package      | `UwUSSH-<version>-linux-x64.deb` (see below) |
+| System                     | File under **Assets**                                               |
+| -------------------------- | ------------------------------------------------------------------- |
+| Windows 10/11 (x64)        | `UwUSSH-windows-x64-setup.exe`                                      |
+| Windows 11 on ARM          | `UwUSSH-windows-arm64-setup.exe`                                    |
+| macOS (Intel & Apple chip) | `UwUSSH-macos-universal.dmg`                                        |
+| Ubuntu / Debian            | `UwUSSH-linux-x64.deb` · ARM: `UwUSSH-linux-arm64.deb`              |
+| Fedora / openSUSE          | `UwUSSH-linux-x64.rpm` · ARM: `UwUSSH-linux-arm64.rpm`              |
+| Arch Linux                 | AUR: `yay -S uwussh-bin`                                            |
+| Linux, portable            | `UwUSSH-linux-x64-portable.tar.gz` · ARM: `…-arm64-portable.tar.gz` |
+
+The `UwUSSH-update-…` files next to them are for the in-app updater; you
+don't need them.
 
 **Checking the download (optional).** Each release has a `SHA256SUMS.txt`. On
 macOS and Linux: `shasum -a 256 -c SHA256SUMS.txt --ignore-missing` in the
 download folder. On Windows, in PowerShell:
-`Get-FileHash "$env:USERPROFILE\Downloads\UwUSSH-Setup-<version>.exe"` and
+`Get-FileHash "$env:USERPROFILE\Downloads\UwUSSH-windows-x64-setup.exe"` and
 compare with the line in the file.
 
 ## Windows
@@ -65,24 +73,27 @@ leaves the data in `~/Library/Application Support/app.uwussh.desktop`.
 
 ## Linux
 
-```bash
-chmod +x UwUSSH-Setup-*-linux-x64.AppImage
-./UwUSSH-Setup-*-linux-x64.AppImage
-```
+**Ubuntu, Debian and relatives:** `sudo apt install ./UwUSSH-linux-x64.deb`
+(`…-arm64.deb` on ARM). **Fedora, openSUSE:**
+`sudo dnf install ./UwUSSH-linux-x64.rpm` or
+`sudo zypper install ./UwUSSH-linux-x64.rpm`. Both install the app
+system-wide as package `uwussh`, with a menu entry, using the system's
+WebKitGTK 4.1, and update themselves: UwUSSH downloads the next package and
+installs it on **Restart now**, asking for the administrator password.
+Uninstall with `sudo apt remove uwussh` or `sudo dnf remove uwussh`.
+UwUKeygen, the key generator, only comes with the Windows and macOS setups.
 
-It installs into `~/.local/share/uwussh`, with **UwUSSH** and **UwUKeygen** in
-the application menu and, if you like, on the desktop. It brings its own WebKit,
-so nothing needs installing first. If the AppImage won't start because FUSE is
-missing (Ubuntu 22.04 and newer lack `libfuse2`), start it with
-`./UwUSSH-Setup-*.AppImage --appimage-extract-and-run`. The installed app runs
-unpacked and needs no FUSE at all.
+**Arch Linux:** `yay -S uwussh-bin` (or any other AUR helper). pacman updates
+it, not UwUSSH itself.
 
-To uninstall, run the setup again and choose **Uninstall …**.
+**Portable:** unpack `UwUSSH-linux-x64-portable.tar.gz` anywhere and start
+`./UwUSSH/uwussh`. It brings its own WebKit, installs nothing and doesn't
+update itself — fetch the newest one to update.
 
-**Rather have a package?** The `.deb` installs the app alone through apt
-(`sudo apt install ./UwUSSH-<version>-linux-x64.deb`), using the system's
-WebKitGTK 4.1. It has no setup and no automatic updates: install the next
-`.deb` to update.
+**Installed with the setup AppImage of UwUSSH 0.1** (into
+`~/.local/share/uwussh`)? That copy keeps updating itself as before. To move
+to a package instead, uninstall it (**Uninstall …** in the setup; keep hosts
+and vault) and install the package: both use the same data.
 
 **Remembering the vault on Linux** uses the Secret Service (GNOME Keyring,
 KWallet). Without one — a bare window manager — UwUSSH keeps its key in a file
@@ -115,8 +126,9 @@ it looks for a newer version, downloads it quietly (signed and checked) and
 offers a restart. **Settings → Updates** switches between the Beta and Stable
 channels. Stable only gets versions without a beta mark.
 
-A newer setup can also simply be run over an installed UwUSSH. Hosts, the vault
-and settings stay.
+A newer setup can also simply be run over an installed UwUSSH, a newer package
+installed over the old one. Hosts, the vault and settings stay. The portable
+folder doesn't update itself, and the Arch package updates with pacman.
 
 ## Where your data lives
 
@@ -124,7 +136,7 @@ and settings stay.
 | ----------------------------------- | ------------------------------------ | -------------------------------------------------- | ----------------------------------- |
 | Hosts, groups, host keys, the vault | `%APPDATA%\app.uwussh.desktop\`      | `~/Library/Application Support/app.uwussh.desktop` | `~/.local/share/app.uwussh.desktop` |
 | App settings (look, terminal, …)    | `%LOCALAPPDATA%\app.uwussh.desktop\` | `~/Library/WebKit/app.uwussh.desktop`              | `~/.local/share/app.uwussh.desktop` |
-| The program                         | `%LOCALAPPDATA%\Programs\UwUSSH\`    | `/Applications/UwUSSH.app`                         | `~/.local/share/uwussh`             |
+| The program                         | `%LOCALAPPDATA%\Programs\UwUSSH\`    | `/Applications/UwUSSH.app`                         | `/usr/bin/uwussh-desktop`           |
 
 Passwords and private keys are only stored encrypted. To move to another
 computer without a sync server: **Settings → Import & Export** writes everything
@@ -142,8 +154,10 @@ other computer reads back in.
 - **macOS says the app is damaged**: that happens when the quarantine mark
   survives on the installed app, which the setup avoids. Running
   `xattr -dr com.apple.quarantine /Applications/UwUSSH.app` clears it.
-- **Linux on ARM** hasn't been built yet. Windows on ARM has its own setup
-  (`…-windows-arm64.exe`); the x64 one runs there too, emulated and slower.
+- **Windows on ARM** has its own setup (`UwUSSH-windows-arm64-setup.exe`); the
+  x64 one runs there too, emulated and slower.
+- **A package update fails** (no `pkexec`, or the password prompt was
+  cancelled): download the newest `.deb` / `.rpm` and install it as above.
 - Something else? [Open an issue](https://github.com/MinifyX/UwUSSH-Client/issues)
   — no promises on how fast, see the README.
 
@@ -154,30 +168,37 @@ Building it yourself instead: [Development](../README.md#development).
 # UwUSSH installieren
 
 UwUSSH läuft unter **Windows 10 und 11** (x64 und ARM), **macOS 11 oder
-neuer** (Apple-Chip und Intel) und **Linux** (x86_64). Das Setup
-installiert nur für deinen Benutzer — ohne Adminrechte. UwUSSH spricht Deutsch
-oder Englisch, je nach System; **Einstellungen → Darstellung → Sprache**
-schaltet um.
+neuer** (Apple-Chip und Intel) und **Linux** (x86_64 und arm64). Unter Windows
+und macOS installiert das Setup nur für deinen Benutzer — ohne Adminrechte.
+UwUSSH spricht Deutsch oder Englisch, je nach System; **Einstellungen →
+Darstellung → Sprache** schaltet um.
 
-Jedes System bekommt dasselbe Setup mit Nyu. Lade es von den
+Windows und macOS bekommen UwUSSHs eigenes Setup mit Nyu, Linux ein Paket für
+deine Distribution oder einen portablen Ordner. Lade von den
 [Releases](https://github.com/MinifyX/UwUSSH-Client/releases) herunter: das
 neueste ganz oben. Betas sind als **Pre-release** markiert; die neueste
-Version ohne diese Markierung ist die stabile.
+Version ohne diese Markierung ist die stabile. Die Dateinamen enthalten keine
+Version, `https://github.com/MinifyX/UwUSSH-Client/releases/latest/download/<Datei>`
+holt also immer die neueste stabile.
 
-| System                | Datei unter **Assets**                         |
-| --------------------- | ---------------------------------------------- |
-| Windows 10/11         | `UwUSSH-Setup-<Version>.exe`                   |
-| Windows 11 auf ARM    | `UwUSSH-Setup-<Version>-windows-arm64.exe`     |
-| macOS, Apple-Chip (M) | `UwUSSH-Setup-<Version>-macos-arm64.dmg`       |
-| macOS, Intel          | `UwUSSH-Setup-<Version>-macos-x64.dmg`         |
-| Linux, x86_64         | `UwUSSH-Setup-<Version>-linux-x64.AppImage`    |
-| Linux, als Paket      | `UwUSSH-<Version>-linux-x64.deb` (siehe unten) |
+| System                     | Datei unter **Assets**                                              |
+| -------------------------- | ------------------------------------------------------------------- |
+| Windows 10/11 (x64)        | `UwUSSH-windows-x64-setup.exe`                                      |
+| Windows 11 auf ARM         | `UwUSSH-windows-arm64-setup.exe`                                    |
+| macOS (Intel & Apple-Chip) | `UwUSSH-macos-universal.dmg`                                        |
+| Ubuntu / Debian            | `UwUSSH-linux-x64.deb` · ARM: `UwUSSH-linux-arm64.deb`              |
+| Fedora / openSUSE          | `UwUSSH-linux-x64.rpm` · ARM: `UwUSSH-linux-arm64.rpm`              |
+| Arch Linux                 | AUR: `yay -S uwussh-bin`                                            |
+| Linux, portabel            | `UwUSSH-linux-x64-portable.tar.gz` · ARM: `…-arm64-portable.tar.gz` |
+
+Die `UwUSSH-update-…`-Dateien daneben sind für den Updater in der App; du
+brauchst sie nicht.
 
 **Download prüfen (optional).** Jedes Release hat eine `SHA256SUMS.txt`. Unter
 macOS und Linux im Download-Ordner: `shasum -a 256 -c SHA256SUMS.txt
 --ignore-missing`. Unter Windows in PowerShell:
-`Get-FileHash "$env:USERPROFILE\Downloads\UwUSSH-Setup-<Version>.exe"` und mit
-der Zeile in der Datei vergleichen.
+`Get-FileHash "$env:USERPROFILE\Downloads\UwUSSH-windows-x64-setup.exe"` und
+mit der Zeile in der Datei vergleichen.
 
 ## Windows
 
@@ -221,24 +242,29 @@ geht auch, lässt aber die Daten in
 
 ## Linux
 
-```bash
-chmod +x UwUSSH-Setup-*-linux-x64.AppImage
-./UwUSSH-Setup-*-linux-x64.AppImage
-```
+**Ubuntu, Debian und Verwandte:** `sudo apt install ./UwUSSH-linux-x64.deb`
+(`…-arm64.deb` auf ARM). **Fedora, openSUSE:**
+`sudo dnf install ./UwUSSH-linux-x64.rpm` oder
+`sudo zypper install ./UwUSSH-linux-x64.rpm`. Beide installieren die App
+systemweit als Paket `uwussh`, mit Eintrag im Anwendungsmenü, nutzen das
+WebKitGTK 4.1 des Systems und aktualisieren sich selbst: UwUSSH lädt das
+nächste Paket und installiert es bei **Jetzt neu starten**, nach Eingabe des
+Administrator-Passworts. Deinstallieren mit `sudo apt remove uwussh` bzw.
+`sudo dnf remove uwussh`. UwUKeygen, der Schlüssel-Generator, kommt nur mit
+den Setups für Windows und macOS.
 
-Es installiert nach `~/.local/share/uwussh`, mit **UwUSSH** und **UwUKeygen** im
-Anwendungsmenü und auf Wunsch auf dem Schreibtisch. Es bringt sein eigenes
-WebKit mit, vorher muss nichts installiert werden. Startet das AppImage nicht,
-weil FUSE fehlt (Ubuntu ab 22.04 hat kein `libfuse2`), dann mit
-`./UwUSSH-Setup-*.AppImage --appimage-extract-and-run`. Die installierte App
-läuft entpackt und braucht gar kein FUSE.
+**Arch Linux:** `yay -S uwussh-bin` (oder ein anderer AUR-Helfer).
+Aktualisiert wird es von pacman, nicht von UwUSSH selbst.
 
-Deinstallieren: das Setup noch einmal starten und **Deinstallieren …** wählen.
+**Portabel:** `UwUSSH-linux-x64-portable.tar.gz` irgendwo entpacken und
+`./UwUSSH/uwussh` starten. Bringt sein eigenes WebKit mit, installiert nichts
+und aktualisiert sich nicht — zum Aktualisieren die neueste holen.
 
-**Lieber ein Paket?** Die `.deb` installiert nur die App über apt
-(`sudo apt install ./UwUSSH-<Version>-linux-x64.deb`) und nutzt das
-WebKitGTK 4.1 des Systems. Sie hat kein Setup und keine automatischen Updates:
-zum Aktualisieren die nächste `.deb` installieren.
+**Mit dem Setup-AppImage von UwUSSH 0.1 installiert** (nach
+`~/.local/share/uwussh`)? Diese Kopie aktualisiert sich weiter wie bisher. Wer
+lieber ein Paket hätte: sie deinstallieren (**Deinstallieren …** im Setup;
+Hosts und Tresor behalten) und das Paket installieren — beide nutzen dieselben
+Daten.
 
 **Tresor merken unter Linux** nutzt den Secret Service (GNOME Keyring, KWallet).
 Ohne einen — etwa unter einem reinen Fenstermanager — legt UwUSSH seinen
@@ -273,8 +299,10 @@ alle sechs Stunden sucht es nach einer neuen Version, lädt sie still herunter
 wechselt zwischen den Kanälen Beta und Stabil. Stabil bekommt nur Versionen
 ohne Beta-Markierung.
 
-Ein neueres Setup kann auch einfach über ein installiertes UwUSSH laufen. Hosts,
-Tresor und Einstellungen bleiben.
+Ein neueres Setup kann auch einfach über ein installiertes UwUSSH laufen, ein
+neueres Paket über das alte installiert werden. Hosts, Tresor und Einstellungen
+bleiben. Der portable Ordner aktualisiert sich nicht selbst, das Arch-Paket mit
+pacman.
 
 ## Wo deine Daten liegen
 
@@ -282,7 +310,7 @@ Tresor und Einstellungen bleiben.
 | --------------------------------- | ------------------------------------ | -------------------------------------------------- | ----------------------------------- |
 | Hosts, Gruppen, Host-Keys, Tresor | `%APPDATA%\app.uwussh.desktop\`      | `~/Library/Application Support/app.uwussh.desktop` | `~/.local/share/app.uwussh.desktop` |
 | App-Einstellungen (Aussehen, …)   | `%LOCALAPPDATA%\app.uwussh.desktop\` | `~/Library/WebKit/app.uwussh.desktop`              | `~/.local/share/app.uwussh.desktop` |
-| Das Programm                      | `%LOCALAPPDATA%\Programs\UwUSSH\`    | `/Applications/UwUSSH.app`                         | `~/.local/share/uwussh`             |
+| Das Programm                      | `%LOCALAPPDATA%\Programs\UwUSSH\`    | `/Applications/UwUSSH.app`                         | `/usr/bin/uwussh-desktop`           |
 
 Passwörter und private Keys werden nur verschlüsselt gespeichert. Für einen
 Umzug ohne Sync-Server: **Einstellungen → Import & Export** schreibt alles in
@@ -302,8 +330,11 @@ anderen Rechner wieder einliest.
   Quarantäne-Markierung an der installierten App hängen bleibt, was das Setup
   vermeidet. `xattr -dr com.apple.quarantine /Applications/UwUSSH.app` entfernt
   sie.
-- **Linux auf ARM** ist noch nicht gebaut. Windows auf ARM hat ein eigenes
-  Setup (`…-windows-arm64.exe`); das x64-Setup läuft dort auch, emuliert und
-  langsamer.
+- **Windows auf ARM** hat ein eigenes Setup
+  (`UwUSSH-windows-arm64-setup.exe`); das x64-Setup läuft dort auch, emuliert
+  und langsamer.
+- **Ein Paket-Update klappt nicht** (kein `pkexec`, oder die Passwortabfrage
+  abgebrochen): die neueste `.deb` / `.rpm` herunterladen und wie oben
+  installieren.
 - Etwas anderes? [Issue aufmachen](https://github.com/MinifyX/UwUSSH-Client/issues)
   — ohne Versprechen, wie schnell, siehe README.

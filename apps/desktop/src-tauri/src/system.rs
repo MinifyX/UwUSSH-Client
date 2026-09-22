@@ -35,9 +35,11 @@ pub(crate) async fn check_for_updates(app: AppHandle) -> CommandResult<Option<Up
     updates::check(&app).await
 }
 
+/// Async: a Linux package waits for the password prompt and the package
+/// manager, which must not hold up the main thread.
 #[tauri::command]
-pub(crate) fn install_update(app: AppHandle) -> CommandResult<()> {
-    updates::install_now(&app)
+pub(crate) async fn install_update(app: AppHandle) -> CommandResult<()> {
+    updates::install_now(&app).await
 }
 
 /// The project pages the app links to. The page names one; it never hands in

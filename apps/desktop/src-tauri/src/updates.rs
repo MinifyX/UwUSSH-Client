@@ -1,9 +1,16 @@
-//! Automatic updates on Windows, the same way UwUMail does them.
+//! Automatic updates, the same way UwUMail does them.
 //!
 //! UwUSSH looks for a new version shortly after starting and every six hours,
-//! downloads the signed `UwUSSH-Setup-<version>.exe` quietly and tells the page.
-//! "Restart now" hands over to that setup in `--update` mode; otherwise the
-//! update is applied the next time UwUSSH starts.
+//! downloads the signed setup (`UwUSSH-Setup-<version>.exe` on Windows) quietly
+//! and tells the page. "Restart now" hands over to that setup in `--update`
+//! mode; otherwise the update is applied the next time UwUSSH starts.
+//!
+//! A copy dpkg or rpm installed from the release's `.deb` / `.rpm` gets the
+//! next package instead and installs it on "Restart now" with `pkexec dpkg -i`
+//! or `pkexec rpm -U` — never on its own at start, since that asks for the
+//! administrator password. Only when the package manager really owns the
+//! running program, though: an Arch package repacked from the `.deb` updates
+//! through pacman, the portable folder not at all.
 //!
 //! Two channels, both feeds on the `updates` branch of the public repository:
 //! `stable.json` carries plain versions only, `beta.json` carries betas too.
@@ -91,8 +98,8 @@ fn is_newer(app: &AppHandle, version: &str) -> bool {
     semver::Version::parse(version).is_ok_and(|v| v > app.package_info().version)
 }
 
-fn setup_file(dir: &Path, version: &str) -> PathBuf {
-    dir.join(setup_name(version))
+fn setup_file(dir: &Path, kind: Install, version: &str) -> PathBuf {
+    dir.join(setup_name(kind, version))
 }
 
 /// Where the setup keeps what it installed (macOS and Linux; on Windows it is
@@ -135,19 +142,92 @@ fn installed_by_setup() -> bool {
     }
 }
 
-/// The feed's platform key for this build, as `pnpm release` writes it.
-fn feed_target() -> String {
+/// The Linux package name of the `.deb` and `.rpm` (`scripts/build-setup.mjs`).
+#[cfg(target_os = "linux")]
+const PACKAGE: &str = "uwussh";
+
+/// How this copy of UwUSSH was installed, as far as updating it goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+enum Install {
+    /// By UwUSSH's own setup, which the updater runs again.
+    Setup,
+    /// By dpkg, from the release's `.deb`.
+    Deb,
+    /// By rpm, from the release's `.rpm`.
+    Rpm,
+}
+
+/// How this copy updates itself, or `None` when it doesn't: a copy out of a
+/// disk image, the portable folder, a package some other tool put together.
+/// Asked once; the answer doesn't change while UwUSSH runs.
+fn install_kind() -> Option<Install> {
+    static KIND: std::sync::OnceLock<Option<Install>> = std::sync::OnceLock::new();
+    *KIND.get_or_init(|| {
+        if installed_by_setup() {
+            return Some(Install::Setup);
+        }
+        #[cfg(target_os = "linux")]
+        {
+            use tauri::utils::{config::BundleType, platform::bundle_type};
+            let me = std::env::current_exe().ok()?;
+            // The bundler marks the program with the package it went into.
+            // The AUR package repacks the `.deb`, so the mark alone isn't
+            // enough: the package manager has to know the file as its own.
+            match bundle_type() {
+                Some(BundleType::Deb) if dpkg_owns(&me) => return Some(Install::Deb),
+                Some(BundleType::Rpm) if rpm_owns(&me) => return Some(Install::Rpm),
+                _ => {}
+            }
+        }
+        None
+    })
+}
+
+/// Whether dpkg installed `exe` as part of UwUSSH's package.
+#[cfg(target_os = "linux")]
+fn dpkg_owns(exe: &Path) -> bool {
+    let list = format!("/var/lib/dpkg/info/{PACKAGE}.list");
+    std::fs::read_to_string(list)
+        .is_ok_and(|files| files.lines().any(|line| Path::new(line.trim()) == exe))
+}
+
+/// Whether rpm installed `exe` as part of UwUSSH's package.
+#[cfg(target_os = "linux")]
+fn rpm_owns(exe: &Path) -> bool {
+    std::process::Command::new("rpm")
+        .args(["-qf", "--queryformat", "%{NAME}"])
+        .arg(exe)
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .is_ok_and(|out| out.status.success() && out.stdout == PACKAGE.as_bytes())
+}
+
+/// The feed's platform key for this build, as `pnpm release` writes it:
+/// `windows-x86_64`, `darwin-aarch64`, `linux-x86_64` for the setup, with
+/// `-deb` / `-rpm` added for a copy the package manager installed. Always
+/// named exactly, so a package never falls back to the setup's entry.
+fn feed_target(kind: Install) -> String {
     let os = match std::env::consts::OS {
         "macos" => "darwin",
         other => other,
     };
-    format!("{os}-{}", std::env::consts::ARCH)
+    let base = format!("{os}-{}", std::env::consts::ARCH);
+    match kind {
+        Install::Setup => base,
+        Install::Deb => format!("{base}-deb"),
+        Install::Rpm => format!("{base}-rpm"),
+    }
 }
 
 /// A waiting update, opened and checked, with the file held so that nobody can
 /// change or replace it until the handle is dropped.
 struct Pending {
     update: ReadyUpdate,
+    /// The bytes the signature was checked on (a package is installed from these).
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    bytes: Vec<u8>,
     _locked: std::fs::File,
 }
 
@@ -156,21 +236,25 @@ struct Pending {
 /// folder any program of the user can write to, so neither its path nor the
 /// file is trusted blindly — and the file stays locked against writing and
 /// deleting from the check until the setup has started.
-fn open_pending(app: &AppHandle) -> Option<Pending> {
+fn open_pending(app: &AppHandle, kind: Install) -> Option<Pending> {
     let dir = updates_dir(app)?;
     let raw = std::fs::read(dir.join(PENDING)).ok()?;
     let update = serde_json::from_slice::<ReadyUpdate>(&raw).ok()?;
     semver::Version::parse(&update.version).ok()?;
-    let expected = setup_file(&dir, &update.version);
+    let expected = setup_file(&dir, kind, &update.version);
     if update.file != expected {
         return None;
     }
     let mut file = open_locked(&expected).ok()?;
     let mut bytes = Vec::new();
     std::io::Read::read_to_end(&mut file, &mut bytes).ok()?;
-    let name = setup_name(&update.version);
-    verify(app, &bytes, &update.signature, &name).then_some(Pending {
+    let name = setup_name(kind, &update.version);
+    if !verify(app, &bytes, &update.signature, &name) {
+        return None;
+    }
+    Some(Pending {
         update,
+        bytes,
         _locked: file,
     })
 }
@@ -189,11 +273,20 @@ fn open_locked(path: &Path) -> std::io::Result<std::fs::File> {
     options.open(path)
 }
 
-/// The file the release publishes for this platform's updater, and the name
-/// its signature has to carry. Windows and Linux run the same file people
-/// download; on macOS people get a disk image, and the updater the bare setup
-/// program that is inside it.
-fn setup_name(version: &str) -> String {
+/// The name the signature of this platform's update has to carry. The release
+/// publishes the files under names without a version
+/// (`UwUSSH-windows-x64-setup.exe`, `UwUSSH-update-macos-universal`, …) but
+/// signs each under this one, which binds the bytes to the version the feed
+/// claims. These are the names installed versions look for: never change them,
+/// only add. On macOS the update is the bare setup program from the disk
+/// image, one universal build signed once under each name.
+fn setup_name(kind: Install, version: &str) -> String {
+    let package = |ext: &str| format!("UwUSSH-{version}-linux-{}.{ext}", std::env::consts::ARCH);
+    match kind {
+        Install::Deb => return package("deb"),
+        Install::Rpm => return package("rpm"),
+        Install::Setup => {}
+    }
     match (std::env::consts::OS, std::env::consts::ARCH) {
         ("macos", "aarch64") => format!("UwUSSH-Setup-{version}-macos-arm64-update"),
         ("macos", _) => format!("UwUSSH-Setup-{version}-macos-x64-update"),
@@ -359,17 +452,86 @@ fn hand_over(pending: Pending, relaunch: bool) -> Result<(), String> {
     started
 }
 
+/// Installs a checked `.deb` or `.rpm` through the package manager, asking for
+/// the administrator password with pkexec, and starts the new version. Blocks
+/// until the package manager is done.
+#[cfg(target_os = "linux")]
+fn install_package(pending: Pending, kind: Install) -> Result<(), String> {
+    let failed = |e: std::io::Error| format!("Couldn't install the update: {e}");
+    // The program's path before the package replaces it: afterwards the
+    // kernel reports the old file as deleted.
+    let me = std::env::current_exe().map_err(failed)?;
+    let (ext, command): (&str, &[&str]) = match kind {
+        Install::Deb => ("deb", &["dpkg", "-i"]),
+        // rpm sorts `0.2.0-beta.1` after `0.2.0`; UwUSSH has already checked
+        // that the version is newer and that the package is signed for it.
+        Install::Rpm => ("rpm", &["rpm", "-U", "--oldpackage"]),
+        Install::Setup => return Err("Not a package.".into()),
+    };
+    // Each download gets one attempt, as with the setup.
+    if let Some(dir) = pending.update.file.parent() {
+        let _ = std::fs::remove_file(dir.join(PENDING));
+    }
+    // The bytes whose signature was checked go to a fresh folder only this
+    // user can open, and root installs that copy, not the file in the
+    // updates folder.
+    let staging = tempfile::Builder::new()
+        .prefix("uwussh-update-")
+        .tempdir()
+        .map_err(failed)?;
+    let file = staging.path().join(format!("{PACKAGE}.{ext}"));
+    std::fs::write(&file, &pending.bytes).map_err(failed)?;
+    drop(pending);
+    let status = std::process::Command::new("pkexec")
+        .args(command)
+        .arg(&file)
+        .stdin(std::process::Stdio::null())
+        .status()
+        .map_err(|e| {
+            format!(
+                "Couldn't ask for the administrator password (pkexec): {e}. \
+                 Install the update with your package manager."
+            )
+        })?;
+    if !status.success() {
+        return Err(format!(
+            "The package manager didn't install the update ({status}). \
+             Install it with your package manager."
+        ));
+    }
+    let mut again = std::process::Command::new(&me);
+    {
+        use std::os::unix::process::CommandExt;
+        // Its own process group, so it lives on when this UwUSSH quits.
+        again.process_group(0);
+    }
+    again
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("The update is installed, but UwUSSH couldn't start again: {e}"))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn install_package(_pending: Pending, _kind: Install) -> Result<(), String> {
+    Err("Only Linux packages update this way.".into())
+}
+
 /// Called first thing on start: installs a waiting update, or cleans up after
 /// one. Returns true when UwUSSH must quit right away because the setup takes
 /// over.
 pub fn apply_pending_on_start(app: &AppHandle) -> bool {
-    if cfg!(debug_assertions) || !installed_by_setup() {
+    if cfg!(debug_assertions) {
         return false;
     }
-    match open_pending(app) {
+    let Some(kind) = install_kind() else {
+        return false;
+    };
+    match open_pending(app, kind) {
         Some(pending) if is_newer(app, &pending.update.version) => {
-            // Another window still has sessions open; the update waits.
-            !other_instances_running() && hand_over(pending, true).is_ok()
+            // Another window still has sessions open; the update waits. So
+            // does a package, for "Restart now": nobody wants a password
+            // prompt just for starting UwUSSH.
+            kind == Install::Setup && !other_instances_running() && hand_over(pending, true).is_ok()
         }
         _ => {
             if let Some(dir) = updates_dir(app) {
@@ -404,9 +566,9 @@ pub async fn check(app: &AppHandle) -> Result<Option<UpdateInfo>, String> {
     if let Some(update) = ready(app) {
         return Ok(Some(update));
     }
-    if !installed_by_setup() {
+    let Some(kind) = install_kind() else {
         return Ok(None);
-    }
+    };
     let channel = *state.channel.lock();
     let feed = match channel {
         Channel::Stable => format!("{FEED}/stable.json"),
@@ -422,7 +584,7 @@ pub async fn check(app: &AppHandle) -> Result<Option<UpdateInfo>, String> {
         // The Linux setup brings its own WebKit and is large; a slow line
         // needs its time.
         .timeout(Duration::from_secs(15 * 60))
-        .target(feed_target())
+        .target(feed_target(kind))
         .build()
         .map_err(fail)?;
     let Some(found) = updater.check().await.map_err(fail)? else {
@@ -439,7 +601,7 @@ pub async fn check(app: &AppHandle) -> Result<Option<UpdateInfo>, String> {
     // out the bytes; the file name in it is checked here, against the version
     // the feed claims.
     let bytes = found.download(|_, _| {}, || {}).await.map_err(fail)?;
-    let name = setup_name(&found.version);
+    let name = setup_name(kind, &found.version);
     if !verify(app, &bytes, &found.signature, &name) {
         return Err(format!(
             "The update's signature doesn't belong to {name}, so it was not saved."
@@ -448,7 +610,7 @@ pub async fn check(app: &AppHandle) -> Result<Option<UpdateInfo>, String> {
     let dir = updates_dir(app).ok_or("No folder for updates")?;
     let save = |e: std::io::Error| format!("Couldn't save the update: {e}");
     std::fs::create_dir_all(&dir).map_err(save)?;
-    let file = setup_file(&dir, &found.version);
+    let file = setup_file(&dir, kind, &found.version);
     std::fs::write(&file, &bytes).map_err(save)?;
     let update = ReadyUpdate {
         version: found.version.clone(),
@@ -466,13 +628,14 @@ pub async fn check(app: &AppHandle) -> Result<Option<UpdateInfo>, String> {
 }
 
 /// "Restart now".
-pub fn install_now(app: &AppHandle) -> Result<(), String> {
+pub async fn install_now(app: &AppHandle) -> Result<(), String> {
     if cfg!(debug_assertions) {
         return Err("Development builds don't install updates.".into());
     }
     if ready(app).is_none() {
         return Err("There's no update waiting.".into());
     }
+    let kind = install_kind().ok_or("This copy of UwUSSH doesn't update itself.")?;
     if other_instances_running() {
         return Err(
             "Another UwUSSH window is still open. Close it first, so its connections aren't cut off."
@@ -481,8 +644,20 @@ pub fn install_now(app: &AppHandle) -> Result<(), String> {
     }
     // Read it back from disk and keep it locked, so the signature is checked
     // on the file that runs.
-    let pending = open_pending(app).ok_or("The downloaded update is damaged.")?;
-    hand_over(pending, true)?;
+    let pending = open_pending(app, kind).ok_or("The downloaded update is damaged.")?;
+    if kind == Install::Setup {
+        hand_over(pending, true)?;
+    } else {
+        // The password prompt and the package manager take their time; the
+        // window keeps drawing meanwhile.
+        let installed =
+            tauri::async_runtime::spawn_blocking(move || install_package(pending, kind))
+                .await
+                .map_err(|e| format!("Couldn't install the update: {e}"))?;
+        // Tried once either way, like a setup: pending.json is gone.
+        *app.state::<Updates>().ready.lock() = None;
+        installed?;
+    }
     app.exit(0);
     Ok(())
 }
@@ -490,7 +665,10 @@ pub fn install_now(app: &AppHandle) -> Result<(), String> {
 /// Checks in the background for as long as UwUSSH runs.
 pub fn start(app: &AppHandle) {
     app.manage(Updates::default());
-    if let Some(pending) = open_pending(app).filter(|p| is_newer(app, &p.update.version)) {
+    if let Some(pending) = install_kind()
+        .and_then(|kind| open_pending(app, kind))
+        .filter(|p| is_newer(app, &p.update.version))
+    {
         *app.state::<Updates>().ready.lock() = Some(pending.update);
     }
     if cfg!(debug_assertions) {
@@ -565,7 +743,7 @@ mod tests {
     #[test]
     fn only_the_file_uwussh_names_counts_as_a_setup() {
         let dir = Path::new("updates");
-        let file = setup_file(dir, "0.1.0-beta.2");
+        let file = setup_file(dir, Install::Setup, "0.1.0-beta.2");
         let name = file.file_name().unwrap().to_string_lossy().into_owned();
         assert!(name.starts_with("UwUSSH-Setup-0.1.0-beta.2"), "{name}");
         #[cfg(all(windows, target_arch = "x86_64"))]
@@ -579,8 +757,56 @@ mod tests {
     }
 
     #[test]
+    fn packages_are_signed_under_their_own_versioned_names() {
+        // What `pnpm release` signs the `.deb` / `.rpm` as (scripts/release.mjs).
+        let arch = std::env::consts::ARCH;
+        assert_eq!(
+            setup_name(Install::Deb, "0.2.0"),
+            format!("UwUSSH-0.2.0-linux-{arch}.deb")
+        );
+        assert_eq!(
+            setup_name(Install::Rpm, "0.2.0-beta.1"),
+            format!("UwUSSH-0.2.0-beta.1-linux-{arch}.rpm")
+        );
+        assert_eq!(
+            feed_target(Install::Deb),
+            format!("{}-deb", feed_target(Install::Setup))
+        );
+        assert_eq!(
+            feed_target(Install::Rpm),
+            format!("{}-rpm", feed_target(Install::Setup))
+        );
+    }
+
+    #[test]
+    fn the_names_installed_versions_look_for_stay() {
+        // The release signs under exactly these; older installs know no others.
+        #[cfg(all(windows, target_arch = "x86_64"))]
+        assert_eq!(
+            setup_name(Install::Setup, "1.2.3"),
+            "UwUSSH-Setup-1.2.3.exe"
+        );
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        assert_eq!(
+            setup_name(Install::Setup, "1.2.3"),
+            "UwUSSH-Setup-1.2.3-macos-arm64-update"
+        );
+        #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+        assert_eq!(
+            setup_name(Install::Setup, "1.2.3"),
+            "UwUSSH-Setup-1.2.3-macos-x64-update"
+        );
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        assert_eq!(
+            setup_name(Install::Setup, "1.2.3"),
+            "UwUSSH-Setup-1.2.3-linux-x64.AppImage"
+        );
+        assert!(setup_name(Install::Setup, "1.2.3").starts_with("UwUSSH-Setup-1.2.3"));
+    }
+
+    #[test]
     fn the_feed_key_is_the_one_the_release_writes() {
-        let target = feed_target();
+        let target = feed_target(Install::Setup);
         assert!(
             ["windows-", "darwin-", "linux-"]
                 .iter()

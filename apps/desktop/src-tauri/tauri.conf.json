@@ -62,6 +62,16 @@
     "copyright": "GPL-3.0-only",
     "license": "GPL-3.0-only",
     "shortDescription": "SSH client with self-hosted encrypted sync",
-    "longDescription": "The SSH client I build for myself, because every other one annoyed me. Termius-clean, PuTTY-deep, with a sync server that is yours."
+    "longDescription": "The SSH client I build for myself, because every other one annoyed me. Termius-clean, PuTTY-deep, with a sync server that is yours.",
+    "linux": {
+      "deb": {
+        "desktopTemplate": "linux/uwussh.desktop",
+        "conflicts": ["uw-ussh"],
+        "replaces": ["uw-ussh"]
+      },
+      "rpm": {
+        "desktopTemplate": "linux/uwussh.desktop"
+      }
+    }
   }
 }

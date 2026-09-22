@@ -761,8 +761,10 @@ every six hours, downloads a newer setup quietly and offers a restart. Only the
 setup is signed (minisign, key in `tauri.conf.json`), so the signature is
 checked on download and again on the file on disk right before it runs, with
 the file locked against changes from that check until the setup has started.
-The signature must also name `UwUSSH-Setup-<version>.exe` for exactly the
-version the feed offers, the waiting update must sit exactly where the app put
+The signature must also name the versioned file for exactly the version the
+feed offers (`UwUSSH-Setup-<version>.exe` on Windows; the release publishes
+the same bytes as `UwUSSH-windows-x64-setup.exe` and signs a copy under the
+versioned name, so download links never change while the version stays bound), the waiting update must sit exactly where the app put
 it, and the setup refuses to replace a newer version with an older one — or to
 update at all when it can't tell which version is installed. While another UwUSSH window is
 running from the same file, nothing hands over, so its connections aren't cut
@@ -779,17 +781,32 @@ swaps each in by moving the old one aside first. macOS gets them in
 `~/.local/share/uwussh`, with menu entries and an optional desktop icon,
 unpacked so that no FUSE is needed. What went where is kept in `install.json`
 in the setup's config folder; there is no "Installed apps" list, so the setup,
-started again, offers **Uninstall …**. People download a `.dmg` on macOS and
-the setup AppImage on Linux; the updater runs the bare setup program on macOS
-(no quarantine mark, since it never passed a browser) and the same AppImage on
-Linux, with the same two signature checks and the same refusal to go back —
-and only for a copy the setup installed: an app from the `.deb` updates the
-way it came. Bundles are signed ad hoc on macOS, which Apple silicon requires;
-nothing is notarized.
+started again, offers **Uninstall …**. People download one universal `.dmg`
+on macOS; the updater runs the bare setup program from it (no quarantine mark,
+since it never passed a browser), with the same two signature checks and the
+same refusal to go back — and only for a copy the setup installed. Bundles are
+signed ad hoc on macOS, which Apple silicon requires; nothing is notarized.
+
+**Linux** downloads are packages now: a `.deb` and an `.rpm` (Tauri's own,
+package `uwussh`, installed to `/usr`) for x64 and arm64, and a portable
+`.tar.gz` of the unpacked AppImage. A package installs its own updates:
+`updates.rs` sees the bundle type Tauri stamped into the program and checks
+that dpkg (`/var/lib/dpkg/info/uwussh.list` lists the running program) or rpm
+(`rpm -qf`) really owns it, then reads the feed entry `linux-<arch>-deb` /
+`-rpm`, checks the signature names `UwUSSH-<version>-linux-<arch>.deb` /
+`.rpm`, and on **Restart now** hands the checked bytes from a private temp
+folder to `pkexec dpkg -i` / `pkexec rpm -U`. The AUR package repacks the
+`.deb` but isn't dpkg's, so it updates through pacman; the portable folder
+doesn't update. The setup AppImage is still built for x64, as the updater-only
+`UwUSSH-update-linux-x64.AppImage`, for copies the setup of 0.1 installed in
+`~/.local/share/uwussh`.
 
 CI (`.github/workflows/installers.yml`) checks the workspace on macOS and
-Linux and builds both macOS architectures and Linux when a tag is pushed. It
-holds no key: `pnpm release` downloads what it built and signs it here.
+Linux and builds Windows on ARM, the universal macOS disk image and the Linux
+packages for x64 and arm64 when a tag is pushed, installing the `.deb` once as
+a check. It holds no key: `pnpm release` downloads what it built and signs it
+here. `.github/workflows/aur.yml` pushes the AUR package `uwussh-bin` once a
+release is published, with the AUR key and nothing else.
 
 ## UwUKeygen
 

@@ -106,18 +106,22 @@ headed; the status below says what already works today.
 ## Install
 
 Windows 10 or 11 (x64 and ARM), macOS 11 or newer (Apple silicon and Intel),
-Linux (x86_64).
+Linux (x86_64 and arm64).
 
 1. Open the [releases](https://github.com/MinifyX/UwUSSH-Client/releases) and
-   download the setup for your system from the newest one:
-   `UwUSSH-Setup-<version>.exe` (`…-windows-arm64.exe` on ARM),
-   `…-macos-arm64.dmg` / `…-macos-x64.dmg`, or `…-linux-x64.AppImage`.
+   download the file for your system from the newest one:
+   `UwUSSH-windows-x64-setup.exe` (`UwUSSH-windows-arm64-setup.exe` on ARM),
+   `UwUSSH-macos-universal.dmg`, or on Linux `UwUSSH-linux-x64.deb` /
+   `.rpm` (`…-arm64…` on ARM), `yay -S uwussh-bin` on Arch, or the
+   `…-portable.tar.gz` to just unpack and run.
 2. Run it. Neither Windows nor macOS knows the setup, because it isn't signed
    with a paid certificate: on Windows **More info → Run anyway**, on macOS
    **System Settings → Privacy & Security → Open Anyway**.
 3. Click **Install**. No admin prompt: it installs for your user only, brings
    UwUKeygen along unless you untick it under Options, and keeps itself up to
-   date.
+   date. The Linux packages update themselves too, asking for the
+   administrator password; the Arch package updates with pacman, the portable
+   folder not at all.
 
 The [install guide](docs/install.md) has the details: checking the download,
 updates, uninstalling, where your data lives, and what to do when something

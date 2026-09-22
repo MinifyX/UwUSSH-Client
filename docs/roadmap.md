@@ -167,8 +167,10 @@ The point where I can stop using anything else.
 - **Linux and macOS builds are done** (0.1.0-beta.8): the same setup with Nyu
   for macOS on Apple silicon and Intel and for Linux, with automatic updates
   on all three, built by CI and signed where the key is. Plus a `.deb`.
-  Windows and Linux on ARM are still to come.
-- Portable build
+- **Windows on ARM** (0.1.2), then **one release format** for all three
+  UwUSuite apps: download names without a version, one universal macOS disk
+  image, `.deb` and `.rpm` for x64 and arm64 that update themselves, the AUR
+  package `uwussh-bin`, and a portable Linux folder.
 - Onboarding, accessibility pass, the full Nyu scene set
 
 ## M5 · Homelab

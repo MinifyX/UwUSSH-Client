@@ -1,10 +1,14 @@
 // The update feeds installed apps look for on the `updates` branch, written
 // by `pnpm release`.
 //
-// Each platform gets the setup it runs to update itself: the Windows setup,
-// the bare setup program from the macOS disk image, the Linux AppImage. Every
-// one needs its updater signature (.sig). Versions with a suffix (-beta.1) only
-// go into the Beta feed, plain versions into Stable and Beta.
+// Each platform gets what it updates itself with: the Windows setup, the bare
+// setup program from the macOS disk image (one universal file for both Mac
+// platforms), the Linux setup AppImage for copies an earlier setup installed,
+// and the .deb / .rpm for copies dpkg or rpm installed (`linux-x86_64-deb`,
+// `linux-aarch64-rpm`, …). The URLs point at the release's file names without
+// a version; each signature was made on the same bytes under the versioned
+// name the installed app checks for. Versions with a suffix (-beta.1) only go
+// into the Beta feed, plain versions into Stable and Beta.
 
 export const REPOSITORY = 'MinifyX/UwUSSH-Client';
 export const FEED_BRANCH = 'updates';
@@ -16,7 +20,8 @@ export const downloadUrl = (version, name) =>
  * Feed file name → content.
  *
  * `setups` maps a Tauri platform key (`windows-x86_64`, `windows-aarch64`,
- * `darwin-aarch64`, `darwin-x86_64`, `linux-x86_64`) to `{ name, signature }`.
+ * `darwin-aarch64`, `darwin-x86_64`, `linux-x86_64`, `linux-x86_64-deb`, …) to
+ * `{ name, signature }`, `name` being the published file.
  */
 export function releaseFeeds({ version, notes, setups, date = new Date() }) {
   const channels = version.includes('-') ? ['beta'] : ['stable', 'beta'];

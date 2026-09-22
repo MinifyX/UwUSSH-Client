@@ -1,9 +1,9 @@
 // Publishes the UwUSSH version in tauri.conf.json, for Windows, macOS and
 // Linux, from this PC.
 //
-//   pnpm release                build and sign the Windows x64 setup, fetch and
-//                               sign the Windows ARM, macOS and Linux setups CI
-//                               built for the tag, check everything, publish it
+//   pnpm release                build the Windows x64 setup, fetch what CI built
+//                               for the tag (Windows ARM, macOS, Linux), sign
+//                               what the updater runs, check everything, publish it
 //   pnpm release --no-build     use the Windows setup already in target/installers
 //   pnpm release --windows-only only Windows x64, when CI can't help
 //
@@ -14,11 +14,20 @@
 // (default: Documents\UwUSSH-Update-Schluessel).
 //
 // The key never leaves this machine: CI (.github/workflows/installers.yml)
-// builds the other setups unsigned when the tag is pushed, and this
-// script downloads them and signs the files the updater runs here.
+// builds everything else unsigned when the tag is pushed, and this script
+// downloads it and signs the files the updater runs here.
 //
-// Creates the GitHub release with every setup and updates the feeds on the
-// `updates` branch, creating that branch the first time.
+// The release's files carry no version in their names (UwUSSH-windows-x64-setup.exe,
+// UwUSSH-linux-arm64.deb, …), so a link to the newest one never changes.
+// Installed apps, though, accept an update only when its signature names the
+// versioned file they expect (`UwUSSH-Setup-<version>.exe`, …): that binds the
+// signed bytes to the version the feed claims. So each file is signed as a
+// copy under that versioned name, the same bytes are published under the
+// plain name, and the feed points there — old and new apps both accept it.
+//
+// Creates the GitHub release with every file and a SHA256SUMS.txt, updates the
+// feeds on the `updates` branch (creating it the first time) and writes the AUR
+// package for it (see the end of this file).
 
 import { execFileSync } from 'node:child_process';
 import { createHash, createPublicKey, verify } from 'node:crypto';
@@ -36,6 +45,7 @@ import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { aurFiles, writeAur } from './aur.mjs';
 import { FEED_BRANCH, REPOSITORY, releaseFeeds } from './release-feeds.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -53,38 +63,59 @@ const conf = JSON.parse(readFileSync(join(root, 'apps/desktop/src-tauri/tauri.co
 const version = conf.version;
 const tag = `v${version}`;
 const installers = join(root, 'target', 'installers');
-const windowsName = `UwUSSH-Setup-${version}.exe`;
+const windowsName = 'UwUSSH-windows-x64-setup.exe';
 const windowsSetup = join(installers, windowsName);
 
 /**
- * What the release carries: each file, and for the ones an installed app
- * updates itself with, the feed's platform key.
+ * What the release carries: each file under its published name, the CI
+ * artifact it comes from (none: built here), and for the ones an installed app
+ * updates itself with, `sign`: the feed's platform key → the versioned name the
+ * signature has to carry. Those names are what installed apps check
+ * (`setup_name` in apps/desktop/src-tauri/src/updates.rs); never change one,
+ * or every install that expects it stops updating.
  */
+const linux = (arch, rust) => [
+  {
+    artifact: `installers-linux-${arch}`,
+    file: `UwUSSH-linux-${arch}.deb`,
+    sign: { [`linux-${rust}-deb`]: `UwUSSH-${version}-linux-${rust}.deb` },
+  },
+  {
+    artifact: `installers-linux-${arch}`,
+    file: `UwUSSH-linux-${arch}.rpm`,
+    sign: { [`linux-${rust}-rpm`]: `UwUSSH-${version}-linux-${rust}.rpm` },
+  },
+  { artifact: `installers-linux-${arch}`, file: `UwUSSH-linux-${arch}-portable.tar.gz` },
+];
 const PLATFORMS = [
-  { artifact: null, file: windowsName, feed: 'windows-x86_64' },
+  {
+    artifact: null,
+    file: windowsName,
+    sign: { 'windows-x86_64': `UwUSSH-Setup-${version}.exe` },
+  },
   {
     artifact: 'installers-windows-arm64',
-    file: `UwUSSH-Setup-${version}-windows-arm64.exe`,
-    feed: 'windows-aarch64',
+    file: 'UwUSSH-windows-arm64-setup.exe',
+    sign: { 'windows-aarch64': `UwUSSH-Setup-${version}-windows-arm64.exe` },
   },
+  { artifact: 'installers-macos-universal', file: 'UwUSSH-macos-universal.dmg' },
   {
-    artifact: 'installers-macos-arm64',
-    file: `UwUSSH-Setup-${version}-macos-arm64-update`,
-    feed: 'darwin-aarch64',
+    // One universal program for both Mac platforms, signed once under each name.
+    artifact: 'installers-macos-universal',
+    file: 'UwUSSH-update-macos-universal',
+    sign: {
+      'darwin-aarch64': `UwUSSH-Setup-${version}-macos-arm64-update`,
+      'darwin-x86_64': `UwUSSH-Setup-${version}-macos-x64-update`,
+    },
   },
-  { artifact: 'installers-macos-arm64', file: `UwUSSH-Setup-${version}-macos-arm64.dmg` },
+  ...linux('x64', 'x86_64'),
+  ...linux('arm64', 'aarch64'),
   {
-    artifact: 'installers-macos-x64',
-    file: `UwUSSH-Setup-${version}-macos-x64-update`,
-    feed: 'darwin-x86_64',
-  },
-  { artifact: 'installers-macos-x64', file: `UwUSSH-Setup-${version}-macos-x64.dmg` },
-  {
+    // For copies an earlier setup AppImage installed into ~/.local/share/uwussh.
     artifact: 'installers-linux-x64',
-    file: `UwUSSH-Setup-${version}-linux-x64.AppImage`,
-    feed: 'linux-x86_64',
+    file: 'UwUSSH-update-linux-x64.AppImage',
+    sign: { 'linux-x86_64': `UwUSSH-Setup-${version}-linux-x64.AppImage` },
   },
-  { artifact: 'installers-linux-x64', file: `UwUSSH-${version}-linux-x64.deb` },
 ].filter((entry) => !windowsOnly || entry.artifact === null);
 
 console.log(`\n▸ Checking UwUSSH ${version}`);
@@ -113,11 +144,15 @@ if (typeof notes.de !== 'string' || typeof notes.en !== 'string') {
 const key = signingKey();
 
 if (build) {
-  console.log('\n▸ Building and signing the Windows setup');
+  console.log('\n▸ Building the Windows setup');
+  // Without the key: the build runs third-party build scripts.
+  const env = { ...process.env };
+  delete env.TAURI_SIGNING_PRIVATE_KEY;
+  delete env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD;
   execFileSync(process.execPath, [join(root, 'scripts', 'build-setup.mjs')], {
     cwd: root,
     stdio: 'inherit',
-    env: { ...process.env, ...key },
+    env,
   });
 } else if (!existsSync(windowsSetup)) {
   fail(`${windowsSetup} is missing. Run without --no-build.`);
@@ -129,7 +164,7 @@ const work = mkdtempSync(join(tmpdir(), 'uwussh-release-'));
 try {
   const files = new Map([[windowsName, windowsSetup]]);
   if (!windowsOnly) {
-    console.log('\n▸ Fetching the Windows ARM, macOS and Linux setups CI built for this tag');
+    console.log('\n▸ Fetching what CI built for this tag: Windows ARM, macOS, Linux');
     const ci = join(work, 'ci');
     const run = await ciRun(head);
     execFileSync('gh', ['run', 'download', String(run), '--repo', REPOSITORY, '--dir', ci], {
@@ -143,13 +178,23 @@ try {
       copyFileSync(from, to);
       files.set(entry.file, to);
     }
-    console.log('\n▸ Signing what the updater runs on Windows ARM, macOS and Linux');
-    for (const entry of PLATFORMS.filter((p) => p.artifact && p.feed)) {
-      const file = files.get(entry.file);
-      rmSync(`${file}.sig`, { force: true });
+  }
+
+  // Each under the versioned name its installed apps check for: a copy of the
+  // same bytes, in a folder of its own, so `tauri signer` writes that name into
+  // the signature's trusted comment.
+  console.log('\n▸ Signing what the updater runs, and checking it against the updater key');
+  const signed = {};
+  const signing = join(work, 'sign');
+  mkdirSync(signing);
+  for (const entry of PLATFORMS.filter((p) => p.sign)) {
+    const bytes = readFileSync(files.get(entry.file));
+    for (const [platform, name] of Object.entries(entry.sign)) {
+      const copy = join(signing, name);
+      writeFileSync(copy, bytes);
       execFileSync(
         'pnpm',
-        ['--filter', '@uwussh/desktop', 'exec', 'tauri', 'signer', 'sign', file],
+        ['--filter', '@uwussh/desktop', 'exec', 'tauri', 'signer', 'sign', copy],
         {
           cwd: root,
           stdio: 'inherit',
@@ -157,22 +202,15 @@ try {
           env: { ...process.env, ...key },
         },
       );
+      if (!existsSync(`${copy}.sig`)) fail(`${name}.sig is missing: it wasn't signed.`);
+      const signature = readFileSync(`${copy}.sig`, 'utf8').trim();
+      checkSignature(bytes, signature, conf.plugins.updater.pubkey, name);
+      signed[platform] = { name: entry.file, signature };
+      console.log(`  ✓ ${platform}: ${entry.file}, signed as ${name}`);
     }
   }
 
-  console.log('\n▸ Checking the signatures against the updater key');
-  const signed = {};
-  for (const entry of PLATFORMS.filter((p) => p.feed)) {
-    const file = files.get(entry.file);
-    if (!existsSync(`${file}.sig`)) fail(`${file}.sig is missing: it wasn't signed.`);
-    const signature = readFileSync(`${file}.sig`, 'utf8').trim();
-    checkSignature(readFileSync(file), signature, conf.plugins.updater.pubkey, entry.file);
-    signed[entry.feed] = { name: entry.file, signature };
-    files.set(`${entry.file}.sig`, `${file}.sig`);
-    console.log(`  ✓ ${entry.file}`);
-  }
-
-  // A checksum for each download, LF-only so `sha256sum -c` reads it.
+  // A checksum for every file of the release, LF-only so `sha256sum -c` reads it.
   const sums = join(work, 'SHA256SUMS.txt');
   const lines = [...files.entries()].map(
     ([name, path]) => `${createHash('sha256').update(readFileSync(path)).digest('hex')}  ${name}`,
@@ -263,45 +301,118 @@ try {
   console.log(
     `  ${feedName} updated for ${Object.keys(signed).join(', ')}${version.includes('-') ? ' (Beta channel)' : ''}`,
   );
+
+  if (!windowsOnly) aur(readFileSync(sums, 'utf8'));
 } finally {
   rmSync(work, { recursive: true, force: true });
 }
 
-/** The release page: what changed, then how to install on each system. */
+/** The release page: what changed, then which file is for which system. */
 function releaseBody() {
   const guide = `https://github.com/${REPOSITORY}/blob/main/docs/install.md`;
   const has = (name) => PLATFORMS.some((p) => p.file === name);
-  const armName = `UwUSSH-Setup-${version}-windows-arm64.exe`;
-  const arm = has(armName);
+  const code = (name) => `\`${name}\``;
+  // [system (de), system (en), files] for each row whose files this release has.
+  const rows = [
+    ['Windows (x64)', 'Windows (x64)', code(windowsName)],
+    ['Windows auf ARM', 'Windows on ARM', code('UwUSSH-windows-arm64-setup.exe')],
+    [
+      'macOS (Intel & Apple-Chip)',
+      'macOS (Intel & Apple chip)',
+      code('UwUSSH-macos-universal.dmg'),
+    ],
+    [
+      'Ubuntu / Debian',
+      'Ubuntu / Debian',
+      `${code('UwUSSH-linux-x64.deb')} · ARM: ${code('UwUSSH-linux-arm64.deb')}`,
+    ],
+    [
+      'Fedora / openSUSE',
+      'Fedora / openSUSE',
+      `${code('UwUSSH-linux-x64.rpm')} · ARM: ${code('UwUSSH-linux-arm64.rpm')}`,
+    ],
+    ['Arch Linux', 'Arch Linux', 'AUR: `yay -S uwussh-bin`'],
+    [
+      'Linux portabel',
+      'Linux portable',
+      `${code('UwUSSH-linux-x64-portable.tar.gz')} · ARM: ${code('…-arm64-portable.tar.gz')}`,
+    ],
+  ].filter(([, , files]) => {
+    const named = [...files.matchAll(/`(UwUSSH-[^`]+)`/g)].map((m) => m[1]);
+    return named.length === 0 ? !windowsOnly : named.every(has);
+  });
+  const table = (column) =>
+    ['| | |', '|---|---|', ...rows.map((row) => `| ${row[column]} | ${row[2]} |`)].join('\n');
+  const mac = has('UwUSSH-macos-universal.dmg');
   const de = [
-    `### Windows 10/11\n${arm ? `x64 (fast alle PCs): \`${windowsName}\`, ARM (z. B. Snapdragon): \`${armName}\`.` : `\`${windowsName}\`.`} Herunterladen und starten. Warnt Windows („Der Computer wurde durch Windows geschützt“): **Weitere Informationen → Trotzdem ausführen**.`,
+    table(0),
+    'Windows: warnt es („Der Computer wurde durch Windows geschützt“), **Weitere Informationen → Trotzdem ausführen**.',
+    ...(mac
+      ? [
+          'macOS: die `.dmg` öffnen und **UwUSSH Setup** starten. UwUSSH ist nicht bei Apple notarisiert (keine Developer ID): sagt macOS, es könne das Programm nicht prüfen, unter **Systemeinstellungen → Datenschutz & Sicherheit → Trotzdem öffnen** freigeben.',
+        ]
+      : []),
+    ...(windowsOnly
+      ? []
+      : [
+          'Linux: `.deb` und `.rpm` installieren systemweit und aktualisieren sich selbst (fragt nach dem Administrator-Passwort); die portable Version einfach entpacken und `./UwUSSH/uwussh` starten, sie aktualisiert sich nicht.',
+        ]),
   ];
   const en = [
-    `### Windows 10/11\n${arm ? `x64 (almost every PC): \`${windowsName}\`, ARM (Snapdragon and the like): \`${armName}\`.` : `\`${windowsName}\`.`} Download and run it. If Windows warns that it "protected your PC": **More info → Run anyway**.`,
+    table(1),
+    'Windows: if it warns that it "protected your PC", **More info → Run anyway**.',
+    ...(mac
+      ? [
+          "macOS: open the `.dmg` and start **UwUSSH Setup**. UwUSSH isn't notarized by Apple (no developer ID): if macOS says it can't check the app, allow it under **System Settings → Privacy & Security → Open Anyway**.",
+        ]
+      : []),
+    ...(windowsOnly
+      ? []
+      : [
+          "Linux: the `.deb` and `.rpm` install system-wide and update themselves (asking for the administrator password); the portable one you just unpack and start with `./UwUSSH/uwussh`, and it doesn't update itself.",
+        ]),
   ];
-  if (has(`UwUSSH-Setup-${version}-macos-arm64.dmg`)) {
-    de.push(
-      `### macOS 11 oder neuer\nApple-Chip (M1 und neuer): \`UwUSSH-Setup-${version}-macos-arm64.dmg\`, Intel: \`UwUSSH-Setup-${version}-macos-x64.dmg\`. Öffnen und **UwUSSH Setup** starten. UwUSSH ist nicht bei Apple notarisiert: sagt macOS, es könne das Programm nicht prüfen, unter **Systemeinstellungen → Datenschutz & Sicherheit → Trotzdem öffnen** freigeben.`,
-    );
-    en.push(
-      `### macOS 11 or newer\nApple silicon (M1 and later): \`UwUSSH-Setup-${version}-macos-arm64.dmg\`, Intel: \`UwUSSH-Setup-${version}-macos-x64.dmg\`. Open it and start **UwUSSH Setup**. UwUSSH isn't notarized by Apple: if macOS says it can't check the app, allow it under **System Settings → Privacy & Security → Open Anyway**.`,
-    );
-  }
-  if (has(`UwUSSH-Setup-${version}-linux-x64.AppImage`)) {
-    de.push(
-      `### Linux (x86_64)\n\`UwUSSH-Setup-${version}-linux-x64.AppImage\` herunterladen, ausführbar machen (\`chmod +x\`) und starten – installiert nach \`~/.local/share/uwussh\`, mit Eintrag im Anwendungsmenü und automatischen Updates. Ohne FUSE: \`./UwUSSH-Setup-…AppImage --appimage-extract-and-run\`. Lieber ein Paket? \`UwUSSH-${version}-linux-x64.deb\` (ohne Setup und ohne automatische Updates).`,
-    );
-    en.push(
-      `### Linux (x86_64)\nDownload \`UwUSSH-Setup-${version}-linux-x64.AppImage\`, make it executable (\`chmod +x\`) and run it – it installs into \`~/.local/share/uwussh\`, with a menu entry and automatic updates. Without FUSE: \`./UwUSSH-Setup-…AppImage --appimage-extract-and-run\`. Rather have a package? \`UwUSSH-${version}-linux-x64.deb\` (no setup, no automatic updates).`,
-    );
-  }
   return [
     `## Deutsch\n\n${notes.de}\n`,
     `## English\n\n${notes.en}\n`,
-    `## Installieren\n\n${de.join('\n\n')}\n\n[Anleitung](${guide})\n`,
-    `## Install\n\n${en.join('\n\n')}\n\n[Install guide](${guide})\n`,
-    `Prüfsummen · checksums: \`SHA256SUMS.txt\`. Die \`.sig\`-Dateien sind die Signaturen des Updaters · the \`.sig\` files are the updater's signatures.\n`,
+    `## Herunterladen\n\n${de.join('\n\n')}\n\n[Anleitung](${guide})\n`,
+    `## Downloads\n\n${en.join('\n\n')}\n\n[Install guide](${guide})\n`,
+    'Prüfsummen · checksums: `SHA256SUMS.txt`. Die `UwUSSH-update-…`-Dateien sind für den Updater in der App · the `UwUSSH-update-…` files are for the in-app updater.\n',
   ].join('\n');
+}
+
+/**
+ * The AUR package uwussh-bin for this release. With UWUSSH_AUR_DIR pointing at
+ * a checkout of ssh://aur@aur.archlinux.org/uwussh-bin.git it is committed and
+ * pushed from there; otherwise it lands in target/aur/uwussh-bin, and CI's
+ * `aur` job (.github/workflows/aur.yml) pushes it once AUR_SSH_PRIVATE_KEY is set.
+ */
+function aur(sums) {
+  const files = aurFiles({ version, sums });
+  const checkout = process.env.UWUSSH_AUR_DIR;
+  if (!checkout) {
+    const dir = join(root, 'target', 'aur', 'uwussh-bin');
+    writeAur(dir, files);
+    console.log(`\n▸ AUR: PKGBUILD and .SRCINFO in ${dir}`);
+    console.log(
+      '  CI pushes them (aur.yml) when AUR_SSH_PRIVATE_KEY is set. By hand: copy both into a\n' +
+        '  checkout of ssh://aur@aur.archlinux.org/uwussh-bin.git, commit and push — or set\n' +
+        '  UWUSSH_AUR_DIR to that checkout next time.',
+    );
+    return;
+  }
+  if (!existsSync(join(checkout, '.git'))) fail(`UWUSSH_AUR_DIR (${checkout}) is no git checkout.`);
+  console.log(`\n▸ AUR: uwussh-bin ${version} from ${checkout}`);
+  git(['pull', '-q', '--ff-only'], checkout);
+  writeAur(checkout, files);
+  git(['add', 'PKGBUILD', '.SRCINFO'], checkout);
+  if (!git(['status', '--porcelain'], checkout)) {
+    console.log('  already up to date');
+    return;
+  }
+  git(['commit', '-qm', `UwUSSH ${version}`], checkout);
+  execFileSync('git', ['push', '-q'], { cwd: checkout, stdio: 'inherit' });
+  console.log('  ✓ pushed');
 }
 
 /** The Installers run for this commit, once it has finished green. */
