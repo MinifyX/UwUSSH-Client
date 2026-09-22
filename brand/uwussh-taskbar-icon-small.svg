@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="UwUSSH: a terminal window with cat ears">
+  <title>UwUSSH</title>
+  <!--
+    16 and 24 px cut of uwussh-taskbar-icon.svg: thicker outlines, a smaller
+    screen so the pink frame stays visible, no dots, blush or inner ears.
+  -->
+  <g transform="translate(256 258) scale(1.3) translate(-256 -233)"><g stroke-linecap="round" stroke-linejoin="round">
+    <g fill="#FFFFFF" stroke="#FFFFFF" stroke-width="30">
+      <path d="M118 200 L132 100 Q135 82 151 91 L230 156 Z"/>
+      <path d="M394 200 L380 100 Q377 82 361 91 L282 156 Z"/>
+      <rect x="100" y="152" width="312" height="226" rx="50"/>
+    </g>
+    <g fill="#FF6FA6" stroke="#4B1D3F" stroke-width="26">
+      <path d="M118 200 L132 100 Q135 82 151 91 L230 156 Z"/>
+      <path d="M394 200 L380 100 Q377 82 361 91 L282 156 Z"/>
+    </g>
+    <rect x="100" y="152" width="312" height="226" rx="50" fill="#FF6FA6" stroke="#4B1D3F" stroke-width="26"/>
+    <rect x="136" y="184" width="240" height="160" rx="24" fill="#2A1531"/>
+    <path d="M176 222 L232 264 L176 306" fill="none" stroke="#FFB8D3" stroke-width="40"/>
+    <rect x="250" y="270" width="84" height="40" rx="16" fill="#FFD66E"/>
+  </g></g>
+</svg>

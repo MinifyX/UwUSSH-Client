@@ -103,11 +103,18 @@ screen is the face: UwU eyes, `w` mouth, blush.
   light screen `#FFB8D3`, pastel props, a white die-cut edge. The colors are
   fixed artwork and stay the same in dark mode; the white edge keeps the
   outlines readable on dark backgrounds.
-- **App icon.** Made to be told apart in a taskbar at 16–24 px, where the first
-  one (Nyu on pastel pink) looked like UwUMail's: a **dark plum tile**, and on it
-  a pink terminal window with cat ears, as big as the tile allows, with a white
-  `>_` prompt, a yellow cursor and one sparkle. Regenerate platform icons with
-  `pnpm tauri icon ../../brand/uwussh-app-icon.svg` in `apps/desktop`.
+- **App icon** (website, GitHub, macOS Dock). Built like UwUMail's: Nyu as a
+  pink terminal window with cat ears, slightly tilted on a pastel tile with two
+  sparkles and a heart. The tile is **lavender** so it isn't mistaken for
+  UwUMail's pink one; the dark screen shows the UwU face and a small `>_`
+  prompt.
+- **Taskbar icon.** The dark tile of the first version swallowed the ears and
+  the window at 16–24 px. On the Windows taskbar, in the setup and in Linux
+  menus Nyu now stands alone: upright, no tile, white die-cut edge, and a
+  screen that is only a big `>_` with a yellow cursor, so it reads as a
+  terminal; the ears and blush say Nyu (`brand/uwussh-taskbar-icon.svg`). At
+  16 and 24 px a simplified cut takes over (`uwussh-taskbar-icon-small.svg`).
+  `node scripts/icons.mjs` regenerates all desktop icons from these three.
 - **UwUKeygen's icon** is its sibling: a violet tile with a golden key whose
   bow is a cat's head (`brand/uwukeygen-app-icon.svg`).
 - **System icons** (`OsIcon`): one small rounded tile per system — Ubuntu,

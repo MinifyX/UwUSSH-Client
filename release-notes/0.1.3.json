@@ -1,0 +1,4 @@
+{
+  "de": "UwUSSH 0.1.3 ✧ neues Gesicht in der Taskleiste\n\n- Neues Icon in der Taskleiste: Nyu steht jetzt gerade und ohne dunkle Kachel da, mit großem >_, und ist auch klein als Terminal erkennbar\n- Neues App-Icon im Stil von UwUMail, auf Lavendel statt Rosa\n- Neu: Linux-Pakete (.deb und .rpm) für x64 und ARM, dazu eine portable Version zum Entpacken\n- Mac: ein gemeinsames Setup für Apple-Chip und Intel",
+  "en": "UwUSSH 0.1.3 ✧ a new face on the taskbar\n\n- New taskbar icon: Nyu now stands upright without the dark tile, with a big >_, and reads as a terminal even when small\n- New app icon in UwUMail's style, on lavender instead of pink\n- New: Linux packages (.deb and .rpm) for x64 and ARM, plus a portable version to unpack\n- Mac: one setup for Apple chips and Intel"
+}
