@@ -141,6 +141,9 @@ The point where I can stop using anything else.
   about ten columns while hidden, and the server wrapped its output to that),
   scrollbars in the app's colours, and a setup for Windows on ARM, built
   natively in CI and updated through its own feed entry (`windows-aarch64`).
+- **0.1.3**: Nyu upright on the taskbar with a big `>_`, the app icons in
+  UwUMail's style, a golden key for UwUKeygen, and the release format below.
+  The sync server is UwUSync Server now; nothing changes for a device.
 - Still to come: a way to push everything again after the server was restored
   from a backup
 
@@ -167,7 +170,7 @@ The point where I can stop using anything else.
 - **Linux and macOS builds are done** (0.1.0-beta.8): the same setup with Nyu
   for macOS on Apple silicon and Intel and for Linux, with automatic updates
   on all three, built by CI and signed where the key is. Plus a `.deb`.
-- **Windows on ARM** (0.1.2), then **one release format** for all three
+- **Windows on ARM** (0.1.2), then **one release format** (0.1.3) for all three
   UwUSuite apps: download names without a version, one universal macOS disk
   image, `.deb` and `.rpm` for x64 and arm64 that update themselves, the AUR
   package `uwussh-bin`, and a portable Linux folder.
