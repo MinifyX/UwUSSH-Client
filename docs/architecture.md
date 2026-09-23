@@ -801,7 +801,8 @@ doesn't update. The setup AppImage is still built for x64, as the updater-only
 `UwUSSH-update-linux-x64.AppImage`, for copies the setup of 0.1 installed in
 `~/.local/share/uwussh`.
 
-CI (`.github/workflows/installers.yml`) checks the workspace on macOS and
+`.github/workflows/ci.yml` checks every push to main on Windows and Linux.
+`.github/workflows/installers.yml` checks the workspace on macOS and
 Linux and builds Windows on ARM, the universal macOS disk image and the Linux
 packages for x64 and arm64 when a tag is pushed, installing the `.deb` once as
 a check. It holds no key: `pnpm release` downloads what it built and signs it
@@ -909,6 +910,10 @@ the vault key sealed with DPAPI when the vault is remembered on this device (see
   device leaves, after which the master password alone opens its vault and its
   hosts are still there. `run.mjs --only=e` runs just that.
 
+- **Every push to main and every pull request** runs `.github/workflows/ci.yml`:
+  Prettier and the locale check, the type check and the front-end builds, then
+  formatting, clippy and the whole test suite on Windows and Linux. The
+  end-to-end run needs a desktop session and stays on the release machine.
 - **macOS and Linux** are checked by CI on every tag and on `ci/**` branches:
   formatting, clippy and the whole test suite on both, then the setups built.
 
