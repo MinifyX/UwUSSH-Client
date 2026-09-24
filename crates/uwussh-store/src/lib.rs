@@ -1,10 +1,10 @@
 //! The local store: one SQLite file with everything UwUSSH knows about your
 //! hosts.
 //!
-//! Records already carry the sync header from `uwussh-proto` — id, vault,
-//! hybrid logical clock, revision, tombstone — even though sync only arrives in
-//! M2. Adding those columns later would mean migrating every user's data;
-//! carrying them from the first row costs nothing.
+//! Records carry the sync header from `uwussh-proto` — id, vault, hybrid
+//! logical clock, revision, tombstone — and have from the first row, before
+//! sync existed: adding those columns later would have meant migrating every
+//! user's data.
 //!
 //! **No secret lives here in the clear.** Passwords and keys are sealed with the
 //! vault before they reach SQLite (see [`vault`]); a host without a stored

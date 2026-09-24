@@ -49,8 +49,8 @@ type Step =
  * Bringing a setup across: another client's (read where it keeps its data) or
  * an UwUSSH export file. Pick a source, see what it holds in counts, and write
  * it. Secrets need the vault; the vault dialog comes in between and the import
- * goes on right after. Previews and results show counts only, never a host or
- * a secret.
+ * goes on right after. Previews and results show counts, and the names of
+ * what was skipped — never a secret.
  */
 export function ImportDialog({ onClose, onImported }: Props) {
   useLanguage();

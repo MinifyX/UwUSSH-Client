@@ -12,7 +12,7 @@
 //!   the three things client and server must agree on exactly.
 //! - `uwussh_store` seals records on the way out, opens them on the way in,
 //!   and decides per record who wins, inside the transaction that writes it.
-//! - [`engine`] is one pass: pull, then push, then round again if the server
+//! - [`engine`] is one pass: push, then pull, then round again if the server
 //!   reported a conflict.
 //! - [`memory`] is the server's rules as running code, so two devices can be
 //!   held against them without a network.
