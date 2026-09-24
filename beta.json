@@ -1,27 +1,43 @@
 {
-  "version": "0.1.2",
-  "notes": "{\"de\":\"UwUSSH 0.1.2 ✧ jetzt auch für Windows auf ARM\\n\\n- Tabs im Hintergrund behalten ihre Größe: Ausgaben, die dort ankamen, wurden bisher wortweise auf ein schmales Fenster umgebrochen\\n- Scrollbalken passen jetzt zum Design, statt weiß daneben zu stehen\\n- Neues Setup für Windows auf ARM (z. B. Snapdragon), mit eigenen automatischen Updates\",\"en\":\"UwUSSH 0.1.2 ✧ now for Windows on ARM too\\n\\n- Tabs in the background keep their size: output that arrived there used to be wrapped word by word to a narrow window\\n- Scrollbars match the design instead of standing out in white\\n- A new setup for Windows on ARM (Snapdragon and the like), with automatic updates of its own\"}",
-  "pub_date": "2026-09-22T07:09:59Z",
+  "version": "0.1.3",
+  "notes": "{\"de\":\"UwUSSH 0.1.3 ✧ Sicherheitsupdate und ein neues Gesicht in der Taskleiste\\n\\n- Sicherer: Löschen und Rechte ändern als root folgen keinem Link mehr, den jemand in einem übergeordneten Ordner untergeschoben hat. Rechte einer Datei ändert UwUSSH als root nur noch in Ordnern, die root gehören und die sonst niemand beschreiben darf\\n- Sicherer: Ein Sync-Server, der eine Synchronisation nie zu Ende kommen lässt, kann damit keine alten Host-Schlüssel anderer Geräte mehr unterschieben\\n- Ein kurzer Aussetzer des Schlüsselbunds löscht die Kopplung und den gemerkten Tresor nicht mehr\\n- Linux: Das Update entpackt sich in einen eigenen, privaten Ordner statt ins gemeinsame /tmp\\n- Neues Icon in der Taskleiste: Nyu steht jetzt gerade und ohne dunkle Kachel da, mit großem >_, und ist auch klein als Terminal erkennbar\\n- Neues App-Icon im Stil von UwUMail\\n- UwUKeygen hat ein neues Icon: ein goldener Schlüssel mit Nyus Kopf, auch in der Taskleiste gut zu erkennen\\n- Neu: Linux-Pakete (.deb und .rpm) für x64 und ARM, dazu eine portable Version zum Entpacken\\n- Mac: ein gemeinsames Setup für Apple-Chip und Intel\\n- Nyus Mund ist jetzt ein rundes w\",\"en\":\"UwUSSH 0.1.3 ✧ a security update and a new face on the taskbar\\n\\n- Safer: deleting and changing permissions as root no longer follow a link someone slipped into a parent folder. As root, UwUSSH changes a file's permissions only in folders that root owns and nobody else may write to\\n- Safer: a sync server that never lets a sync finish can no longer slip in old host keys of other devices that way\\n- A short hiccup of the keychain no longer deletes the pairing and the remembered vault\\n- Linux: the update unpacks into a private folder of its own instead of the shared /tmp\\n- New taskbar icon: Nyu now stands upright without the dark tile, with a big >_, and reads as a terminal even when small\\n- New app icon in UwUMail's style\\n- UwUKeygen has a new icon: a golden key with Nyu's head, easy to spot on the taskbar too\\n- New: Linux packages (.deb and .rpm) for x64 and ARM, plus a portable version to unpack\\n- Mac: one setup for Apple chips and Intel\\n- Nyu's mouth is a round w now\"}",
+  "pub_date": "2026-09-24T01:40:17Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzY1WVVuYWcwZjlDdUZrTEZUbVdHRXI4WVkrVmFMNlFWck9jam1MSGVwVUtpeEJKMHVNQXlYbXF5ZTk1a0NLNjgvcEI5SHFGL1VoRTRLTWtKQVV0bUF3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMDYwOTI3CWZpbGU6VXdVU1NILVNldHVwLTAuMS4yLmV4ZQpSSTlCZFhtYUxrY0s5R0RCTklWakFsazBKNktLcFZxT0h2S0NCSExVd1VSeit1UHBBZWNwOUhMNXVyMDRLanU4MWViYlJRakg2eFpiZ1RxT2IzbmhCQT09Cg==",
-      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.2/UwUSSH-Setup-0.1.2.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6Sldoby9VT2tTMnZnRHd2Q3piZXVnSkw1dG44cnpFU0x3K2Z4M2I2TGNTdWwyaCtJb1dtV28vczAwcURMS1VpQlBINDcxclJBOHJJalArYXpnWlVIaGtlbGdrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMjEzOTA1CWZpbGU6VXdVU1NILVNldHVwLTAuMS4zLmV4ZQpXUk1BS3lmbHRYbS83elJFMWJ4MDZlcHgxMktKL3RpOVNmSjBXM3UrT3BOVDFLZ3YzS0JWY3VRL3NtRlh1Q251Yi8vSlZ0QWtLN0E3K3RZUldrTEtCdz09Cg==",
+      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.3/UwUSSH-windows-x64-setup.exe"
     },
     "windows-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6Sldob3hLL2Y3YVFXaUFBUnVHMk9OT2o4Z3U1WGtwejk2REpodmozejVWQisrVy9zNWxzQmhNTzU3dS9JMVpMNzV3RXllODhNWC9SeEFsNFRNT3RUcDVFNndZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMDYwOTUwCWZpbGU6VXdVU1NILVNldHVwLTAuMS4yLXdpbmRvd3MtYXJtNjQuZXhlCnEvUDNwQlBqak9ybnk2MllMamcxUHJ4RVVmcFZyZlNLY1dOK3p6eEVCUkRMQkVWL1REdHFyaEVlSmhObEs2ZWl3aHRkdmZJcHRvdVBpdkp2ZEZ0M0NnPT0K",
-      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.2/UwUSSH-Setup-0.1.2-windows-arm64.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzJHMVpDQ243Tk9XdDZOc2VSTkFPU2FteXFiOGZKVjV0d252N0dXU2ZKM01LNzhZSENxdnRsenpqZmhyK0ZMazRDVFc0QTN0MUFvVGlpQmVtRjNFendFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMjEzOTA3CWZpbGU6VXdVU1NILVNldHVwLTAuMS4zLXdpbmRvd3MtYXJtNjQuZXhlCkwrQ1plT0xTMWo3R0FQRG5QRE1xTllGalM2eHBVVDVWaEw2TngrWE9vekdDb3NFQmwrdm13eWRibThYT2hjNlBTMFJjWkMrTEN5T2pDNi9WVGdMMEF3PT0K",
+      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.3/UwUSSH-windows-arm64-setup.exe"
     },
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6Sldobzc3Y2NLN0J2a09IL1V0TEJPNVpoYkhFSDkraGJaMVIrN2JTckFsY2RCRm5lV0dxclBDbkZmWG5mdXpTdmY0TXh6VXhqRkZqajR6WVY5R3NuRXpjdFE4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMDYwOTUwCWZpbGU6VXdVU1NILVNldHVwLTAuMS4yLW1hY29zLWFybTY0LXVwZGF0ZQphZEJPTE1DZjlqbnBQWDdRTG9HcGc5TkJEK280REFOMnZMMTduRGluK2hiSHMyUC9McTJVaWZxNzBZK09MNEpUQWFuYXdVMG5uM05ZTE5ERDFNUW5DQT09Cg==",
-      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.2/UwUSSH-Setup-0.1.2-macos-arm64-update"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzJiN0J5UkRPc0xrQjh4RUUrcHpmbnEwSk9pakw4aVBBTXF5RUd1UW5lT2YvZUVBeTVxN1FrekplajgrWCt4YlEyTkxNd3pSdC9VQjVTaHdMRE9uRUF3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMjEzOTA5CWZpbGU6VXdVU1NILVNldHVwLTAuMS4zLW1hY29zLWFybTY0LXVwZGF0ZQpMNDNCb0FXanpUU0RUUGw3UXJCWGdjUStidG15WldrOEhUeUg1dkZHVVgzT1ptdUxHSHB2TlNzRjk5WHFkZDVvd3NYdk5uQ2ZjVmRCZFJ1RVhFMVpEUT09Cg==",
+      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.3/UwUSSH-update-macos-universal"
     },
     "darwin-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6Sldob3hOd3VGODN5UW0vczh1N2tLMEtoWGk1SGF2anNYbXdFd2psSEI4bUk0bEZXRjFqNmF5WG1XV3YrUFlwbnRRSUcxRWZyaE84WkZZeHVoNzA1M1lqK2dzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMDYwOTUxCWZpbGU6VXdVU1NILVNldHVwLTAuMS4yLW1hY29zLXg2NC11cGRhdGUKZXdGRWhZbWM4OGhPcTdKSDNadzIzOW9jNDBDZEUxYjFweEJzMllJQnVFOG5TMy92M3pyWSsxUlZ0V0hmWWxiWVYzTEVJMzg4U2E5Y0NTVVliS0V1QUE9PQo=",
-      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.2/UwUSSH-Setup-0.1.2-macos-x64-update"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzJxbVJZVXh0MTJ4SFZHVThlUjl2QjB4Vk5EWUE2MDkzRC8zQnR5Y0ZGbjZoTkhlc1hwMkhKeDZKTU1EWU9XNXQyZ1MxSFNRMnRJMmdtS1Bya0JyOVFzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMjEzOTExCWZpbGU6VXdVU1NILVNldHVwLTAuMS4zLW1hY29zLXg2NC11cGRhdGUKVGhsRnV6ZGNicUxaQ3FOK0wxUnBPdE01eW9NVXY3RmJjRjZadEh1NjdJTVRoVE54bUl0ZEM3K2pGSW44R0dUWVhRVXh6ZGlNTW5TUW1ySzZiSy8wQlE9PQo=",
+      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.3/UwUSSH-update-macos-universal"
+    },
+    "linux-x86_64-deb": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6Sldoby9Td3lzOVJXazZzOVgwQ1MydWdKYlBtYWg4L05vaG9uZ1F6ZnlZQTNZSFFLRXA4aFdCS3lnaFBTWkYxN3B4VS9PZThubkNIaVNzR0Q5bW16RVJQandBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMjEzOTEzCWZpbGU6VXdVU1NILTAuMS4zLWxpbnV4LXg4Nl82NC5kZWIKQWdVcHhrYXI4WmM3K0ZyUk94c3BkN21ld01iSFQ0SDhOdzY5aHUzUzRpcEdhK2Q5K1RrMUtpMXkvQWY5UkNOUlRnK0dJdmJxdU9OU0tCSU5PYWdsREE9PQo=",
+      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.3/UwUSSH-linux-x64.deb"
+    },
+    "linux-x86_64-rpm": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzJRQzhiYncyVHBrQjVGK01rQ1JROW9LbkhWSTB1cyswdXVQSjFnQnZJaS8vRDJVclRqaitpRzJ3bVA0Y2NGbmw2VlA4SWhPbWVObU0wbitmZzZwZmdBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMjEzOTE1CWZpbGU6VXdVU1NILTAuMS4zLWxpbnV4LXg4Nl82NC5ycG0KaFhMZ3cyaXpYZm50bWU1Yzc4YmYzUVRNMmdsUjk5UDQwK0RLTmJOVW10TERjSk41bm00dzU2azdJRWdKZlRHNHN2RVNNWHBlT3JkSWl3WnB6a3NuQ2c9PQo=",
+      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.3/UwUSSH-linux-x64.rpm"
+    },
+    "linux-aarch64-deb": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzRGU0x1bXdUSThnZWJIck9rR25kangrQS9Vd0RqOFF5cENseHNSWUc3S21pRGo0OSt5N1phMlAxdWlaRVphYmd3dzg4V1ZheHN1TlBIL0paU3JKa3dBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMjEzOTE3CWZpbGU6VXdVU1NILTAuMS4zLWxpbnV4LWFhcmNoNjQuZGViCjlqU2U0dmZLWWswZlptU2tIRzY1a3lhblZqUU5Xekk5eDNkVE43VUpLSEhuVlN6TVpOMkdmYVpZSWk0Z2tjaTJXMGdUM0FrMGhUNXJnaTFnOW9OREJBPT0K",
+      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.3/UwUSSH-linux-arm64.deb"
+    },
+    "linux-aarch64-rpm": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzRrUnJsUlBzVDNXb1ZZR3dJbXBmQW9KSTNMb3JqZGd2L0RjcE51QkpWT3ZqOC8wWEtrOFZXN2FxNzJlcSsyVjdxN041Q1EvbTR3SmZKMGVNTHMxcUE4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMjEzOTE5CWZpbGU6VXdVU1NILTAuMS4zLWxpbnV4LWFhcmNoNjQucnBtCkI4YlFjYkF4Z3J1WE5nVzFMMUNlYUg3SGczWG5jekUxZFF4VndCaEJqK3NuMGl3OUxsdHR4M3NGNmNKbk11QVA4eHRkUENpbWFlVXcrRW5DOTkzaENBPT0K",
+      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.3/UwUSSH-linux-arm64.rpm"
     },
     "linux-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzNEZmZmTGV4L3I5a3dVOG9jdmVWdUt5Q3YramtjYVp3TEFzNXpTNCtOMXEzSjhPY0UxU0lpemNaZ1Z3ZTRBdVdYS1JjNVVIY0U2cnUvaS9SSGRWNFE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMDYwOTUyCWZpbGU6VXdVU1NILVNldHVwLTAuMS4yLWxpbnV4LXg2NC5BcHBJbWFnZQpId2pCK3Rjb3lYc01qM0FacWdlOXJaSFUyN2JySExIZ3MxRHA5M0hDeUJGeTlTUW8wZkNSYmhQMWp5clNwZm9sdkd3ckRRYmQzMnFVZVZwaUlvcm5BUT09Cg==",
-      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.2/UwUSSH-Setup-0.1.2-linux-x64.AppImage"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzFQUUx2QWpmcG1IVzJRR0R0VmZ0ZmxHQks5bGZieVVBZDVxQ1VML1lBSHVBUnI1S1NBcjRaMnczeWJobTRiOWl4aDllZ1czYk1YZnV3VFFKWnc4eXc4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwMjEzOTIyCWZpbGU6VXdVU1NILVNldHVwLTAuMS4zLWxpbnV4LXg2NC5BcHBJbWFnZQpKQkpodnZ3VklscmJobWRhTFdaY2dsb2thY2dUZHRPWjQzUHRLZXNCNEhTQ0NHRTVoTHg1c283bUQ4by9oTmVINGhhSVlCaXF0bEtHK1A1VC96RFVBUT09Cg==",
+      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.1.3/UwUSSH-update-linux-x64.AppImage"
     }
   }
 }
