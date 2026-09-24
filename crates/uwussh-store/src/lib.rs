@@ -1,10 +1,10 @@
 //! The local store: one SQLite file with everything UwUSSH knows about your
 //! hosts.
 //!
-//! Records already carry the sync header from `uwussh-proto` — id, vault,
-//! hybrid logical clock, revision, tombstone — even though sync only arrives in
-//! M2. Adding those columns later would mean migrating every user's data;
-//! carrying them from the first row costs nothing.
+//! Records carry the sync header from `uwussh-proto` — id, vault, hybrid
+//! logical clock, revision, tombstone — and have from the first row, before
+//! sync existed: adding those columns later would have meant migrating every
+//! user's data.
 //!
 //! **No secret lives here in the clear.** Passwords and keys are sealed with the
 //! vault before they reach SQLite (see [`vault`]); a host without a stored
@@ -80,7 +80,7 @@ pub enum StoreError {
     UnknownKey(Uuid),
     #[error("the key is still used by {hosts} host(s)")]
     KeyInUse { hosts: usize },
-    #[error("the operating system could not protect the vault key: {0}")]
+    #[error("the operating system could not seal or open a key: {0}")]
     Device(String),
     #[error("this export is protected by a password")]
     ExportPasswordRequired,

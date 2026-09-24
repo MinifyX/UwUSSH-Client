@@ -1,7 +1,9 @@
 # Security review, September 2026
 
-Two rounds: the first [before the first beta](#the-trust-boundary), the second
-[before the second](#second-round-before-010-beta2).
+Four rounds: the first [before the first beta](#the-trust-boundary), the second
+[before the second](#second-round-before-010-beta2), the third
+[before beta 8](#third-round-before-010-beta8), the fourth
+[after 0.1.3](#fourth-round-2026-09-23-after-013).
 
 Done before the first beta (0.1.0-beta.1), across the whole client: the vault
 and store, the SSH engine, the importers, the Tauri commands, the new installer
@@ -224,3 +226,72 @@ password was typed.
 - **The unsealed update on macOS and Linux could be swapped** by a process of
   the same user between the check and the start. That process can already
   replace the app itself.
+
+## Fourth round: 2026-09-23, after 0.1.3
+
+A read-only review of 0.1.3, in four parts — the SSH engine and file access,
+vault, store and sync, the importers, and updater, setup, keygen and CI — plus
+the Tauri command surface, against the same trust boundary. It also covered
+`0671b0a` (sync manifests, the KDF floor, pairing labels), which has no section
+of its own here. No Critical or High finding; four Medium, fixed below.
+
+### Fixed
+
+| Severity | Where       | What                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| -------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Medium   | Files, root | Root deletes and chmod "never follow a link" held only for the last name in the path: the kernel still followed a folder further up that someone had swapped for a link after it was listed, and chmod checked for a link over SFTP and changed permissions with SETSTAT, which follows one, a moment later. Both now run through `sudo sh`, change into the folder the target is in with `cd -P` and refuse unless `pwd -P` is that folder, then act on `./name`. chmod changes a folder as `.` from inside it, and a file only where nobody but root can write to the folder. A trailing slash is refused, and a root session lists folders under their real path so paths through a link like `/var/run` keep working. (`1f689ab`) |
+| Medium   | Sync engine | The manifest check only ran after a pull that reached the end; a server that always said "there is more" kept every pass incomplete, the check never ran, and host keys from other devices stayed trusted — even on a device whose pairing named a manifest to wait for. A pull that stops short is now written down as something kept back (with host keys among it) until a complete one clears it, a paired device distrusts other devices' host keys until the manifest from the pairing has been checked, and the report says whether the pass was complete. (`a54a987`)                                                                                                                                                         |
+| Medium   | Updater     | The Linux setup, an AppImage run with `APPIMAGE_EXTRACT_AND_RUN`, unpacked into `/tmp/appimage_extracted_<hash>` — a name anyone could work out from the public release — and ran what it found there, so another local user could put their `AppRun` there first. The setup now unpacks into a fresh 0700 folder in UwUSSH's local data folder, and hands the `TMPDIR` from before back to the UwUSSH it starts again. Protects updates applied by this version on. (`15a0ecc`)                                                                                                                                                                                                                                                      |
+| Medium   | Device seal | A keychain, Secret Service or DPAPI that did not answer — locked, slow, a macOS prompt denied after an update — counted as "this no longer opens": the pairing's account key and the remembered vault key were deleted for good, and on macOS and Linux a new seal key was made on the way. Only a blob that fails its seal against every key there is (`InvalidData`) is forgotten now; anything else is an error and everything stays. Opening never makes a key, and a keychain entry that isn't a key is no longer overwritten. (`3e2a994`)                                                                                                                                                                                       |
+
+### Not fixed: Low and Info
+
+Listed for a later round; none is exploitable without a precondition named in
+the review.
+
+- **L1** An import can pre-trust a host key for a host the user already has, by
+  using another user name for it.
+- **L2** Channels the server opens towards the client (agent, X11, forwarded
+  ports) are accepted and never closed.
+- **L3** The key-file cost check can be bypassed: duplicate PPK headers, and
+  PEM files the check can't parse but russh can.
+- **L4** Windows: a custom install folder inherits a writable ACL; an existing
+  folder's owner and ACL are not checked.
+- **L5** `local_size` recurses without a depth limit.
+- **L6** Copying from an SMB share skips the download name checks and the
+  Mark-of-the-Web.
+- **L7** `ProxyJump` and PuTTY proxy settings are dropped silently on import.
+- **L8** Push answers are capped at 256 KiB although they carry whole conflict
+  records; sync can stall.
+- **L9** The server can flip `needs_account_key` on join.
+- **L10** Joining the same account again after leaving keeps a password-only
+  header.
+- **L11** Revoking a device rotates nothing, and the advice in the UI doesn't
+  help.
+- **L12** The V8 reader's budget counts values, not bytes.
+- **L13** The folder import has no total cap and runs on the main thread.
+- **L14** One invalid group path aborts a whole import.
+- **L15** The `Include` wildcard matcher takes exponential time.
+- **L16** The Linux setup keeps its WebView data in a fixed path in `/tmp`.
+- **I1–I16** Fixed names in `/tmp` for M0; the local shell started by name;
+  no size limit on update downloads; a waiting beta kept after switching to
+  stable; saving a key over an existing file; release builds without
+  `--locked`; one host key per host and no algorithm preference; waiting
+  connections never expire; zeroisation gaps; server KDF bounds looser than
+  file bounds; a server cursor near `u64::MAX`; a pairing session left open on
+  one error path; symlinks followed in the folder import; network key paths
+  kept on import; re-trusting reviving a tombstone; rm markers matched
+  anywhere in the output.
+
+Also noted: `rename` as root has the same issue as M1 for folders further up
+the path, with less at stake; it still goes over SFTP.
+
+### Earlier entries, corrected
+
+- "Pairing messages share one seal label" (third round, accepted) no longer
+  holds: since `0671b0a` each direction has its own label.
+- "UwUKeygen's window keeps Tauri's default permissions" (second round,
+  accepted) no longer holds: its capabilities are trimmed.
+- "Owner and field go into the associated data" (first round) was done
+  differently: the pointers between records live inside sealed payloads, which
+  a server can't change either.

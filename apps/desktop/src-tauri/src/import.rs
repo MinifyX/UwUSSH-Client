@@ -247,8 +247,8 @@ pub(crate) async fn pick_import_folder(
     Ok(Some(picked))
 }
 
-/// What an import would bring, in counts. Contains no host names, addresses or
-/// secrets, so it is safe to hand to the webview for a preview.
+/// What an import would bring, in counts, and what it would skip. Contains no
+/// secrets; the skipped lines name the hosts, files or sections they are about.
 #[derive(Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ImportSummary {

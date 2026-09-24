@@ -6680,7 +6680,6 @@ dependencies = [
  "tracing",
  "uuid",
  "uwussh-keygen",
- "uwussh-proto",
  "uwussh-store",
  "zeroize",
 ]

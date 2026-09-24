@@ -18,6 +18,11 @@
 //! a listed folder for a link to `/etc` — and SFTP has no way to open a folder
 //! without following links. So a root delete runs the server's own
 //! `rm -rf` through `sudo`, which walks the tree without ever following one.
+//! Changing permissions as root goes the same way, since SFTP's SETSTAT
+//! follows links. Both first change into the folder the target is in and make
+//! sure no link was on the way there, so a folder further up the path that was
+//! swapped for a link after it was listed can't steer them elsewhere either.
+//! That is why a root session lists folders under their real path.
 //!
 //! Nothing is overwritten unless the caller says so: files are created
 //! exclusively (`O_EXCL`, which also refuses a link in their place), and
@@ -55,6 +60,8 @@ const READY: &str = "UWUSSH-SFTP-READY";
 const MISSING: &str = "UWUSSH-SFTP-MISSING";
 const REMOVED: &str = "UWUSSH-REMOVED";
 const NOT_REMOVED: &str = "UWUSSH-NOT-REMOVED";
+const CHANGED: &str = "UWUSSH-CHANGED";
+const NOT_CHANGED: &str = "UWUSSH-NOT-CHANGED";
 
 /// What a sudo conversation waits for: one marker for success, one for failure.
 struct Markers {
@@ -69,6 +76,10 @@ const ELEVATE: Markers = Markers {
 const REMOVE: Markers = Markers {
     done: REMOVED,
     failed: NOT_REMOVED,
+};
+const CHANGE: Markers = Markers {
+    done: CHANGED,
+    failed: NOT_CHANGED,
 };
 
 /// Where distributions keep `sftp-server`, most common first.
@@ -395,17 +406,12 @@ impl SftpClient {
     }
 
     /// Set a file's or folder's permissions. Never on a link: the server's
-    /// SETSTAT follows it, so the change would land on whatever it points to —
-    /// as root, possibly `/root` behind a link someone else made.
+    /// SETSTAT follows it, so the change would land on whatever it points to.
+    /// A root session changes permissions with [`chmod_as_root`] instead,
+    /// since SETSTAT also follows a link further up the path, and the check
+    /// here is over before the change is made.
     pub async fn chmod(&self, path: &str, mode: u32) -> Result<()> {
-        let mut metadata = self
-            .session
-            .symlink_metadata(path)
-            .await
-            .map_err(|e| remote(path, e))?;
-        if metadata.file_type() == FileType::Symlink {
-            return Err(SftpError::Link { path: path.into() });
-        }
+        let mut metadata = self.not_a_link(path).await?;
         let kind = metadata.permissions.unwrap_or(0) & !0o7777;
         metadata = russh_sftp::protocol::FileAttributes {
             permissions: Some(kind | (mode & 0o7777)),
@@ -415,6 +421,19 @@ impl SftpClient {
             .set_metadata(path, metadata)
             .await
             .map_err(|e| remote(path, e))
+    }
+
+    /// What is at `path`, or [`SftpError::Link`] when that is a link.
+    pub async fn not_a_link(&self, path: &str) -> Result<russh_sftp::protocol::FileAttributes> {
+        let metadata = self
+            .session
+            .symlink_metadata(path)
+            .await
+            .map_err(|e| remote(path, e))?;
+        if metadata.file_type() == FileType::Symlink {
+            return Err(SftpError::Link { path: path.into() });
+        }
+        Ok(metadata)
     }
 
     /// Delete a file, a link, or a folder with everything in it, as the
@@ -757,23 +776,88 @@ impl SftpClient {
     }
 }
 
+/// The start of every root command: `pin` changes into a folder and makes sure
+/// no link was on the way there, so the kernel cannot be steered elsewhere by
+/// a folder someone swapped for a link after it was listed. From then on the
+/// shell works relative to that folder, which stays the one it checked
+/// whatever happens to the path. `$1` is the folder, `$2` a name in it.
+const PIN: &str = r#"pin() { { cd -P -- "$1" && [ "$(pwd -P)" = "$1" ]; } || { printf "\n%s is not the folder that was listed: a link is on the way there\n" "$1"; return 1; }; }; pin "$1""#;
+
+/// `rm -rf` on a name in the pinned folder. `rm` removes a link rather than
+/// following it, and walks a folder relative to what it already opened.
+fn remove_script() -> String {
+    format!(r#"{PIN} && rm -rf -- "./$2" && printf "\n{REMOVED}\n" || printf "\n{NOT_REMOVED}\n""#)
+}
+
+/// `chmod` on a name in the pinned folder; `$3` is the mode. `chmod` follows a
+/// link, so a folder is pinned itself and changed as `.`, and a file only
+/// where nobody but root could swap it for a link between the check and the
+/// change: in a folder root owns that no one else may write to.
+fn chmod_script() -> String {
+    format!(
+        r#"{PIN} && if [ -L "./$2" ]; then printf "\n%s is a link\n" "$2"; false; elif [ -d "./$2" ]; then pin "${{1%/}}/$2" && chmod "$3" .; elif [ -n "$(find . -prune \( ! -user 0 -o -perm -020 -o -perm -002 \))" ]; then printf "\nothers can write to %s, so a file in it could be swapped for a link: change it as its owner\n" "$1"; false; else chmod "$3" "./$2"; fi && printf "\n{CHANGED}\n" || printf "\n{NOT_CHANGED}\n""#
+    )
+}
+
+/// A script run as root with `sudo sh -c`, its arguments quoted.
+fn as_root(script: &str, args: &[&str]) -> String {
+    debug_assert!(!script.contains('\''), "the script goes in single quotes");
+    let args: Vec<String> = args.iter().map(|arg| quote(arg)).collect();
+    format!(
+        "sudo -p '{SUDO_PROMPT}' -- sh -c '{script}' uwussh {}",
+        args.join(" ")
+    )
+}
+
+/// A string as one word for a POSIX shell.
+fn quote(text: &str) -> String {
+    format!("'{}'", text.replace('\'', r"'\''"))
+}
+
 /// Delete a file, link or folder as root, with the server's own `rm -rf`
 /// through `sudo` on a pseudo-terminal of its own.
 ///
 /// `rm` walks the tree relative to folders it already opened and never
 /// follows a link, so nobody on the server can steer it elsewhere mid-way —
-/// which a walk over SFTP can't promise. The password is used the same way as
-/// when the root session opened: once, and only at sudo's own prompt.
+/// which a walk over SFTP can't promise. The folder the target is in is
+/// pinned first (see [`PIN`]), so a link further up the path can't either. The
+/// password is used the same way as when the root session opened: once, and
+/// only at sudo's own prompt.
 pub async fn remove_as_root<H: Handler>(
     handle: &Handle<H>,
     path: &str,
     password: Option<&Zeroizing<String>>,
 ) -> Result<()> {
-    let target = root_removal_target(path)?;
-    let command = format!(
-        "sudo -p '{SUDO_PROMPT}' -- sh -c 'rm -rf -- \"$1\" && printf \"\\n{REMOVED}\\n\" \
-         || printf \"\\n{NOT_REMOVED}\\n\"' uwussh {target}"
-    );
+    let target = root_target(path, "delete")?;
+    let command = as_root(&remove_script(), &[&target.parent, &target.name]);
+    run_as_root(handle, command, password, &REMOVE, REMOVE_TIMEOUT, "rm").await
+}
+
+/// Set a file's or folder's permissions as root, with the server's own
+/// `chmod` through `sudo`, in the pinned folder (see [`chmod_script`]). SFTP
+/// can't do this safely: SETSTAT follows links, in the path and at its end.
+pub async fn chmod_as_root<H: Handler>(
+    handle: &Handle<H>,
+    path: &str,
+    mode: u32,
+    password: Option<&Zeroizing<String>>,
+) -> Result<()> {
+    let target = root_target(path, "change as root")?;
+    // Five digits: with four, GNU chmod keeps a folder's setgid bit.
+    let mode = format!("{:05o}", mode & 0o7777);
+    let command = as_root(&chmod_script(), &[&target.parent, &target.name, &mode]);
+    run_as_root(handle, command, password, &CHANGE, OPEN_TIMEOUT, "chmod").await
+}
+
+/// Run a root command on a pseudo-terminal of its own and wait for its marker.
+async fn run_as_root<H: Handler>(
+    handle: &Handle<H>,
+    command: String,
+    password: Option<&Zeroizing<String>>,
+    markers: &Markers,
+    timeout: Duration,
+    tool: &str,
+) -> Result<()> {
     let refused = |e: russh::Error| SftpError::Refused {
         reason: e.to_string(),
     };
@@ -785,41 +869,56 @@ pub async fn remove_as_root<H: Handler>(
             .map_err(refused)?;
         channel.exec(true, command).await.map_err(refused)?;
         let mut stream = channel.into_stream();
-        match sudo_conversation(&mut stream, password, &REMOVE).await? {
+        match sudo_conversation(&mut stream, password, markers).await? {
             Outcome::Done(_) => Ok(()),
             Outcome::Failed(seen) => Err(SftpError::Failed {
-                message: last_words(&seen, "rm ended without saying why"),
+                message: last_words(&seen, &format!("{tool} ended without saying why")),
             }),
         }
     };
-    tokio::time::timeout(REMOVE_TIMEOUT, run)
+    tokio::time::timeout(timeout, run)
         .await
         .map_err(|_| SftpError::Failed {
-            message: format!(
-                "the delete did not finish within {} s",
-                REMOVE_TIMEOUT.as_secs()
-            ),
+            message: format!("{tool} did not finish within {} s", timeout.as_secs()),
         })?
 }
 
-/// An absolute remote path, quoted for a POSIX shell — or an error for
-/// anything a root delete should never be pointed at: a relative path, `/`
-/// itself, `..`, or characters a shell line can't carry safely.
-fn root_removal_target(path: &str) -> Result<String> {
+/// What a root command acts on: the folder, as an absolute path without
+/// `.`, `..` or doubled slashes — the form `pwd -P` prints it in — and one
+/// name in it.
+#[derive(Debug, PartialEq, Eq)]
+struct RootTarget {
+    parent: String,
+    name: String,
+}
+
+/// Split an absolute remote path for a root command — or refuse anything one
+/// should never be pointed at: a relative path, `/` itself, `..`, a trailing
+/// slash (which makes `rm` and `chmod` follow a link at the end), or
+/// characters a shell line can't carry safely.
+fn root_target(path: &str, action: &str) -> Result<RootTarget> {
     let parts: Vec<&str> = path
         .split('/')
         .filter(|part| !part.is_empty() && *part != ".")
         .collect();
+    let refused = || SftpError::Failed {
+        message: format!("{path}: not something to {action}"),
+    };
     if !path.starts_with('/')
-        || parts.is_empty()
+        || path.ends_with('/')
+        || path.ends_with("/.")
         || parts.contains(&"..")
         || path.chars().any(|c| c.is_control())
     {
-        return Err(SftpError::Failed {
-            message: format!("{path}: not something to delete as root"),
-        });
+        return Err(refused());
     }
-    Ok(format!("'{}'", path.replace('\'', r"'\''")))
+    let Some((name, folders)) = parts.split_last() else {
+        return Err(refused());
+    };
+    Ok(RootTarget {
+        parent: format!("/{}", folders.join("/")),
+        name: (*name).to_string(),
+    })
 }
 
 /// Read what sudo and the wrapper print until the SFTP stream starts.
@@ -956,7 +1055,15 @@ fn after_marker<'a>(seen: &'a [u8], marker: &str) -> &'a [u8] {
 /// The last lines of what the server printed, for an error message.
 fn last_words(seen: &[u8], otherwise: &str) -> String {
     let mut text = String::from_utf8_lossy(seen).into_owned();
-    for marker in [SUDO_PROMPT, READY, MISSING, REMOVED, NOT_REMOVED] {
+    for marker in [
+        SUDO_PROMPT,
+        READY,
+        MISSING,
+        REMOVED,
+        NOT_REMOVED,
+        CHANGED,
+        NOT_CHANGED,
+    ] {
         text = text.replace(marker, "");
     }
     let lines: Vec<&str> = text
@@ -1208,7 +1315,7 @@ mod tests {
     }
 
     #[test]
-    fn a_root_delete_is_only_ever_aimed_at_something_below_the_root() {
+    fn a_root_command_is_only_ever_aimed_at_a_name_in_a_folder() {
         for bad in [
             "/",
             "//",
@@ -1217,14 +1324,108 @@ mod tests {
             "/home/../etc",
             "/tmp/a\nb",
             "",
+            // A trailing slash makes rm and chmod follow a link at the end.
+            "/home/uwu/link/",
+            "/home/uwu/.",
         ] {
-            assert!(root_removal_target(bad).is_err(), "{bad:?}");
+            assert!(root_target(bad, "delete").is_err(), "{bad:?}");
         }
+        let target = |parent: &str, name: &str| RootTarget {
+            parent: parent.into(),
+            name: name.into(),
+        };
         assert_eq!(
-            root_removal_target("/home/uwu/old stuff").unwrap(),
-            "'/home/uwu/old stuff'"
+            root_target("/home/uwu/old stuff", "delete").unwrap(),
+            target("/home/uwu", "old stuff")
         );
-        assert_eq!(root_removal_target("/srv/it's").unwrap(), r"'/srv/it'\''s'");
+        assert_eq!(root_target("/etc", "delete").unwrap(), target("/", "etc"));
+        // The folder in the form `pwd -P` prints, or the pin would refuse it.
+        assert_eq!(
+            root_target("//srv/./www//it's", "delete").unwrap(),
+            target("/srv/www", "it's")
+        );
+    }
+
+    #[test]
+    fn a_root_command_pins_the_folder_and_quotes_every_word() {
+        let command = as_root(&remove_script(), &["/srv", "it's"]);
+        assert!(command.starts_with("sudo -p 'UWUSSH-SUDO-PROMPT:' -- sh -c 'pin() {"));
+        assert!(command.ends_with(r"' uwussh '/srv' 'it'\''s'"));
+        for script in [remove_script(), chmod_script()] {
+            assert!(!script.contains('\''), "{script}");
+            assert!(script.contains(r#"cd -P -- "$1" && [ "$(pwd -P)" = "$1" ]"#));
+        }
+        assert!(remove_script().contains(r#"rm -rf -- "./$2""#));
+        assert!(chmod_script().contains(r#"pin "${1%/}/$2" && chmod "$3" ."#));
+    }
+
+    /// The scripts themselves, without sudo, against a folder that was
+    /// swapped for a link: nothing behind the link may change.
+    #[cfg(unix)]
+    #[test]
+    fn a_link_on_the_way_steers_no_root_command_elsewhere() {
+        use std::os::unix::fs::PermissionsExt;
+        let run = |script: String, args: &[&str]| {
+            let output = std::process::Command::new("sh")
+                .arg("-c")
+                .arg(script)
+                .arg("uwussh")
+                .args(args)
+                .output()
+                .unwrap();
+            String::from_utf8_lossy(&output.stdout).into_owned()
+        };
+        let base = std::env::temp_dir()
+            .canonicalize()
+            .unwrap()
+            .join(format!("uwussh-pin-{}", uuid::Uuid::new_v4()));
+        let (a, b) = (base.join("A"), base.join("B"));
+        std::fs::create_dir_all(a.join("d")).unwrap();
+        std::fs::create_dir_all(b.join("sub")).unwrap();
+        std::fs::write(a.join("d/x"), "listed").unwrap();
+        std::fs::write(b.join("x"), "not yours").unwrap();
+        std::fs::set_permissions(b.join("x"), std::fs::Permissions::from_mode(0o600)).unwrap();
+        std::fs::set_permissions(b.join("sub"), std::fs::Permissions::from_mode(0o700)).unwrap();
+
+        // Listed, then swapped: A/d is a link to B now.
+        std::fs::remove_dir_all(a.join("d")).unwrap();
+        std::os::unix::fs::symlink(&b, a.join("d")).unwrap();
+        let folder = a.join("d").to_str().unwrap().to_string();
+
+        let said = run(remove_script(), &[&folder, "x"]);
+        assert!(said.contains(NOT_REMOVED), "{said}");
+        assert!(said.contains("a link is on the way there"), "{said}");
+        assert!(b.join("x").exists());
+        for name in ["x", "sub"] {
+            let said = run(chmod_script(), &[&folder, name, "00777"]);
+            assert!(said.contains(NOT_CHANGED), "{said}");
+        }
+        let mode = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o7777;
+        assert_eq!(mode(&b.join("x")), 0o600);
+        assert_eq!(mode(&b.join("sub")), 0o700);
+
+        // A link as the last name is changed by nobody.
+        std::os::unix::fs::symlink(b.join("sub"), b.join("link")).unwrap();
+        let real = b.to_str().unwrap();
+        assert!(run(chmod_script(), &[real, "link", "00777"]).contains(NOT_CHANGED));
+        assert_eq!(mode(&b.join("sub")), 0o700);
+
+        // Where the path is what it says, both do their job.
+        let said = run(chmod_script(), &[real, "sub", "00750"]);
+        assert!(
+            said.contains(CHANGED) && !said.contains(NOT_CHANGED),
+            "{said}"
+        );
+        assert_eq!(mode(&b.join("sub")), 0o750);
+        let said = run(remove_script(), &[real, "x"]);
+        assert!(
+            said.contains(REMOVED) && !said.contains(NOT_REMOVED),
+            "{said}"
+        );
+        assert!(!b.join("x").exists());
+        assert!(b.join("sub").exists(), "only what was named");
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[tokio::test]

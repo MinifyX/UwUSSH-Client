@@ -59,8 +59,9 @@ pub struct ImportedHost {
     pub group_path: Option<String>,
     pub remote_command: Option<String>,
     pub charset: Option<String>,
-    /// Anything recognised but not yet mapped, kept so an import never silently
-    /// throws away settings someone cared enough to configure.
+    /// Anything recognised but not yet mapped. Parsed and kept here; the
+    /// import does not bring it over yet, and neither do `jump_host`,
+    /// `remote_command` and `charset`.
     #[serde(default)]
     pub extras: Vec<(String, String)>,
     /// Index into [`ImportBundle::identities`], for sources that keep logins

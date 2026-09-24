@@ -60,8 +60,8 @@ pub fn from_session_values(
         host.name = leaf;
     }
 
-    // Keep settings we recognise but do not map yet, so nothing a user
-    // configured disappears without a trace.
+    // Keep settings we recognise but do not map yet. The import does not
+    // bring them over yet (see `ImportedHost::extras`).
     for key in [
         "Compression",
         "TerminalType",
