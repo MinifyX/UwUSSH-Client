@@ -17,6 +17,7 @@ import {
   localRename,
   localTrash,
   newTransferId,
+  remoteCanonicalize,
   remoteChmod,
   remoteJoin,
   remoteList,
@@ -130,10 +131,20 @@ export function FileBrowser({ host, open, onLive }: Props) {
   const setPane = (side: Side, update: (pane: PaneState) => PaneState) =>
     side === 'local' ? setLocal(update) : setRemotePane(update);
 
-  const list = useCallback(async (side: Side, path: string, keepSelection = false) => {
+  const list = useCallback(async (side: Side, requested: string, keepSelection = false) => {
     const target = remoteRef.current;
+    let path = requested;
     setPane(side, (pane) => ({ ...pane, path, loading: true, error: null }));
     try {
+      // As root, a folder is shown under its real path, links resolved: a
+      // delete or chmod there refuses to go through a link on the way, since
+      // someone could have swapped a folder for one after it was listed.
+      if (side === 'remote' && target?.kind === 'sftp' && target.root) {
+        path = await remoteCanonicalize(target.session, requested).catch(() => requested);
+        if (path !== requested) {
+          setPane(side, (pane) => (pane.path === requested ? { ...pane, path } : pane));
+        }
+      }
       const entries =
         side === 'local' || target?.kind === 'smb'
           ? await localList(path)

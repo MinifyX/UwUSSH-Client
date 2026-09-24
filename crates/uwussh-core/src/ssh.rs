@@ -582,6 +582,18 @@ impl FileSession {
             self.client.remove(path).await
         }
     }
+
+    /// Set a file's or folder's permissions. A root session hands this to the
+    /// server's own `chmod` (see [`crate::sftp::chmod_as_root`]), after the
+    /// same check for a link the user's session makes, for the same message.
+    pub async fn chmod(&self, path: &str, mode: u32) -> std::result::Result<(), SftpError> {
+        if self.client.is_root() {
+            self.client.not_a_link(path).await?;
+            crate::sftp::chmod_as_root(&self.handle, path, mode, self.client.sudo_password()).await
+        } else {
+            self.client.chmod(path, mode).await
+        }
+    }
 }
 
 // ── Host key check ──────────────────────────────────────────────────────────

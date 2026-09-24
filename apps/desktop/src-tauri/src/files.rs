@@ -177,7 +177,7 @@ pub(crate) async fn remote_chmod(
     path: String,
     mode: u32,
 ) -> Result<(), SftpError> {
-    client(&state, session)?.client.chmod(&path, mode).await
+    client(&state, session)?.chmod(&path, mode).await
 }
 
 // ── Transfers ───────────────────────────────────────────────────────────────
