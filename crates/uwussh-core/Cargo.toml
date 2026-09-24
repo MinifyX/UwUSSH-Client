@@ -8,7 +8,6 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-uwussh-proto.workspace = true
 uwussh-keygen.workspace = true
 
 anyhow.workspace = true
