@@ -282,6 +282,11 @@ the review.
   one error path; symlinks followed in the folder import; network key paths
   kept on import; re-trusting reviving a tombstone; rm markers matched
   anywhere in the output.
+- **I17** `rsa` 0.10.0-rc.18 carries RUSTSEC-2023-0071 (Marvin): its private-key
+  operations are not constant-time, and no fixed version exists. UwUSSH uses it
+  to sign one login with an RSA key and to make keys in UwUKeygen; a server would
+  have to time a great many signatures of the same key, which a client that
+  signs once per login does not give it. Watched, to be taken when a fix exists.
 
 Also noted: `rename` as root has the same issue as M1 for folders further up
 the path, with less at stake; it still goes over SFTP.
