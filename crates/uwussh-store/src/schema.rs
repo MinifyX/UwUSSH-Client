@@ -7,7 +7,7 @@ use crate::{Result, StoreError};
 use rusqlite::{params, Connection, OptionalExtension};
 use uuid::Uuid;
 
-pub const SCHEMA_VERSION: i64 = 6;
+pub const SCHEMA_VERSION: i64 = 7;
 
 /// The sync header (`id`, `vault_id`, clock, `rev`, `deleted`) is on every
 /// syncable table from the start; see the crate docs for why.
@@ -321,6 +321,27 @@ ALTER TABLE sync_state ADD COLUMN floor_counter      INTEGER;
 ALTER TABLE sync_state ADD COLUMN floor_device       INTEGER;
 "#;
 
+/// UwULock Server as the other way to sync (see `crate::lock`).
+const V7: &str = r#"
+-- Where this device syncs when it syncs through UwULock rather than UwUSync.
+-- One row. The refresh token and the "remember this device" token of
+-- two-step login are sealed by the operating system for this user, like the
+-- UwUSync pairing's secrets. `device_identifier` is made once per install and
+-- kept when signing out: it is how the server knows this device again.
+CREATE TABLE lock_state (
+    id                          INTEGER PRIMARY KEY CHECK (id = 1),
+    device_identifier           TEXT    NOT NULL,
+    active                      INTEGER NOT NULL DEFAULT 0,
+    server_url                  TEXT,
+    email                       TEXT,
+    space_id                    TEXT,
+    protected_refresh_token     BLOB,
+    protected_remember_token    BLOB,
+    signed_in_ms                INTEGER,
+    move_started_ms             INTEGER
+);
+"#;
+
 pub fn migrate(conn: &mut Connection) -> Result<()> {
     let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
 
@@ -489,6 +510,18 @@ pub fn migrate(conn: &mut Connection) -> Result<()> {
         tx.pragma_update(None, "user_version", 6)?;
         tx.commit()?;
         tracing::info!("store migrated to schema 6");
+    }
+
+    if version < 7 {
+        let tx = conn.transaction()?;
+        tx.execute_batch(V7)?;
+        tx.execute(
+            "INSERT INTO lock_state (id, device_identifier) VALUES (1, ?1)",
+            [Uuid::new_v4().to_string()],
+        )?;
+        tx.pragma_update(None, "user_version", 7)?;
+        tx.commit()?;
+        tracing::info!("store migrated to schema 7");
     }
 
     Ok(())
@@ -781,6 +814,32 @@ mod tests {
             r.get::<_, i64>(0)
         })
         .unwrap();
+    }
+
+    #[test]
+    fn a_v6_database_upgrades_to_v7_on_uwusync_as_before_with_an_install_of_its_own() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        for batch in [V1, V2, V3, V4, V4_DROP_GROUP_PATH, V5, V6] {
+            conn.execute_batch(batch).unwrap();
+        }
+        conn.execute(
+            "INSERT INTO meta (id, device_id, vault_id) VALUES (1, 1, 'v')",
+            [],
+        )
+        .unwrap();
+        conn.pragma_update(None, "user_version", 6).unwrap();
+        migrate(&mut conn).unwrap();
+
+        let (active, identifier, url): (i64, String, Option<String>) = conn
+            .query_row(
+                "SELECT active, device_identifier, server_url FROM lock_state WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(active, 0, "nothing switches to UwULock by itself");
+        assert_eq!(url, None);
+        assert!(Uuid::parse_str(&identifier).is_ok());
     }
 
     #[test]
