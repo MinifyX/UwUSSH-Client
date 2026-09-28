@@ -312,6 +312,8 @@ export type VaultState = {
    * master password frees it (`repairVault`).
    */
   stranded: boolean;
+  /** Syncing through UwULock: that account's master password opens the vault. */
+  lockEmail: string | null;
 };
 
 export function vaultState(): Promise<VaultState> {
