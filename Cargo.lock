@@ -7176,6 +7176,7 @@ dependencies = [
  "rcgen",
  "reqwest",
  "rustls",
+ "rustls-native-certs",
  "serde",
  "serde_json",
  "sha2 0.11.0",
