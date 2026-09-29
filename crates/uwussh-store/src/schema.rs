@@ -324,10 +324,10 @@ ALTER TABLE sync_state ADD COLUMN floor_device       INTEGER;
 /// UwULock Server as the other way to sync (see `crate::lock`).
 const V7: &str = r#"
 -- Where this device syncs when it syncs through UwULock rather than UwUSync.
--- One row. The refresh token and the "remember this device" token of
--- two-step login are sealed by the operating system for this user, like the
--- UwUSync pairing's secrets. `device_identifier` is made once per install and
--- kept when signing out: it is how the server knows this device again.
+-- One row. The refresh token is sealed by the operating system for this
+-- user, like the UwUSync pairing's secrets. `device_identifier` is made once
+-- per install and kept when signing out: it is how the server knows this
+-- device again.
 CREATE TABLE lock_state (
     id                          INTEGER PRIMARY KEY CHECK (id = 1),
     device_identifier           TEXT    NOT NULL,
@@ -336,9 +336,19 @@ CREATE TABLE lock_state (
     email                       TEXT,
     space_id                    TEXT,
     protected_refresh_token     BLOB,
-    protected_remember_token    BLOB,
     signed_in_ms                INTEGER,
     move_started_ms             INTEGER
+);
+
+-- What this device keeps of each UwULock account it signed in to, by the
+-- server's address (normalized) and the email (lower case). The "remember
+-- this device" token of two-step login, sealed like the refresh token, goes
+-- to the server and account that issued it and to no other.
+CREATE TABLE lock_accounts (
+    server_url                  TEXT    NOT NULL,
+    email                       TEXT    NOT NULL,
+    protected_remember_token    BLOB,
+    PRIMARY KEY (server_url, email)
 );
 "#;
 
