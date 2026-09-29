@@ -803,9 +803,9 @@ doesn't update. The setup AppImage is still built for x64, as the updater-only
 
 `.github/workflows/ci.yml` checks every push to main on Windows and Linux.
 `.github/workflows/installers.yml` checks the workspace on macOS and
-Linux and builds Windows on ARM, the universal macOS disk image and the Linux
-packages for x64 and arm64 when a tag is pushed, installing the `.deb` once as
-a check. It holds no key: `pnpm release` downloads what it built and signs it
+Linux and builds the Windows setups for x64 and ARM, the universal macOS disk
+image and the Linux packages for x64 and arm64 when a tag is pushed, installing
+the `.deb` once as a check. It holds no key: `pnpm release` downloads what it built and signs it
 here. `.github/workflows/aur.yml` pushes the AUR package `uwussh-bin` once a
 release is published, with the AUR key and nothing else.
 
