@@ -148,6 +148,10 @@ stopped halfway. Afterwards UwUSSH offers to remove the device from UwUSync;
 once the last device moved, the UwUSync account can go. How it works:
 [architecture](docs/architecture.md#through-uwulock).
 
+If the admin of your UwULock Server switches app sync off, UwUSSH says so
+under Settings → Sync and keeps your changes on this device until it is on
+again; signing in and the move wait for it too.
+
 ## The sync server
 
 The server is a separate repo, [UwUSync-Server](https://github.com/MinifyX/UwUSync-Server):
