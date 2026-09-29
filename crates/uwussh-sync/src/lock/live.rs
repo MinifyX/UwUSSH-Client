@@ -309,6 +309,15 @@ enum Stream {
     Tls(Box<rustls::StreamOwned<rustls::ClientConnection, TcpStream>>),
 }
 
+impl Stream {
+    fn set_read_timeout(&mut self, timeout: Duration) -> std::io::Result<()> {
+        match self {
+            Stream::Plain(s) => s.set_read_timeout(Some(timeout)),
+            Stream::Tls(s) => s.sock.set_read_timeout(Some(timeout)),
+        }
+    }
+}
+
 impl Read for Stream {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         match self {
@@ -371,7 +380,6 @@ fn open(lock: &Lock) -> Result<WebSocket<Stream>, String> {
     // The handshake reads without a short timeout; the loop after it with one.
     tcp.set_read_timeout(Some(Duration::from_secs(10)))
         .map_err(|e| e.to_string())?;
-    let reader = tcp.try_clone().map_err(|e| e.to_string())?;
 
     let stream = if tls {
         let name = rustls::pki_types::ServerName::try_from(host_for_dns.to_string())
@@ -398,9 +406,12 @@ fn open(lock: &Lock) -> Result<WebSocket<Stream>, String> {
             .parse()
             .map_err(|_| "user agent")?,
     );
-    let (socket, _) = tungstenite::client(request, stream).map_err(|e| e.to_string())?;
-    reader
-        .set_read_timeout(Some(POLL))
+    let (mut socket, _) = tungstenite::client(request, stream).map_err(|e| e.to_string())?;
+    // On the socket itself: a timeout set through a clone of it does not
+    // reach every system's socket.
+    socket
+        .get_mut()
+        .set_read_timeout(POLL)
         .map_err(|e| e.to_string())?;
     Ok(socket)
 }
