@@ -19,6 +19,7 @@ pub mod hosts;
 pub mod import;
 pub mod keys;
 pub mod known_hosts;
+pub mod lock;
 pub mod manifest;
 mod schema;
 pub mod secret;
@@ -35,6 +36,7 @@ pub use import::{
 };
 pub use keys::{KeyDraft, KeyRecord};
 pub use known_hosts::KnownHostRecord;
+pub use lock::{Joining, LockEnrolment, LockState, Space};
 pub use manifest::{manifest_id, ManifestFloor, Problem, Violation, Withheld};
 pub use schema::SCHEMA_VERSION;
 pub use secret::SecretText;
