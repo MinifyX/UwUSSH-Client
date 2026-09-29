@@ -144,7 +144,7 @@ The point where I can stop using anything else.
 - **0.1.3**: Nyu upright on the taskbar with a big `>_`, the app icons in
   UwUMail's style, a golden key for UwUKeygen, and the release format below.
   The sync server is UwUSync Server now; nothing changes for a device.
-- **Unreleased: UwULock as the other way to sync.** Settings → Sync offers
+- **0.2.0: UwULock as the other way to sync.** Settings → Sync offers
   UwUSync as before, or signing in with a UwULock account: the hosts live in
   the account's `ssh` space, changes arrive over UwULock's realtime channel, and
   a device on UwUSync moves over in one click, checked before it switches. See
