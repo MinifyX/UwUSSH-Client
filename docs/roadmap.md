@@ -149,6 +149,9 @@ The point where I can stop using anything else.
   the account's `ssh` space, changes arrive over UwULock's realtime channel, and
   a device on UwUSync moves over in one click, checked before it switches. See
   [architecture](architecture.md#through-uwulock).
+- **0.2.1**: the UwULock sync reads with limits, checks every entry it moved,
+  trusts the system's certificate authorities, and tells a server with app
+  sync switched off apart from a broken one.
 - Still to come: a way to push everything again after the server was restored
   from a backup
 
