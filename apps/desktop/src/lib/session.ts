@@ -436,6 +436,14 @@ export function openProjectPage(page: ProjectPage): Promise<void> {
   return invoke('open_project_page', { page });
 }
 
+/**
+ * The host id of a `uwussh://connect/<id>` link that arrived, once. Rust
+ * checked the link; nothing else of it reaches the page.
+ */
+export function takeLink(): Promise<string | null> {
+  return invoke<string | null>('take_link');
+}
+
 // ── M0 ──────────────────────────────────────────────────────────────────────
 
 export type M0Kind = 'synthetic' | 'pty';

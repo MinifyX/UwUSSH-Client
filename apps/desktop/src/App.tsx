@@ -42,6 +42,7 @@ import {
   setHostPassword,
   setUpdateChannel,
   spawnShellSession,
+  takeLink,
   trustHostKey,
   typeSessionPassword,
   updateStatus,
@@ -60,7 +61,8 @@ import { platform } from './lib/platform';
 import { markOnboardingDone, onboardingDecision, onboardingDone } from './lib/onboarding';
 import { getSettings, settingsWereStored, useSettings } from './lib/settings';
 import { keysFor } from './lib/shortcuts';
-import { syncStatus, type Withheld } from './lib/sync';
+import { findLinkedHost } from './lib/links';
+import { syncPassNow, syncStatus, type Withheld } from './lib/sync';
 import {
   describeTunnelError,
   isTunnelError,
@@ -190,8 +192,13 @@ async function copyText(text: string) {
 /**
  * Whatever a page before this one left open is closed first, exactly once —
  * StrictMode runs effects twice, and a second close would take the new tabs.
+ * The `uwussh://` link the app was started with is taken here too, so the
+ * second run of the effect still sees it.
  */
-let boot: Promise<boolean> | null = null;
+let boot: Promise<{ autorun: boolean; link: string | null }> | null = null;
+
+/** The questions a link asks before any tab exists belong to no tab. */
+const NO_TAB = '';
 
 export function App() {
   const settings = useSettings();
@@ -818,15 +825,91 @@ export function App() {
     [patchTab],
   );
 
+  // ── Links ─────────────────────────────────────────────────────────────────
+
+  /** A link is being followed: the start-up vault prompt and tabs stay away. */
+  const linking = useRef(false);
+
+  /**
+   * `uwussh://connect/<id>`: the vault first if it is locked, a sync if the
+   * host isn't here yet, then the same as a click on the host in the list.
+   */
+  const openLink = async (id: string) => {
+    linking.current = true;
+    setAppNotice(null);
+    try {
+      const outcome = await findLinkedHost(id, {
+        vaultStatus: async () => (await vaultState()).status,
+        unlock: () => {
+          setStartupVault(false);
+          return unlock(
+            NO_TAB,
+            t('Ein Link möchte eine Verbindung öffnen. Dafür muss der Tresor offen sein.'),
+          );
+        },
+        listHosts,
+        sync: syncPassNow,
+      });
+      switch (outcome.kind) {
+        case 'host':
+          connect(outcome.host);
+          return;
+        case 'locked':
+          setAppNotice({ tone: 'info', text: t('Nicht verbunden: Der Tresor ist gesperrt.') });
+          return;
+        case 'unknown':
+          void refreshHosts();
+          setAppNotice(
+            outcome.syncError !== null
+              ? {
+                  tone: 'error',
+                  text: t(
+                    'Den Host aus dem Link gibt es auf diesem Gerät nicht, und der Sync ist fehlgeschlagen: {error}',
+                    { error: outcome.syncError },
+                  ),
+                  action: { label: t('Sync-Einstellungen'), run: () => setSettingsOpen('sync') },
+                }
+              : outcome.synced
+                ? {
+                    tone: 'error',
+                    text: t(
+                      'Den Host aus dem Link gibt es auf diesem Gerät nicht, auch nicht nach einem Sync. Vielleicht wurde er gelöscht.',
+                    ),
+                  }
+                : {
+                    tone: 'error',
+                    text: t(
+                      'Den Host aus dem Link gibt es auf diesem Gerät nicht. Ohne Sync kann UwUSSH ihn nicht von deinen anderen Geräten holen.',
+                    ),
+                    action: { label: t('Sync-Einstellungen'), run: () => setSettingsOpen('sync') },
+                  },
+          );
+          return;
+      }
+    } catch (e) {
+      setAppNotice({
+        tone: 'error',
+        text: t('Der Link ließ sich nicht öffnen: {error}', { error: String(e) }),
+      });
+    } finally {
+      linking.current = false;
+    }
+  };
+  const openLinkRef = useRef(openLink);
+  openLinkRef.current = openLink;
+
   // ── Start-up ──────────────────────────────────────────────────────────────
 
   useEffect(() => {
     void refreshHosts();
     boot ??= closeAllSessions()
       .catch(() => 0)
-      .then(() => m0Autorun().catch(() => false));
+      .then(async () => ({
+        autorun: await m0Autorun().catch(() => false),
+        link: await takeLink().catch(() => null),
+      }));
     let cancelled = false;
-    void boot.then(async (autorun) => {
+    void boot.then(async ({ autorun, link }) => {
       if (cancelled) return;
       if (autorun) {
         await new Promise((resolve) => window.setTimeout(resolve, AUTORUN_DELAY_MS));
@@ -859,9 +942,16 @@ export function App() {
       } else if (import.meta.env.DEV) {
         document.documentElement.dataset.onboarding = 'skip';
       }
-      if (!cancelled && vault?.status === 'locked' && !vault.remembered) setStartupVault(true);
+      // A link asks for the vault itself, and opens its own tab instead of
+      // the start-up ones.
+      if (link && !cancelled) {
+        void openLinkRef.current(link);
+        return;
+      }
+      if (cancelled || linking.current) return;
+      if (vault?.status === 'locked' && !vault.remembered) setStartupVault(true);
       // A vault a refused sync connect left stranded gets its password back now.
-      if (!cancelled && vault?.stranded && vault.remembered) setStartupVault(true);
+      if (vault?.stranded && vault.remembered) setStartupVault(true);
       // Nothing opens on its own unless the settings say so: a local shell,
       // or the chosen hosts, each in its own tab, the first one in front.
       if (cancelled || tabsRef.current.length > 0) return;
@@ -880,6 +970,19 @@ export function App() {
       cancelled = true;
     };
   }, [openTab, refreshHosts]);
+
+  // A `uwussh://connect/<id>` link while UwUSSH runs (Rust brought the
+  // window to the front already).
+  useEffect(() => {
+    const stop = listen('link:connect', () => {
+      void takeLink()
+        .then((id) => {
+          if (id) void openLinkRef.current(id);
+        })
+        .catch(() => undefined);
+    });
+    return () => void stop.then((unlisten) => unlisten());
+  }, []);
 
   // The server told what it runs: the host list gets its icon.
   useEffect(() => {

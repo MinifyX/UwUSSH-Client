@@ -876,6 +876,38 @@ pub(crate) fn sync_now(sync: State<'_, Sync>) {
     sync.poke();
 }
 
+/// A pass now, waited for: a `uwussh://` link to a host this device doesn't
+/// know yet looks again after it. False when there is nothing to sync with.
+#[tauri::command]
+pub(crate) async fn sync_pass_now(app: AppHandle) -> SyncResult<bool> {
+    blocking(&app, |app, store, sync| {
+        let paired = store.sync_state()?.paired();
+        let lock = store.lock_state()?;
+        if !(paired || (lock.active && lock.signed_in)) {
+            return Ok(false);
+        }
+        // A pass already under way may have started before the record
+        // arrived: wait for it, then run one of our own.
+        let wait_for_running = || {
+            let deadline = Instant::now() + Duration::from_secs(60);
+            while sync.running.load(Ordering::SeqCst) && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        };
+        wait_for_running();
+        match pass(app, store, sync) {
+            Ok(_) => Ok(true),
+            // The worker started one in between; that one is as fresh.
+            Err(_) if sync.running.load(Ordering::SeqCst) => {
+                wait_for_running();
+                Ok(true)
+            }
+            Err(failure) => Err(failure),
+        }
+    })
+    .await
+}
+
 /// Stop syncing on this device. The hosts stay; the vault is wrapped again
 /// without the account key, so the master password alone opens it once more.
 /// The server is told this device is gone, as far as it can be reached.
