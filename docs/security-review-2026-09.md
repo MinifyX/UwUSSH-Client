@@ -300,3 +300,63 @@ the path, with less at stake; it still goes over SFTP.
 - "Owner and field go into the associated data" (first round) was done
   differently: the pointers between records live inside sealed payloads, which
   a server can't change either.
+
+## Deep links (2026-10)
+
+A review of `uwussh://connect/<host id>` (#10, `c1605a1`): the deep-link and
+single-instance plugins (2.4.10 / 2.4.5, read at source), the link parser, the
+page's link flow, `sync_pass_now`, the Windows setup's registry entries, the
+Linux setup's and the .deb/.rpm desktop entries, and the `UWUSSH_DB` bypass.
+No Critical, High or Medium finding; nothing changed in the code.
+
+### Checked and fine
+
+- **Only an id gets through.** `links::parse` takes exactly
+  `uwussh://connect/<hyphenated uuid>` with at most one trailing slash; a query,
+  fragment, user, port, other host or other id form is refused, and only the
+  `Uuid` reaches the page (`take_link`). The address, user and secret of the
+  connection come from this device's vault, so a link can't point UwUSSH at a
+  server of the sender's choosing. Host ids are random v4 UUIDs; a page that
+  doesn't already know one can't name a host.
+- **Arguments.** Windows starts `"…\uwussh.exe" "%1"`, Linux `Exec=… %u` (deb,
+  rpm) or `%U` (setup). Neither app nor Tauri reads command-line flags: the
+  deep-link plugin looks at argv only when there is exactly one argument after
+  the program name, and only takes it if it parses as a URL with the `uwussh`
+  scheme. A link that breaks out of the `"%1"` quotes (browsers encode `"` and
+  spaces anyway) yields several arguments and is ignored. WebView2 does not take
+  browser flags from the host's argv.
+- **Second instance.** The single-instance callback ignores argv and cwd; argv
+  goes to the same plugin check and then the same strict parser. Windows (named
+  mutex + window message) and Linux (session D-Bus) are per user session.
+- **The page's permissions.** `capabilities/default.json` was not widened: the
+  deep-link plugin's `register`/`unregister` commands are not callable from the
+  page, and nothing registers schemes at runtime.
+- **Uninstall.** The Windows setup removes `HKCU\Software\Classes\uwussh` on
+  uninstall (tested) and rewrites it on install; the Linux setup's desktop entry
+  carrying the `MimeType` is removed with the others; the package manager
+  removes the .deb/.rpm entry.
+- **`UWUSSH_DB`** only changes the process it is set for; someone who can set
+  it can already run code as the user.
+
+### Not fixed: Low and Info
+
+- **DL-L1, Low — any page can make UwUSSH ask for the master password.** A link
+  with a random id still opens the window and, with the vault locked, the unlock
+  dialog, then runs one sync pass. The dialog is UwUSSH's own and nothing leaves
+  the device; browsers ask before they open an app for a scheme. Repeated links
+  stack dialogs and passes, because the page doesn't queue links (UwURDP does).
+- **DL-L2, Low — macOS: the single-instance socket has a fixed name in `/tmp`.**
+  The plugin uses `/tmp/<identifier>_si.sock`. Another local user can listen
+  there first (mode 0777); UwUSSH then hands its arguments (only the program
+  path on macOS, links arrive as Apple Events) to that socket and quits, so it
+  doesn't start. Fix upstream, or skip the plugin on macOS, where LaunchServices
+  already keeps one instance and delivers links to it.
+- **DL-I1, Info — a link connects directly**, as decided: no extra question
+  beyond what a click in the list asks (host key, vault, password). With a
+  remembered vault and a known host key, a page that knows a host id opens the
+  session, including the host's autostart port forwards, without any click in
+  UwUSSH. Whoever can write host records (this account's devices and the
+  UwULock web vault) decides the address; a compromised web vault could add a
+  host with another address, but it could read the secrets directly anyway.
+- **DL-I2, Info — the link's host id isn't secret.** It travels in the URL, so
+  it can end up in browser history; it identifies a record, nothing more.
