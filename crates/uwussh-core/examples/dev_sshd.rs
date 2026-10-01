@@ -12,6 +12,9 @@
 //! the file named by `UWUSSH_DEV_SSHD_AUTHORIZED_KEYS` — which is how the
 //! end-to-end run logs in with a key from the vault.
 //!
+//! Tunnels: `direct-tcpip` and `tcpip-forward` work like sshd's, so local and
+//! remote forwards can be tried against it.
+//!
 //! Files: the `sftp` subsystem serves a folder (`UWUSSH_DEV_SSHD_FILES`, or
 //! `uwussh-dev-sshd-files` in the temp directory) as the server's `/`, with a
 //! home at `/home/uwu`. And any `exec` that asks `uname` answers like an
@@ -36,6 +39,10 @@ use uwussh_core::synthetic::LogLines;
 mod file_server;
 use file_server::FileServer;
 
+#[path = "../tests/support/forwarding.rs"]
+mod forwarding;
+use forwarding::Forwarding;
+
 const USER: &str = "uwu";
 const PASSWORD: &str = "nyu";
 const PROMPT: &str = "\x1b[38;5;211muwu\x1b[0m@\x1b[38;5;117mdev-sshd\x1b[0m:~$ ";
@@ -58,6 +65,7 @@ struct DevShell {
     /// Channels running the toy shell. Only their data is typing: an SFTP
     /// channel's bytes go to the file server, and echoing them would break it.
     shells: std::collections::HashSet<ChannelId>,
+    forwarding: Forwarding,
 }
 
 impl server::Server for DevShell {
@@ -122,6 +130,46 @@ impl server::Handler for DevShell {
         self.channels.insert(channel.id(), channel);
         reply.accept().await;
         Ok(())
+    }
+
+    async fn channel_open_direct_tcpip(
+        &mut self,
+        channel: Channel<Msg>,
+        host_to_connect: &str,
+        port_to_connect: u32,
+        _originator_address: &str,
+        _originator_port: u32,
+        reply: server::ChannelOpenHandle,
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        println!("direct-tcpip to {host_to_connect}:{port_to_connect}");
+        self.forwarding
+            .direct(channel, host_to_connect, port_to_connect, reply);
+        Ok(())
+    }
+
+    async fn tcpip_forward(
+        &mut self,
+        address: &str,
+        port: &mut u32,
+        session: &mut Session,
+    ) -> Result<bool, Self::Error> {
+        let listening = self
+            .forwarding
+            .listen(address, port, session.handle())
+            .await;
+        println!("tcpip-forward on {address}:{port}: {listening}");
+        Ok(listening)
+    }
+
+    async fn cancel_tcpip_forward(
+        &mut self,
+        address: &str,
+        port: u32,
+        _session: &mut Session,
+    ) -> Result<bool, Self::Error> {
+        println!("cancel-tcpip-forward on {address}:{port}");
+        Ok(self.forwarding.cancel(address, port).await)
     }
 
     async fn pty_request(

@@ -11,6 +11,7 @@ use crate::sftp::{Elevation, SftpError};
 use crate::ssh::{FileSession, SshConnection, SshError, SshSession, SshTarget};
 use crate::stream::FrameSink;
 use crate::synthetic::SyntheticSession;
+use crate::tunnel::SshLink;
 use crate::{CoreError, Result};
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
@@ -178,6 +179,25 @@ impl SessionManager {
                 }
                 Err(error.into())
             }
+        }
+    }
+
+    /// Log in on a connection of its own for tunnels, through the same
+    /// questions as a terminal: a question for the user keeps the verified
+    /// connection waiting under `attempt`.
+    pub async fn open_link(
+        &self,
+        attempt: &str,
+        target: SshTarget,
+    ) -> std::result::Result<SshLink, SshError> {
+        Ok(self.authenticated(attempt, &target).await?.into_link())
+    }
+
+    /// The connection of an open terminal, for tunnels that run with it.
+    pub fn ssh_link(&self, id: SessionId) -> Option<SshLink> {
+        match &*self.get(id).ok()? {
+            Session::Ssh(ssh) => Some(ssh.link()),
+            _ => None,
         }
     }
 
