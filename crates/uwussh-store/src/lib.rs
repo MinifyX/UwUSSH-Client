@@ -24,6 +24,7 @@ pub mod manifest;
 mod schema;
 pub mod secret;
 pub mod sync;
+pub mod tunnels;
 pub mod vault;
 
 pub use backup::{decode_export, encode_export, export_is_sealed, Backup, BackupSummary};
@@ -41,6 +42,7 @@ pub use manifest::{manifest_id, ManifestFloor, Problem, Violation, Withheld};
 pub use schema::SCHEMA_VERSION;
 pub use secret::SecretText;
 pub use sync::{ApplyReport, Enrolment, EnrolmentKeys, Pushed, SyncState};
+pub use tunnels::{TunnelDraft, TunnelRecord};
 pub use vault::{Revealed, VaultStatus};
 
 use parking_lot::Mutex;
