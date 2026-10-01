@@ -1,4 +1,0 @@
-{
-  "de": "- Neu: Links der Form uwussh://connect/<Host-ID> öffnen UwUSSH und verbinden direkt mit dem Host, wie ein Klick in der Hostliste. UwULock bietet sie als „In UwUSSH öffnen“ an. Im Link steht nur die ID des Hosts, nie Adresse oder Zugangsdaten. Kennt UwUSSH den Host noch nicht, synchronisiert es erst; ist der Tresor gesperrt, fragt es zuerst nach dem Master-Passwort\n- UwUSSH läuft jetzt nur noch einmal: ein zweiter Start holt das offene Fenster nach vorne",
-  "en": "- New: links like uwussh://connect/<host id> open UwUSSH and connect straight to the host, like a click in the host list. UwULock offers them as \"Open in UwUSSH\". The link carries only the host's id, never an address or credentials. If UwUSSH doesn't know the host yet, it syncs first; if the vault is locked, it asks for the master password first\n- UwUSSH now runs only once: starting it again brings the open window to the front"
-}
