@@ -8,9 +8,17 @@
 export type Platform = 'windows' | 'macos' | 'linux';
 
 export function platform(): Platform {
-  const agent = `${navigator.userAgent} ${navigator.platform ?? ''}`.toLowerCase();
-  if (agent.includes('win')) return 'windows';
-  if (agent.includes('mac')) return 'macos';
+  return platformOf(`${navigator.userAgent} ${navigator.platform ?? ''}`);
+}
+
+/**
+ * macOS first: "Darwin" contains "win", and WKWebView's agent says
+ * "Macintosh; Intel Mac OS X" on Apple silicon too.
+ */
+export function platformOf(agent: string): Platform {
+  const lower = agent.toLowerCase();
+  if (lower.includes('mac')) return 'macos';
+  if (lower.includes('win')) return 'windows';
   return 'linux';
 }
 

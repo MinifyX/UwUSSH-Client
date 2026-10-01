@@ -9,6 +9,8 @@
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
+import { hasPrimaryModifier } from './keymap';
+import { platform } from './platform';
 import {
   cursorLineText,
   Highlighter,
@@ -69,6 +71,10 @@ export type TerminalOptions = {
 /** How long output has to pause before a partial ack chunk is sent anyway. */
 const ACK_IDLE_MS = 20;
 
+/** How long to wait before an acknowledgement that failed is sent again, and how often. */
+const ACK_RETRY_MS = 250;
+const ACK_RETRIES = 8;
+
 /** How long output has to rest before the cursor's line is checked for a prompt. */
 const PROMPT_IDLE_MS = 120;
 
@@ -102,6 +108,10 @@ export class TerminalDriver {
   /** The password prompt under the cursor, as last seen. */
   private prompted: PasswordPrompt | null = null;
   private readonly promptListeners = new Set<(prompt: PasswordPrompt | null) => void>();
+  /** The terminal had no layout box (a tab in the background) the last time it was fitted. */
+  private hidden = false;
+  /** Acknowledgements that failed in a row; a session that is gone fails every time. */
+  private ackFailures = 0;
 
   constructor(host: HTMLElement, options: TerminalOptions) {
     this.host = host;
@@ -110,13 +120,20 @@ export class TerminalDriver {
       lineHeight: 1.25,
       theme: NYU_THEME,
       allowProposedApi: true,
-      // Links a program prints (OSC 8) open only on Ctrl+click, only for http
-      // and https, and through Rust, which checks again. xterm.js' default
-      // would ask with confirm() and then navigate to whatever the server sent.
+      // Option stays Option on a Mac: on a German keyboard ⌥L is @, ⌥5 is [
+      // and ⌥7 is |. (xterm.js still turns ⌥← and ⌥→ into word jumps.)
+      macOptionIsMeta: false,
+      // Option-click selects even while a program (tmux, vim) has the mouse,
+      // as in Terminal.app.
+      macOptionClickForcesSelection: true,
+      // Links a program prints (OSC 8) open only on Ctrl+click (⌘-click on a
+      // Mac, as in Terminal.app), only for http and https, and through Rust,
+      // which checks again. xterm.js' default would ask with confirm() and
+      // then navigate to whatever the server sent.
       linkHandler: {
         allowNonHttpProtocols: false,
         activate: (event, uri) => {
-          if (event.ctrlKey && /^https?:\/\//i.test(uri)) {
+          if (hasPrimaryModifier(event, platform()) && /^https?:\/\//i.test(uri)) {
             void openTerminalLink(uri).catch(() => undefined);
           }
         },
@@ -199,7 +216,17 @@ export class TerminalDriver {
     // the computed style, which then is the declared `100%` — 100 px. That
     // fitted a background session to about ten columns and told the server so,
     // which wrapped everything it printed meanwhile word by word.
-    if (this.host.getClientRects().length === 0) return;
+    if (this.host.getClientRects().length === 0) {
+      this.hidden = true;
+      return;
+    }
+    if (this.hidden) {
+      // Back in front: draw everything again. While hidden the renderer
+      // skipped frames, and the WebGL texture may be stale, which showed as
+      // garbled lines in the scrollback until the next scroll.
+      this.hidden = false;
+      this.term.refresh(0, this.term.rows - 1);
+    }
     const proposed = this.fit.proposeDimensions();
     if (!proposed || !Number.isFinite(proposed.cols) || proposed.cols < 2) return;
     const { cols, rows } = this.term;
@@ -229,6 +256,7 @@ export class TerminalDriver {
   async attach(spawn: Spawner, onEnd?: () => void): Promise<SessionId> {
     await this.detach();
     const generation = this.generation;
+    const { cols, rows } = this.term;
     const id = await spawn(
       (bytes) => this.onData(generation, bytes),
       () => {
@@ -241,6 +269,12 @@ export class TerminalDriver {
       throw new Error('superseded by a newer session');
     }
     this.sessionId = id;
+    // The size may have changed while the session started (fonts loading, a
+    // notice bar going away); refit() couldn't tell a session without an id.
+    // A shell that keeps the old width wraps its prompt in the wrong place.
+    if (this.term.cols !== cols || this.term.rows !== rows) {
+      void resizeSession(id, this.term.cols, this.term.rows).catch(() => undefined);
+    }
     // Output may have arrived before the id did; its acks were held back.
     this.flushAck();
     return id;
@@ -252,6 +286,7 @@ export class TerminalDriver {
     this.sessionId = null;
     this.setPrompt(null);
     this.pendingAck = 0;
+    this.ackFailures = 0;
     window.clearTimeout(this.ackTimer);
     this.ackTimer = undefined;
     if (id) await closeSession(id).catch(() => undefined);
@@ -286,6 +321,10 @@ export class TerminalDriver {
       });
     } catch {
       this.discarded += size;
+      // Never parsed, but no longer outstanding either: holding the credit
+      // back would pause the session for good.
+      this.pendingAck += size;
+      this.scheduleAckFlush();
     }
   }
 
@@ -294,8 +333,28 @@ export class TerminalDriver {
     this.ackTimer = undefined;
     if (!this.sessionId || this.pendingAck === 0) return;
     const bytes = this.pendingAck;
+    const id = this.sessionId;
+    const generation = this.generation;
     this.pendingAck = 0;
-    void ackSession(this.sessionId, bytes).catch(() => undefined);
+    void ackSession(id, bytes).then(
+      () => {
+        this.ackFailures = 0;
+      },
+      () => {
+        // An acknowledgement that got lost is credit the engine never gets
+        // back. Once more than its high watermark is outstanding it stops
+        // sending — and a terminal that shows no output looks exactly like one
+        // that takes no input: typing and Enter seem dead, though both arrive.
+        // So hand the bytes back and try again; acks are additive, and the
+        // engine saturates at zero if one did arrive after all.
+        if (generation !== this.generation || id !== this.sessionId) return;
+        this.ackFailures += 1;
+        if (this.ackFailures > ACK_RETRIES) return;
+        this.pendingAck += bytes;
+        window.clearTimeout(this.ackTimer);
+        this.ackTimer = window.setTimeout(() => this.flushAck(), ACK_RETRY_MS);
+      },
+    );
   }
 
   /** Acknowledge a partial chunk once output goes quiet, so nothing stays outstanding at rest. */

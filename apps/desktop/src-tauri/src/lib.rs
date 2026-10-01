@@ -16,6 +16,7 @@
 //!   the realtime channel
 //! - [`system`] — updates, links, a fresh start for a reloaded page
 //! - [`m0`] — the throughput measurement
+//! - [`menu`] — the macOS menu bar
 
 mod backup;
 mod device;
@@ -27,6 +28,7 @@ mod keygen;
 mod keys;
 mod lock;
 mod m0;
+mod menu;
 mod sessions;
 mod sync;
 mod system;
@@ -97,7 +99,12 @@ pub fn run() {
         )
         .init();
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Only macOS has a menu bar; Tauri adds none elsewhere either.
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(menu::build).on_menu_event(menu::on_event);
+
+    builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())

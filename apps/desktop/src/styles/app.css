@@ -156,6 +156,18 @@ button.quiet {
   user-select: none;
 }
 
+/*
+ * macOS: room for the system's traffic lights, which sit over the bar
+ * (tauri.macos.conf.json). In full screen macOS hides them, so no gap there.
+ */
+.titlebar[data-platform='macos'] {
+  padding-left: 78px;
+}
+
+.titlebar[data-platform='macos'][data-fullscreen] {
+  padding-left: 14px;
+}
+
 .titlebar-brand {
   display: flex;
   align-items: center;

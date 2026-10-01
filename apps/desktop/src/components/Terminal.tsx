@@ -2,6 +2,7 @@ import '@xterm/xterm/css/xterm.css';
 import { useEffect, useRef } from 'react';
 import { TerminalDriver } from '../lib/driver';
 import { compileRules } from '../lib/highlight';
+import { isMac } from '../lib/shortcuts';
 import {
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
@@ -50,11 +51,13 @@ export function TerminalView({ onReady, onDispose }: TerminalViewProps) {
       }
     });
 
-    // Ctrl + mouse wheel makes the text bigger or smaller, in every terminal.
-    // Captured before xterm.js, which would scroll instead.
+    // Ctrl + mouse wheel makes the text bigger or smaller, in every terminal;
+    // on a Mac ⌘ + wheel too. Captured before xterm.js, which would scroll
+    // instead.
+    const mac = isMac();
     let pending = 0;
     const zoom = (event: WheelEvent) => {
-      if (!event.ctrlKey) return;
+      if (!event.ctrlKey && !(mac && event.metaKey)) return;
       event.preventDefault();
       event.stopPropagation();
       let steps: number;

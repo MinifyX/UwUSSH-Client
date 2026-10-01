@@ -52,15 +52,16 @@ import {
   type Workspace,
 } from './lib/session';
 import { language, t } from './lib/i18n';
+import { shortcutFor, terminalKey } from './lib/keymap';
+import { platform } from './lib/platform';
 import { getSettings, useSettings } from './lib/settings';
+import { keysFor } from './lib/shortcuts';
 import type { Withheld } from './lib/sync';
 import {
   createTab,
   describe,
-  isPasteKey,
   neighbourAfterClose,
   newTabId,
-  shortcutFor,
   type Notice,
   type Tab,
   type TabKind,
@@ -133,6 +134,27 @@ function describeFailure(failure: ConnectFailure, host: HostRecord): string {
     default:
       return t('Verbindung fehlgeschlagen ({kind}).', { kind: failure.kind });
   }
+}
+
+/** The keyboard goes nowhere: no element has focus. */
+function nothingFocused(): boolean {
+  const active = document.activeElement;
+  return !active || active === document.body || active === document.documentElement;
+}
+
+/** xterm.js' hidden text field, which has the keyboard while the terminal does. */
+function inTerminal(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && target.classList.contains('xterm-helper-textarea');
+}
+
+/** A text field of the app's own, not xterm.js' hidden one. */
+function inTextField(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement) || inTerminal(target)) return false;
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target.isContentEditable
+  );
 }
 
 /** Copies text, with the old way as a fallback where the clipboard API says no. */
@@ -633,7 +655,16 @@ export function App() {
   const onDriverReady = useCallback((id: string, driver: TerminalDriver) => {
     drivers.current.set(id, driver);
     setRenderer(driver.renderer);
-    driver.term.attachCustomKeyEventHandler((event) => !isPasteKey(event, getSettings()));
+    driver.term.attachCustomKeyEventHandler((event) => {
+      const decision = terminalKey(event, getSettings(), platform());
+      if (decision.kind === 'pass') return true;
+      if (decision.kind === 'send') {
+        event.preventDefault();
+        driver.term.input(decision.data);
+      }
+      // `browser`: xterm.js keeps out, the webview pastes or its menu acts.
+      return false;
+    });
     watchPrompts(id, driver);
     // Wait a tick: StrictMode disposes a first driver right away, and only the
     // one that is still there should start anything.
@@ -922,6 +953,20 @@ export function App() {
     return () => window.cancelAnimationFrame(frame);
   }, [activeId, modalOpen]);
 
+  // Coming back to the window gives the terminal the keyboard again, unless
+  // something else had it. WKWebView does not always hand focus back to the
+  // element that had it when the app is activated again, and a terminal
+  // that silently ignores typing looks like a hung one.
+  useEffect(() => {
+    const onFocus = () => {
+      if (modalRef.current || !nothingFocused()) return;
+      const id = activeRef.current;
+      if (id) drivers.current.get(id)?.term.focus();
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, []);
+
   // ── Keyboard ──────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -929,8 +974,25 @@ export function App() {
       if (modalRef.current || event.type !== 'keydown') return;
       const id = activeRef.current;
       const driver = id ? drivers.current.get(id) : undefined;
-      const action = shortcutFor(event, getSettings(), Boolean(driver?.term.hasSelection()));
-      if (!action) return;
+      const action = shortcutFor(
+        event,
+        getSettings(),
+        Boolean(driver?.term.hasSelection()),
+        platform(),
+      );
+      if (!action) {
+        // Nothing has the keyboard (a context menu closed, a button that had
+        // it went away): typing is meant for the terminal in front. Moving
+        // focus during keydown makes the browser deliver this very key's
+        // character to the terminal, so not even the first key is lost.
+        if (driver && nothingFocused() && !event.metaKey && !event.ctrlKey) driver.term.focus();
+        return;
+      }
+      // Copying in a text field (the search, a form) is the field's own
+      // business, and selecting all is the terminal's only while it has the
+      // keyboard — the file list selects its own files.
+      if (action.kind === 'copy' && inTextField(event.target)) return;
+      if (action.kind === 'select-all' && !inTerminal(event.target)) return;
       event.preventDefault();
       event.stopPropagation();
 
@@ -961,6 +1023,9 @@ export function App() {
         }
         case 'settings':
           setSettingsOpen('appearance');
+          break;
+        case 'select-all':
+          driver?.term.selectAll();
           break;
         case 'copy': {
           const selection = driver?.term.getSelection();
@@ -1072,7 +1137,8 @@ export function App() {
                       className="quiet toolbar-button"
                       onClick={() => typePassword(activeTab.id)}
                       title={t(
-                        'Das Passwort des Hosts ins Terminal tippen (Strg+Umschalt+P). Enter kommt nur dazu, wenn gerade etwas nach einer Eingabe fragt.',
+                        'Das Passwort des Hosts ins Terminal tippen ({keys}). Enter kommt nur dazu, wenn gerade etwas nach einer Eingabe fragt.',
+                        { keys: keysFor('type-password') },
                       )}
                     >
                       <Icon name="key" size={15} />
@@ -1083,7 +1149,9 @@ export function App() {
                   <button
                     className="quiet toolbar-button"
                     onClick={() => openFilesTab(activeTab.host)}
-                    title={t('Dateien dieses Hosts in einem neuen Tab (Strg+Umschalt+F)')}
+                    title={t('Dateien dieses Hosts in einem neuen Tab ({keys})', {
+                      keys: keysFor('open-files'),
+                    })}
                   >
                     <Icon name="files" size={15} />
                     {t('Dateien')}
@@ -1184,7 +1252,7 @@ export function App() {
                         <button className="primary" onClick={() => typePassword(tab.id)}>
                           {t('Eintippen')}
                         </button>
-                        <kbd>{t('Strg+Umschalt+P')}</kbd>
+                        <kbd>{keysFor('type-password')}</kbd>
                         <button
                           className="icon-button"
                           onClick={() => {
