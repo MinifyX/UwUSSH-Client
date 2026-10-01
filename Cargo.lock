@@ -7085,7 +7085,7 @@ dependencies = [
 
 [[package]]
 name = "uwukeygen"
-version = "0.3.0-beta.1"
+version = "0.3.0-beta.2"
 dependencies = [
  "parking_lot",
  "serde",
@@ -7128,7 +7128,7 @@ dependencies = [
 
 [[package]]
 name = "uwussh-assist"
-version = "0.3.0-beta.1"
+version = "0.3.0-beta.2"
 dependencies = [
  "reqwest",
  "rustls",
@@ -7145,7 +7145,7 @@ dependencies = [
 
 [[package]]
 name = "uwussh-core"
-version = "0.3.0-beta.1"
+version = "0.3.0-beta.2"
 dependencies = [
  "anyhow",
  "parking_lot",
@@ -7166,7 +7166,7 @@ dependencies = [
 
 [[package]]
 name = "uwussh-desktop"
-version = "0.3.0-beta.1"
+version = "0.3.0-beta.2"
 dependencies = [
  "base64 0.22.1",
  "chacha20poly1305",
@@ -7204,7 +7204,7 @@ dependencies = [
 
 [[package]]
 name = "uwussh-import"
-version = "0.3.0-beta.1"
+version = "0.3.0-beta.2"
 dependencies = [
  "base64 0.22.1",
  "crypto_secretbox",
@@ -7221,7 +7221,7 @@ dependencies = [
 
 [[package]]
 name = "uwussh-keygen"
-version = "0.3.0-beta.1"
+version = "0.3.0-beta.2"
 dependencies = [
  "argon2 0.5.3",
  "chacha20 0.10.2",
@@ -7243,7 +7243,7 @@ dependencies = [
 
 [[package]]
 name = "uwussh-proto"
-version = "0.3.0-beta.1"
+version = "0.3.0-beta.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -7252,7 +7252,7 @@ dependencies = [
 
 [[package]]
 name = "uwussh-setup"
-version = "0.3.0-beta.1"
+version = "0.3.0-beta.2"
 dependencies = [
  "libc",
  "semver",
@@ -7270,7 +7270,7 @@ dependencies = [
 
 [[package]]
 name = "uwussh-store"
-version = "0.3.0-beta.1"
+version = "0.3.0-beta.2"
 dependencies = [
  "base64 0.22.1",
  "parking_lot",
@@ -7289,7 +7289,7 @@ dependencies = [
 
 [[package]]
 name = "uwussh-sync"
-version = "0.3.0-beta.1"
+version = "0.3.0-beta.2"
 dependencies = [
  "base64 0.22.1",
  "ed25519-dalek",
@@ -7320,7 +7320,7 @@ dependencies = [
 
 [[package]]
 name = "uwussh-vault"
-version = "0.3.0-beta.1"
+version = "0.3.0-beta.2"
 dependencies = [
  "argon2 0.5.3",
  "chacha20poly1305",
