@@ -655,7 +655,12 @@ fn auth_headers(endpoint: &Endpoint) -> Result<HeaderMap> {
 }
 
 fn transport_error(error: &reqwest::Error) -> AssistError {
-    if error.is_timeout() {
+    // A connection that never came about is unreachable, also when it ran
+    // out of time: Windows retries a refused connect for about two seconds
+    // instead of failing at once.
+    if error.is_connect() {
+        AssistError::Unreachable
+    } else if error.is_timeout() {
         AssistError::Timeout
     } else if error.is_builder() {
         AssistError::Address("not-a-url")
