@@ -57,6 +57,8 @@ pub(crate) async fn ack_session(
 #[tauri::command]
 pub(crate) async fn close_session(state: State<'_, AppState>, id: SessionId) -> CommandResult<()> {
     crate::hosts::forget_session(&state, id);
+    // The tunnels that started with this terminal run on its connection.
+    state.tunnels.stop_session(id).await;
     state.sessions.close(id).map_err(err)
 }
 

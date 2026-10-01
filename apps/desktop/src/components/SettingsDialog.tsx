@@ -31,6 +31,8 @@ import {
   FONT_SIZE_MIN,
   HIGHLIGHT_COLORS,
   SCROLLBACK_CHOICES,
+  passwordLoginWarningOn,
+  setPasswordLoginWarning,
   updateSettings,
   useSettings,
   workspaceName,
@@ -229,6 +231,18 @@ function Appearance() {
           </div>
         </Row>
       )}
+      <Row
+        label={t('Warnung bei Passwort-Login anzeigen')}
+        description={t(
+          'Ein Warnzeichen in der Hostliste neben Hosts, die sich mit Benutzer und Passwort statt mit einem SSH-Key anmelden.',
+        )}
+      >
+        <Toggle
+          label={t('Warnung bei Passwort-Login anzeigen')}
+          checked={passwordLoginWarningOn(settings)}
+          onChange={setPasswordLoginWarning}
+        />
+      </Row>
     </>
   );
 }

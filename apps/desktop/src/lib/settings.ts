@@ -65,6 +65,8 @@ export type Settings = {
   highlight: HighlightSettings;
   /** Offer to type the terminal's password when a prompt asks for one. */
   passwordHelper: boolean;
+  /** A warning sign next to hosts that log in with a password instead of a key. */
+  passwordLoginWarning: boolean;
   /** Private and business hosts apart, like UwUMail's workspaces. */
   workspaces: boolean;
   activeWorkspace: Workspace;
@@ -110,6 +112,7 @@ export const DEFAULT_SETTINGS: Settings = {
     custom: [],
   },
   passwordHelper: true,
+  passwordLoginWarning: true,
   workspaces: true,
   activeWorkspace: 'private',
   workspaceNames: { private: '', business: '' },
@@ -191,6 +194,7 @@ export function sanitize(raw: unknown): Settings {
       custom: sanitizeRules(highlight.custom),
     },
     passwordHelper: bool(input.passwordHelper, d.passwordHelper),
+    passwordLoginWarning: bool(input.passwordLoginWarning, d.passwordLoginWarning),
     workspaces: bool(input.workspaces, d.workspaces),
     activeWorkspace: oneOf(
       input.activeWorkspace,
@@ -240,6 +244,20 @@ export function subscribeSettings(listener: () => void): () => void {
 
 export function useSettings(): Settings {
   return useSyncExternalStore(subscribeSettings, getSettings);
+}
+
+/**
+ * The setting behind the warning sign next to password logins. Named on its
+ * own so the onboarding can switch it without knowing the settings' shape.
+ */
+export const PASSWORD_LOGIN_WARNING = 'passwordLoginWarning' satisfies keyof Settings;
+
+export function passwordLoginWarningOn(settings: Settings = current): boolean {
+  return settings[PASSWORD_LOGIN_WARNING];
+}
+
+export function setPasswordLoginWarning(on: boolean) {
+  updateSettings({ [PASSWORD_LOGIN_WARNING]: on });
 }
 
 /** "Privat" and "Business", or the names the user gave them. */

@@ -40,6 +40,9 @@ const PATHS = {
   home: 'M4 11.5 12 5l8 6.5 M6.5 9.5V19h11V9.5',
   drive: 'M3.5 13.5 6 6h12l2.5 7.5 M3.5 13.5h17v5h-17z M16.5 16h.01',
   stop: 'M7 7h10v10H7z',
+  play: 'M8 5.5v13l10-6.5Z',
+  warning: 'M12 4.5 21 19.5H3Z M12 10v4.5 M12 17h.01',
+  tunnel: 'M3.5 19.5V12a8.5 8.5 0 0 1 17 0v7.5 M7.5 19.5V12a4.5 4.5 0 0 1 9 0v7.5 M3 19.5h18',
 } as const;
 
 export type IconName = keyof typeof PATHS;

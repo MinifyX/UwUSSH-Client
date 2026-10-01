@@ -7,6 +7,7 @@
 //! - [`sessions`] — terminal I/O for any session
 //! - [`hosts`] — the host list, groups, connecting, host key decisions
 //! - [`files`] — the file browser: SFTP, this computer, SMB shares
+//! - [`tunnels`] — local and remote port forwards
 //! - [`keys`] — keys in the vault
 //! - [`keygen`] — UwUKeygen, shared with the standalone app
 //! - [`import`] — the vault and importing other clients' setups
@@ -30,6 +31,7 @@ mod m0;
 mod sessions;
 mod sync;
 mod system;
+mod tunnels;
 mod updates;
 
 use parking_lot::Mutex;
@@ -37,12 +39,16 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::Manager;
-use uwussh_core::{FrameSink, ObservedHostKey, SessionId, SessionManager, SinkError};
+use uwussh_core::{
+    FrameSink, ObservedHostKey, SessionId, SessionManager, SinkError, TunnelManager,
+};
 use uwussh_store::Store;
 
 pub(crate) struct AppState {
     pub sessions: Arc<SessionManager>,
     pub store: Arc<Store>,
+    /// Running tunnels, with or without a terminal.
+    pub tunnels: Arc<TunnelManager>,
     /// Host keys a server presented in the last connection attempt, per
     /// address and port. Trusting a key is only possible for a key in here,
     /// so a compromised webview cannot hand in a key of its own choosing. Each
@@ -126,6 +132,7 @@ pub fn run() {
             app.manage(AppState {
                 sessions: Arc::new(SessionManager::new()),
                 store: Arc::new(store),
+                tunnels: Arc::new(TunnelManager::new(tunnels::listener(app.handle().clone()))),
                 presented_keys: Mutex::new(HashMap::new()),
                 session_passwords: Mutex::new(HashMap::new()),
                 session_hosts: Mutex::new(HashMap::new()),
@@ -179,6 +186,12 @@ pub fn run() {
             files::local_trash,
             files::local_copy,
             files::smb_connect,
+            tunnels::list_tunnels,
+            tunnels::save_tunnel,
+            tunnels::delete_tunnel,
+            tunnels::tunnel_statuses,
+            tunnels::start_tunnel,
+            tunnels::stop_tunnel,
             keys::list_keys,
             keys::rename_key,
             keys::delete_key,

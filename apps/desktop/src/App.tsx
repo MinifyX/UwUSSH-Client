@@ -19,6 +19,7 @@ import { SettingsDialog, type SettingsSection } from './components/SettingsDialo
 import { TabBar } from './components/TabBar';
 import { TerminalView } from './components/Terminal';
 import { TitleBar } from './components/TitleBar';
+import { TunnelsDialog } from './components/TunnelsDialog';
 import { UpdateHint } from './components/UpdateHint';
 import { VaultDialog } from './components/VaultDialog';
 import type { Renderer, TerminalDriver } from './lib/driver';
@@ -54,6 +55,13 @@ import {
 import { language, t } from './lib/i18n';
 import { getSettings, useSettings } from './lib/settings';
 import type { Withheld } from './lib/sync';
+import {
+  describeTunnelError,
+  isTunnelError,
+  startTunnel,
+  useTunnelStatuses,
+  type TunnelRecord,
+} from './lib/tunnels';
 import {
   createTab,
   describe,
@@ -97,6 +105,9 @@ type Negotiated<T> = { ok: true; value: T } | { ok: false; notice: Notice | null
 
 /** Failures that are not a question for the user, in words the user can act on. */
 function describeFailure(failure: ConnectFailure, host: HostRecord): string {
+  // A tunnel's own trouble — a port in use — comes back the same way.
+  const raw: unknown = failure;
+  if (isTunnelError(raw)) return describeTunnelError(raw);
   switch (failure.kind) {
     case 'unreachable':
       return t('{address} ist nicht erreichbar: {reason}', {
@@ -189,6 +200,9 @@ export function App() {
     group?: string | null;
   } | null>(null);
   const [importing, setImporting] = useState(false);
+  /** The tunnels dialog: for one host, or for all of them (`host: null`). */
+  const [tunnelsFor, setTunnelsFor] = useState<{ host: HostRecord | null } | null>(null);
+  const tunnelStatuses = useTunnelStatuses();
   const [settingsOpen, setSettingsOpen] = useState<SettingsSection | null>(null);
   const [confirmClose, setConfirmClose] = useState(false);
   const [startupVault, setStartupVault] = useState(false);
@@ -608,6 +622,29 @@ export function App() {
       return result.value;
     };
 
+  /**
+   * Start a tunnel on a connection of its own, through the same conversation
+   * as a terminal: host key, vault, password. Its questions are named after
+   * the tunnel, so they never mix with a tab's. Resolves with what went
+   * wrong, or `null`.
+   */
+  const runTunnel = async (tunnel: TunnelRecord): Promise<string | null> => {
+    const host = hostsRef.current.find((candidate) => candidate.id === tunnel.hostId);
+    if (!host) return t('Diesen Host gibt es nicht mehr.');
+    const attempt = `tunnel-${tunnel.id}`;
+    const result = await negotiate(
+      attempt,
+      host,
+      ({ secret }) => startTunnel(tunnel.id, attempt, secret),
+      () => false,
+    );
+    if (result.ok) {
+      void refreshHosts();
+      return null;
+    }
+    return result.notice?.text ?? t('Nicht verbunden.');
+  };
+
   // ── Opening, closing, switching ───────────────────────────────────────────
 
   const openTab = useCallback((kind: TabKind) => {
@@ -897,9 +934,18 @@ export function App() {
       ),
     [tabs],
   );
+  const tunnelIds = useMemo(
+    () =>
+      new Set(
+        [...tunnelStatuses.values()].flatMap((status) =>
+          status.state === 'running' ? [status.hostId] : [],
+        ),
+      ),
+    [tunnelStatuses],
+  );
   const dialog = dialogs[0] ?? null;
   const modalOpen = Boolean(
-    dialog || form || importing || settingsOpen || confirmClose || startupVault,
+    dialog || form || importing || settingsOpen || confirmClose || startupVault || tunnelsFor,
   );
   const modalRef = useRef(false);
   modalRef.current = modalOpen;
@@ -1033,6 +1079,8 @@ export function App() {
             connectingIds={connectingIds}
             openIds={openHostIds}
             shellOpen={tabs.some((tab) => tab.kind === 'shell')}
+            tunnelIds={tunnelIds}
+            onTunnels={(host) => setTunnelsFor({ host })}
             onConnect={connect}
             onConnectAnother={connectAnother}
             onOpenFiles={openFilesTab}
@@ -1243,6 +1291,15 @@ export function App() {
             setForm(null);
             void refreshHosts();
           }}
+        />
+      )}
+
+      {tunnelsFor && (
+        <TunnelsDialog
+          hosts={hosts}
+          host={tunnelsFor.host}
+          onStart={runTunnel}
+          onClose={() => setTunnelsFor(null)}
         />
       )}
 

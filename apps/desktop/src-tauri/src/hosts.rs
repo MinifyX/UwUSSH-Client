@@ -68,9 +68,11 @@ pub(crate) fn save_host(
 }
 
 #[tauri::command]
-pub(crate) fn delete_host(state: State<'_, AppState>, id: Uuid) -> CommandResult<()> {
+pub(crate) async fn delete_host(state: State<'_, AppState>, id: Uuid) -> CommandResult<()> {
     state.store.delete_host(id).map_err(err)?;
     forget_typed_passwords(&state, id);
+    // Its tunnels went with it in the store; the running ones stop too.
+    state.tunnels.stop_host(id).await;
     Ok(())
 }
 
@@ -372,6 +374,7 @@ pub(crate) async fn connect_host(
                 tracing::warn!(%error, "could not record the connection time");
             }
             state.session_hosts.lock().insert(session, host.id);
+            crate::tunnels::autostart(&app, host.id, session);
             if let Some(password) = login_password {
                 state.session_passwords.lock().insert(session, password);
             }
