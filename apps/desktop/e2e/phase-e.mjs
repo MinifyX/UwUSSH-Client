@@ -8,7 +8,7 @@
 // password, and the second's next pass is refused.
 //
 // Arguments: the setup code, the DevTools ports of both apps.
-import { check, connect, failed, sleep } from './cdp.mjs';
+import { check, connect, failed, passOnboarding, sleep } from './cdp.mjs';
 
 const SHOTS = new URL('./shots/', import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1');
 const [SETUP_CODE, PORT_A = '9223', PORT_B = '9224'] = process.argv.slice(2);
@@ -24,6 +24,7 @@ const invoke = (page, command, args = {}) =>
 
 for (const page of [a, b]) {
   await page.waitFor(`document.querySelector('.sidebar')`, { what: 'app shell' });
+  await passOnboarding(page);
 }
 await sleep(500);
 check(

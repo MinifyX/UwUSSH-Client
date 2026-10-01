@@ -5,8 +5,11 @@ type ModalProps = {
   title: string;
   /** Security warnings get their own look, so they never blend in with routine dialogs. */
   tone?: 'default' | 'warning';
-  /** Settings need room for a section list next to the content. */
-  size?: 'default' | 'wide';
+  /**
+   * Settings need room for a section list next to the content. The setup
+   * wizard keeps its title and buttons in place and scrolls in between.
+   */
+  size?: 'default' | 'wide' | 'wizard';
   onCancel: () => void;
   children: ReactNode;
   footer?: ReactNode;

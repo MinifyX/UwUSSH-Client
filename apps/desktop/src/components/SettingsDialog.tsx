@@ -86,10 +86,12 @@ type Props = {
   onImport: () => void;
   /** Keys or hosts changed from here: the host list reloads. */
   onChanged: () => void;
+  /** "Einrichtung erneut starten": the first-start wizard, once more. */
+  onRestartOnboarding: () => void;
 };
 
 /** One setting: a label, an optional explanation and its control. */
-function Row({
+export function Row({
   label,
   description,
   children,
@@ -109,7 +111,7 @@ function Row({
   );
 }
 
-function Segmented<T extends string | number>({
+export function Segmented<T extends string | number>({
   label,
   value,
   options,
@@ -137,7 +139,7 @@ function Segmented<T extends string | number>({
   );
 }
 
-function Toggle({
+export function Toggle({
   label,
   checked,
   onChange,
@@ -160,7 +162,7 @@ function Toggle({
   );
 }
 
-function Appearance() {
+function Appearance({ onRestartOnboarding }: { onRestartOnboarding: () => void }) {
   const settings = useSettings();
   return (
     <>
@@ -253,6 +255,14 @@ function Appearance() {
           checked={passwordLoginWarningOn(settings)}
           onChange={setPasswordLoginWarning}
         />
+      </Row>
+      <Row
+        label={t('Ersteinrichtung')}
+        description={t(
+          'Design, Tresor und Sync, Import und KI noch einmal Schritt für Schritt. Was schon eingerichtet ist, bleibt.',
+        )}
+      >
+        <button onClick={onRestartOnboarding}>{t('Einrichtung erneut starten')}</button>
       </Row>
     </>
   );
@@ -1114,6 +1124,7 @@ export function SettingsDialog({
   onRunM0,
   onImport,
   onChanged,
+  onRestartOnboarding,
 }: Props) {
   useLanguage();
   const [section, setSection] = useState<SettingsSection>(initial);
@@ -1133,7 +1144,7 @@ export function SettingsDialog({
           ))}
         </nav>
         <div className="settings-content">
-          {section === 'appearance' && <Appearance />}
+          {section === 'appearance' && <Appearance onRestartOnboarding={onRestartOnboarding} />}
           {section === 'terminal' && <TerminalSettings />}
           {section === 'highlight' && <Highlighting />}
           {section === 'vault' && <Vault onChanged={onChanged} />}

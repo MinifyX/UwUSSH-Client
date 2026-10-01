@@ -13,6 +13,7 @@ import { HostForm } from './components/HostForm';
 import { HostList } from './components/HostList';
 import { Icon } from './components/Icon';
 import { ImportDialog } from './components/ImportDialog';
+import { Onboarding } from './components/Onboarding';
 import { M0Results, M0Status } from './components/M0Panel';
 import { Modal } from './components/Modal';
 import { NyuScene } from './components/nyu/scenes';
@@ -56,9 +57,10 @@ import {
 import { language, t } from './lib/i18n';
 import { shortcutFor, terminalKey } from './lib/keymap';
 import { platform } from './lib/platform';
-import { getSettings, useSettings } from './lib/settings';
+import { markOnboardingDone, onboardingDecision, onboardingDone } from './lib/onboarding';
+import { getSettings, settingsWereStored, useSettings } from './lib/settings';
 import { keysFor } from './lib/shortcuts';
-import type { Withheld } from './lib/sync';
+import { syncStatus, type Withheld } from './lib/sync';
 import {
   describeTunnelError,
   isTunnelError,
@@ -233,6 +235,8 @@ export function App() {
   const [assistFor, setAssistFor] = useState<string | null>(null);
   const [confirmClose, setConfirmClose] = useState(false);
   const [startupVault, setStartupVault] = useState(false);
+  /** The first-start wizard: on a fresh install, or again from the settings. */
+  const [onboarding, setOnboarding] = useState(false);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [updateDismissed, setUpdateDismissed] = useState(false);
   const backgroundRef = useRef<HTMLDivElement>(null);
@@ -832,6 +836,29 @@ export function App() {
       // A vault this device doesn't open on its own asks once, now, instead
       // of on the first host that needs it.
       const vault = await vaultState().catch(() => null);
+      if (cancelled) return;
+      // A fresh install gets the setup wizard; one that was set up before
+      // never does (see lib/onboarding.ts).
+      if (!onboardingDone()) {
+        const [known, sync] = await Promise.all([
+          listHosts().catch(() => null),
+          syncStatus().catch(() => null),
+        ]);
+        if (cancelled) return;
+        const decision = onboardingDecision({
+          done: false,
+          settingsStored: settingsWereStored(),
+          hosts: known ? known.length : null,
+          vault: vault?.status ?? null,
+          sync: sync?.backend ?? null,
+        });
+        if (decision === 'settled') markOnboardingDone();
+        if (decision === 'show') setOnboarding(true);
+        // End-to-end runs start with a fresh profile and wait for this.
+        if (import.meta.env.DEV) document.documentElement.dataset.onboarding = decision;
+      } else if (import.meta.env.DEV) {
+        document.documentElement.dataset.onboarding = 'skip';
+      }
       if (!cancelled && vault?.status === 'locked' && !vault.remembered) setStartupVault(true);
       // A vault a refused sync connect left stranded gets its password back now.
       if (!cancelled && vault?.stranded && vault.remembered) setStartupVault(true);
@@ -1428,6 +1455,20 @@ export function App() {
             setImporting(true);
           }}
           onChanged={() => void refreshHosts()}
+          onRestartOnboarding={() => {
+            setSettingsOpen(null);
+            setOnboarding(true);
+          }}
+        />
+      )}
+
+      {onboarding && (
+        <Onboarding
+          onClose={() => {
+            markOnboardingDone();
+            setOnboarding(false);
+          }}
+          onHostsChanged={() => void refreshHosts()}
         />
       )}
 

@@ -1701,3 +1701,329 @@ html[data-dragging] * {
   flex: 1;
   min-width: 0;
 }
+
+/* ── First-start setup ────────────────────────────────────────────────────── */
+
+/* Title and buttons stay put; only the page in between scrolls, so the
+   wizard works down to the smallest window (720 × 480). */
+.modal[data-size='wizard'] {
+  width: min(760px, 100%);
+  /* One height for every step, so the buttons stay where the pointer is. */
+  height: min(540px, 100%);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+
+.modal[data-size='wizard'] .modal-body {
+  align-content: start;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0 -22px;
+  padding: 0 22px;
+}
+
+.onboarding {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.onboarding-steps {
+  display: flex;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.onboarding-steps li {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.onboarding-steps button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 6px 8px;
+  border: 0;
+  border-bottom: 3px solid var(--uwu-hairline);
+  border-radius: 0;
+  background: transparent;
+  color: var(--uwu-muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.onboarding-steps button[data-state='past'] {
+  border-bottom-color: var(--uwu-pink-tint-strong);
+}
+
+.onboarding-steps button[data-state='current'] {
+  border-bottom-color: var(--uwu-pink-solid);
+  color: var(--uwu-ink);
+}
+
+.onboarding-steps button:hover {
+  color: var(--uwu-ink);
+}
+
+.onboarding-dot {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--uwu-hairline);
+  color: var(--uwu-muted);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.onboarding-steps button[data-state='past'] .onboarding-dot {
+  background: var(--uwu-pink-tint);
+  color: var(--uwu-pink-ink);
+}
+
+.onboarding-steps button[data-state='current'] .onboarding-dot {
+  background: var(--uwu-pink-solid);
+  color: var(--uwu-on-pink);
+}
+
+.onboarding-step-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.onboarding-page {
+  display: grid;
+  grid-template-columns: 170px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+  animation: onboarding-in 220ms ease-out;
+}
+
+@keyframes onboarding-in {
+  from {
+    opacity: 0;
+    translate: 8px 0;
+  }
+}
+
+[data-motion='reduced'] .onboarding-page {
+  animation: none;
+}
+
+.onboarding-scene {
+  width: 100%;
+  margin-top: 6px;
+}
+
+.onboarding-content {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.onboarding-content .setting-row {
+  padding: 8px 0 0;
+  border-top: 1px solid var(--uwu-hairline);
+  border-bottom: 0;
+}
+
+.onboarding-choice[data-ok] {
+  border-color: var(--uwu-online);
+}
+
+.onboarding-choice[data-ok] svg {
+  color: var(--uwu-online);
+}
+
+.theme-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.theme-card {
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  padding: 8px;
+  border: 1px solid var(--uwu-hairline);
+  border-radius: var(--uwu-radius-control);
+  background: var(--uwu-elevated);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.theme-card[aria-checked='true'] {
+  border-color: var(--uwu-pink-solid);
+  box-shadow: 0 0 0 1px var(--uwu-pink-solid);
+}
+
+.theme-preview {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  width: 100%;
+  height: 46px;
+  padding: 6px;
+  border-radius: 7px;
+  border: 1px solid #e9dde4;
+  background: #ffffff;
+}
+
+.theme-preview[data-preview='dark'] {
+  border-color: #3a3040;
+  background: #1c171f;
+}
+
+/* System: half and half, light on the left. */
+.theme-preview[data-preview='system'] {
+  background: linear-gradient(105deg, #ffffff 50%, #1c171f 50%);
+}
+
+.theme-preview-bar {
+  height: 6px;
+  width: 40%;
+  border-radius: 3px;
+  background: #ff4d8d;
+}
+
+.theme-preview-line {
+  height: 4px;
+  border-radius: 2px;
+  background: #e9dde4;
+}
+
+.theme-preview[data-preview='dark'] .theme-preview-line {
+  background: #3a3040;
+}
+
+.theme-preview[data-preview='system'] .theme-preview-line {
+  background: rgba(140, 128, 140, 0.45);
+}
+
+.theme-preview-line.short {
+  width: 60%;
+}
+
+.onboarding-found {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--uwu-muted);
+}
+
+.onboarding-chip {
+  padding: 2px 9px;
+  border-radius: var(--uwu-radius-pill);
+  background: var(--uwu-pink-tint);
+  color: var(--uwu-pink-ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.onboarding-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.onboarding-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.onboarding-actions .setting-description {
+  margin: 0;
+}
+
+.onboarding-ok {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--uwu-online);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.onboarding-summary {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.onboarding-summary li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.onboarding-summary small {
+  color: var(--uwu-muted);
+  font-size: 12px;
+}
+
+.onboarding-mark {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  align-self: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--uwu-hairline);
+  color: var(--uwu-muted);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.onboarding-summary li[data-ok] .onboarding-mark {
+  background: color-mix(in srgb, var(--uwu-online) 18%, transparent);
+  color: var(--uwu-online);
+}
+
+.onboarding-tips {
+  padding: 4px 0 0;
+}
+
+.onboarding-sync {
+  display: grid;
+  gap: 12px;
+}
+
+/* Narrow windows: the step names go, Nyu sits above the page. */
+@media (max-width: 760px) {
+  .onboarding-step-label {
+    display: none;
+  }
+
+  .onboarding-steps button[data-state='current'] .onboarding-step-label {
+    display: inline;
+  }
+
+  .onboarding-steps li:has(button[data-state='current']) {
+    flex: 3;
+  }
+}
+
+@media (max-width: 600px), (max-height: 520px) {
+  .onboarding-page {
+    grid-template-columns: 110px minmax(0, 1fr);
+    gap: 14px;
+  }
+}

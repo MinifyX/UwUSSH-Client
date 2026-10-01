@@ -220,6 +220,19 @@ function load(): Settings {
   }
 }
 
+/** Whether settings were in storage before this start: someone used the app here. */
+const stored = (() => {
+  try {
+    return window.localStorage.getItem(KEY) !== null;
+  } catch {
+    return false;
+  }
+})();
+
+export function settingsWereStored(): boolean {
+  return stored;
+}
+
 let current = load();
 const listeners = new Set<() => void>();
 
