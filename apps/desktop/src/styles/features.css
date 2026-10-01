@@ -1440,6 +1440,15 @@ html[data-dragging] * {
 
 /* ── Tunnels ──────────────────────────────────────────────────────────────── */
 
+/* The list scrolls inside the dialog; a small window would cut it off. */
+.tunnels-body {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .tunnel-group h3 {
   margin: 14px 0 6px;
   font-size: 12px;

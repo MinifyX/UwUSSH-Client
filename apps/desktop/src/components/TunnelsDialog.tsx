@@ -440,116 +440,118 @@ export function TunnelsDialog({ hosts, host, onStart, onClose }: Props) {
         </>
       }
     >
-      <p className="dialog-lead">
-        {t(
-          'Ein Tunnel leitet einen Port durch die SSH-Verbindung: lokal (-L) holt etwas vom Server auf diesen Computer, remote (-R) bringt etwas von hier auf den Server. Er läuft auch ohne offenes Terminal.',
-        )}
-      </p>
-      {loadError && <p className="form-error">{loadError}</p>}
-
-      {shown.length === 0 ? (
-        <p className="sidebar-note">
-          {onlyHost
-            ? t('{name} hat noch keine Tunnel.', { name: onlyHost.name })
-            : t('Noch keine Tunnel.')}
+      <div className="tunnels-body">
+        <p className="dialog-lead">
+          {t(
+            'Ein Tunnel leitet einen Port durch die SSH-Verbindung: lokal (-L) holt etwas vom Server auf diesen Computer, remote (-R) bringt etwas von hier auf den Server. Er läuft auch ohne offenes Terminal.',
+          )}
         </p>
-      ) : (
-        shown.map(({ host: owner, tunnels: list }) => (
-          <section key={owner.id} className="tunnel-group">
-            {!only && <h3>{owner.name}</h3>}
-            <ul className="tunnel-list">
-              {list.map((tunnel) => {
-                const status = statuses.get(tunnel.id);
-                const known = tunnel.kind === 'local' || tunnel.kind === 'remote';
-                const running = status?.state === 'running' || status?.state === 'starting';
-                const working = busy.has(tunnel.id);
-                const failure = failures[tunnel.id];
-                const state = working
-                  ? 'connecting'
-                  : (status?.state ?? (failure ? 'failed' : 'idle'));
-                return (
-                  <li key={tunnel.id} className="tunnel-row" data-state={state}>
-                    <i className="dot" data-state={state} aria-hidden />
-                    <div className="tunnel-text">
-                      <span className="tunnel-name">
-                        <b>{tunnel.name}</b>
-                        <span className="tunnel-tag">
-                          {tunnel.kind === 'local'
-                            ? t('Lokal')
-                            : tunnel.kind === 'remote'
-                              ? t('Remote')
-                              : tunnel.kind}
+        {loadError && <p className="form-error">{loadError}</p>}
+
+        {shown.length === 0 ? (
+          <p className="sidebar-note">
+            {onlyHost
+              ? t('{name} hat noch keine Tunnel.', { name: onlyHost.name })
+              : t('Noch keine Tunnel.')}
+          </p>
+        ) : (
+          shown.map(({ host: owner, tunnels: list }) => (
+            <section key={owner.id} className="tunnel-group">
+              {!only && <h3>{owner.name}</h3>}
+              <ul className="tunnel-list">
+                {list.map((tunnel) => {
+                  const status = statuses.get(tunnel.id);
+                  const known = tunnel.kind === 'local' || tunnel.kind === 'remote';
+                  const running = status?.state === 'running' || status?.state === 'starting';
+                  const working = busy.has(tunnel.id);
+                  const failure = failures[tunnel.id];
+                  const state = working
+                    ? 'connecting'
+                    : (status?.state ?? (failure ? 'failed' : 'idle'));
+                  return (
+                    <li key={tunnel.id} className="tunnel-row" data-state={state}>
+                      <i className="dot" data-state={state} aria-hidden />
+                      <div className="tunnel-text">
+                        <span className="tunnel-name">
+                          <b>{tunnel.name}</b>
+                          <span className="tunnel-tag">
+                            {tunnel.kind === 'local'
+                              ? t('Lokal')
+                              : tunnel.kind === 'remote'
+                                ? t('Remote')
+                                : tunnel.kind}
+                          </span>
+                          {tunnel.autostart && (
+                            <span className="tunnel-tag">{t('mit Terminal')}</span>
+                          )}
                         </span>
-                        {tunnel.autostart && (
-                          <span className="tunnel-tag">{t('mit Terminal')}</span>
+                        <span className="meta">{describeRoute(tunnel)}</span>
+                        <span className="tunnel-status" role="status">
+                          {!known
+                            ? t('Braucht ein neueres UwUSSH.')
+                            : working && !running
+                              ? t('Verbindet…')
+                              : status
+                                ? statusText(tunnel, status)
+                                : (failure ?? t('Aus'))}
+                        </span>
+                      </div>
+                      <span className="tunnel-actions">
+                        {known &&
+                          (running ? (
+                            <button
+                              className="quiet"
+                              onClick={() => void stop(tunnel)}
+                              disabled={working}
+                            >
+                              <Icon name="stop" size={14} />
+                              {t('Stoppen')}
+                            </button>
+                          ) : (
+                            <button
+                              className="quiet"
+                              onClick={() => void start(tunnel)}
+                              disabled={working}
+                            >
+                              <Icon name="play" size={14} />
+                              {t('Starten')}
+                            </button>
+                          ))}
+                        {known && (
+                          <button
+                            className="icon-button"
+                            onClick={() => {
+                              setErrors({});
+                              setForm(formOf(tunnel));
+                            }}
+                            title={t('Bearbeiten')}
+                            aria-label={t('{name} bearbeiten', { name: tunnel.name })}
+                          >
+                            <Icon name="pencil" size={15} />
+                          </button>
                         )}
-                      </span>
-                      <span className="meta">{describeRoute(tunnel)}</span>
-                      <span className="tunnel-status" role="status">
-                        {!known
-                          ? t('Braucht ein neueres UwUSSH.')
-                          : working && !running
-                            ? t('Verbindet…')
-                            : status
-                              ? statusText(tunnel, status)
-                              : (failure ?? t('Aus'))}
-                      </span>
-                    </div>
-                    <span className="tunnel-actions">
-                      {known &&
-                        (running ? (
-                          <button
-                            className="quiet"
-                            onClick={() => void stop(tunnel)}
-                            disabled={working}
-                          >
-                            <Icon name="stop" size={14} />
-                            {t('Stoppen')}
-                          </button>
-                        ) : (
-                          <button
-                            className="quiet"
-                            onClick={() => void start(tunnel)}
-                            disabled={working}
-                          >
-                            <Icon name="play" size={14} />
-                            {t('Starten')}
-                          </button>
-                        ))}
-                      {known && (
                         <button
-                          className="icon-button"
-                          onClick={() => {
-                            setErrors({});
-                            setForm(formOf(tunnel));
-                          }}
-                          title={t('Bearbeiten')}
-                          aria-label={t('{name} bearbeiten', { name: tunnel.name })}
+                          className={confirmDelete === tunnel.id ? 'danger' : 'icon-button'}
+                          onClick={() => void remove(tunnel)}
+                          onBlur={() => setConfirmDelete(null)}
+                          title={t('Löschen')}
+                          aria-label={t('{name} löschen', { name: tunnel.name })}
                         >
-                          <Icon name="pencil" size={15} />
+                          {confirmDelete === tunnel.id ? (
+                            t('Wirklich löschen')
+                          ) : (
+                            <Icon name="trash" size={15} />
+                          )}
                         </button>
-                      )}
-                      <button
-                        className={confirmDelete === tunnel.id ? 'danger' : 'icon-button'}
-                        onClick={() => void remove(tunnel)}
-                        onBlur={() => setConfirmDelete(null)}
-                        title={t('Löschen')}
-                        aria-label={t('{name} löschen', { name: tunnel.name })}
-                      >
-                        {confirmDelete === tunnel.id ? (
-                          t('Wirklich löschen')
-                        ) : (
-                          <Icon name="trash" size={15} />
-                        )}
-                      </button>
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        ))
-      )}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ))
+        )}
+      </div>
     </Modal>
   );
 }
