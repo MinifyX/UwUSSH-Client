@@ -31,6 +31,11 @@ semver = "1"
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2", features = [] }
+# `uwussh://connect/<host id>` links. 2.5 and later need Tauri 2.12; these
+# stay with the Tauri the app and the CLI are on.
+tauri-plugin-deep-link = "~2.4.10"
+# One UwUSSH per user: a second start (a `uwussh://` link) goes to the first.
+tauri-plugin-single-instance = { version = "~2.4.5", features = ["deep-link"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-updater = "2"

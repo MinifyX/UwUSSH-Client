@@ -29,6 +29,9 @@ const KEYGEN_SHORTCUT: &str = "UwUKeygen.lnk";
 const HOMEPAGE: &str = "https://github.com/MinifyX/UwUSSH-Client";
 const UNINSTALL_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\UwUSSH";
 const SETUP_KEY: &str = r"Software\UwUSSH\Setup";
+/// `uwussh://connect/<host id>` links open UwUSSH (UwULock's "In UwUSSH
+/// öffnen"). The app takes nothing from a link but a host id.
+const URL_SCHEME_KEY: &str = r"Software\Classes\uwussh";
 /// What Tauri's standard NSIS installer (0.0.1) called the app and where it
 /// kept its own registry entry.
 const LEGACY_EXE: &str = "uwussh-desktop.exe";
@@ -460,6 +463,23 @@ fn register(layout: &Layout, dir: &Path, options: &Options, version: &str) -> Re
     write_dword(&entry, "NoModify", 1)?;
     write_dword(&entry, "NoRepair", 1)?;
 
+    // The link scheme, the way Windows wants a URL protocol: the app gets the
+    // whole link as its one argument.
+    layout.remove_tree(URL_SCHEME_KEY);
+    let scheme = layout.create(URL_SCHEME_KEY)?;
+    write(&scheme, "", "URL:UwUSSH")?;
+    write(&scheme, "URL Protocol", "")?;
+    write(
+        &layout.create(&format!(r"{URL_SCHEME_KEY}\DefaultIcon"))?,
+        "",
+        &format!("{},0", app.display()),
+    )?;
+    write(
+        &layout.create(&format!(r"{URL_SCHEME_KEY}\shell\open\command"))?,
+        "",
+        &format!("{} \"%1\"", quoted(&app)),
+    )?;
+
     let setup = layout.create(SETUP_KEY)?;
     write(&setup, "InstallDir", &dir.display().to_string())?;
     write(&setup, "Version", version)?;
@@ -486,6 +506,7 @@ pub fn uninstall(
 
     progress(Step::Register, 0.0);
     layout.remove_tree(UNINSTALL_KEY);
+    layout.remove_tree(URL_SCHEME_KEY);
     layout.remove_tree(r"Software\UwUSSH");
     layout.remove_tree(LEGACY_PRODUCT_KEY);
     layout.remove_empty(r"Software\uwussh");
@@ -614,6 +635,18 @@ mod tests {
             .get_value("UninstallString")
             .unwrap();
         assert!(command.ends_with("\" --uninstall"));
+        let open: String = layout
+            .open(&format!(r"{URL_SCHEME_KEY}\shell\open\command"))
+            .unwrap()
+            .get_value("")
+            .unwrap();
+        assert_eq!(open, format!("{} \"%1\"", quoted(&dir.join(APP_EXE))));
+        let marker: String = layout
+            .open(URL_SCHEME_KEY)
+            .unwrap()
+            .get_value("URL Protocol")
+            .unwrap();
+        assert_eq!(marker, "");
 
         std::fs::create_dir_all(&layout.roaming_data).unwrap();
         std::fs::write(layout.roaming_data.join("uwussh.db"), b"hosts").unwrap();
@@ -625,6 +658,7 @@ mod tests {
         );
         assert!(layout.open(UNINSTALL_KEY).is_none());
         assert!(layout.open(SETUP_KEY).is_none());
+        assert!(layout.open(URL_SCHEME_KEY).is_none());
 
         std::fs::create_dir_all(&dir).unwrap();
         uninstall(layout, &dir, false, &mut |_, _| {}).unwrap();

@@ -3,9 +3,12 @@ Categories={{categories}}
 {{#if comment}}
 Comment={{comment}}
 {{/if}}
-Exec={{exec}}
+Exec={{exec}} %u
 StartupWMClass={{exec}}
 Icon={{icon}}
 Name=UwUSSH
 Terminal=false
 Type=Application
+{{#if mime_type}}
+MimeType={{mime_type}}
+{{/if}}

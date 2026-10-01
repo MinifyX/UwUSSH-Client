@@ -164,6 +164,8 @@ export const syncDevices = () => invoke<Device[]>('sync_devices');
 export const syncRevoke = (deviceId: string, password: string) =>
   invoke<void>('sync_revoke', { deviceId, password });
 export const syncNow = () => invoke<void>('sync_now');
+/** A pass now, waited for. False when this device doesn't sync. */
+export const syncPassNow = () => invoke<boolean>('sync_pass_now');
 export const syncDisconnect = (password: string) => invoke<void>('sync_disconnect', { password });
 /** The recovery kit again, on a paired device that kept the account key. */
 export const syncRecoveryCode = (password: string) =>

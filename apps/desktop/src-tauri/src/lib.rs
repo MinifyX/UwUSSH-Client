@@ -17,6 +17,7 @@
 //! - [`lock`] — the same through UwULock: signing in, the move from UwUSync,
 //!   the realtime channel
 //! - [`system`] — updates, links, a fresh start for a reloaded page
+//! - [`links`] — `uwussh://connect/<host id>` links
 //! - [`m0`] — the throughput measurement
 //! - [`menu`] — the macOS menu bar
 
@@ -29,6 +30,7 @@ mod hosts;
 mod import;
 mod keygen;
 mod keys;
+mod links;
 mod lock;
 mod m0;
 mod menu;
@@ -112,7 +114,20 @@ pub fn run() {
     #[cfg(target_os = "macos")]
     let builder = builder.menu(menu::build).on_menu_event(menu::on_event);
 
+    // One UwUSSH per user, registered first: a second start hands its link
+    // over and quits before anything else of it runs. A run with a database
+    // of its own (UWUSSH_DB, for trying things out and the end-to-end tests)
+    // stays a separate window.
+    let builder = if std::env::var_os("UWUSSH_DB").is_none() {
+        builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            links::second_instance(app)
+        }))
+    } else {
+        builder
+    };
+
     builder
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -153,6 +168,7 @@ pub fn run() {
             app.manage(keygen::Generated::default());
             updates::start(app.handle());
             sync::start(app.handle());
+            links::setup(app);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -250,6 +266,7 @@ pub fn run() {
             sync::sync_devices,
             sync::sync_revoke,
             sync::sync_now,
+            sync::sync_pass_now,
             sync::sync_disconnect,
             sync::sync_recovery_code,
             lock::lock_sign_in,
@@ -266,6 +283,7 @@ pub fn run() {
             system::install_update,
             system::open_project_page,
             system::open_terminal_link,
+            links::take_link,
             m0::spawn_m0_session,
             m0::m0_autorun,
             m0::m0_finish,

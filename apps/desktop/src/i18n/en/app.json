@@ -113,5 +113,10 @@
   "Umschalt": "Shift",
   "Alt": "Alt",
   "Bild auf": "Page Up",
-  "Bild ab": "Page Down"
+  "Bild ab": "Page Down",
+  "Ein Link möchte eine Verbindung öffnen. Dafür muss der Tresor offen sein.": "A link wants to open a connection. The vault has to be open for that.",
+  "Den Host aus dem Link gibt es auf diesem Gerät nicht, und der Sync ist fehlgeschlagen: {error}": "The host from the link isn't on this device, and the sync failed: {error}",
+  "Den Host aus dem Link gibt es auf diesem Gerät nicht, auch nicht nach einem Sync. Vielleicht wurde er gelöscht.": "The host from the link isn't on this device, not even after a sync. Maybe it was deleted.",
+  "Den Host aus dem Link gibt es auf diesem Gerät nicht. Ohne Sync kann UwUSSH ihn nicht von deinen anderen Geräten holen.": "The host from the link isn't on this device. Without sync, UwUSSH can't fetch it from your other devices.",
+  "Der Link ließ sich nicht öffnen: {error}": "The link couldn't be opened: {error}"
 }

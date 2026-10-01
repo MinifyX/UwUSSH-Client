@@ -168,6 +168,9 @@ jobs:
               lipo "$app"/Contents/MacOS/* -verify_arch arm64 x86_64
               echo "signed, universal: $app"
             done
+            # uwussh://connect/<host id> links open the app.
+            test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes:0:CFBundleURLSchemes:0' \
+              "$check/UwUSSH.app/Contents/Info.plist")" = uwussh
           else
             setup=target/installers/UwUSSH-update-linux-x64.AppImage
             "$setup" --check-payload "$check"
@@ -189,6 +192,9 @@ jobs:
           test -f /var/lib/dpkg/info/uwussh.list
           grep -qx /usr/bin/uwussh-desktop /var/lib/dpkg/info/uwussh.list
           grep -q '^Name=UwUSSH$' /usr/share/applications/uwussh.desktop
+          # uwussh://connect/<host id> links open the app.
+          grep -qx 'MimeType=x-scheme-handler/uwussh' /usr/share/applications/uwussh.desktop
+          grep -qx 'Exec=uwussh-desktop %u' /usr/share/applications/uwussh.desktop
           ldd /usr/bin/uwussh-desktop | grep "not found" && exit 1 || echo "every library found"
           sudo apt-get remove -y uwussh
           test ! -e /usr/bin/uwussh-desktop

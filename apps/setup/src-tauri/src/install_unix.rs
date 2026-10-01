@@ -526,7 +526,11 @@ fn shortcuts(layout: &Layout, dir: &Path, options: &Options) -> Result<(), Strin
             let _ = std::fs::remove_file(&on_desktop);
             continue;
         }
-        let entry = desktop_entry(&app_dir, name, comment, class, categories);
+        let mut entry = desktop_entry(&app_dir, name, comment, class, categories);
+        if id == APP_ID {
+            // `uwussh://connect/<host id>` links (UwULock's "In UwUSSH öffnen").
+            entry.push_str(URL_MIME_TYPE);
+        }
         write_entry(&menu_entry, &entry)?;
         if id == APP_ID && options.desktop_shortcut {
             if write_entry(&on_desktop, &entry).is_ok() && !layout.sandbox {
@@ -553,6 +557,10 @@ fn shortcuts(layout: &Layout, dir: &Path, options: &Options) -> Result<(), Strin
     }
     Ok(())
 }
+
+/// The line that makes UwUSSH the handler of `uwussh://` links.
+#[cfg(not(target_os = "macos"))]
+const URL_MIME_TYPE: &str = "MimeType=x-scheme-handler/uwussh;\n";
 
 /// A freedesktop entry for an AppDir. The icon is the AppDir's own PNG.
 #[cfg(not(target_os = "macos"))]
@@ -751,6 +759,15 @@ mod tests {
             keygen: true,
         };
         shortcuts(layout, &dir, &options).unwrap();
+        #[cfg(not(target_os = "macos"))]
+        {
+            let read = |id: &str| {
+                std::fs::read_to_string(layout.applications.join(format!("{id}.desktop"))).unwrap()
+            };
+            assert!(read(APP_ID).contains("\nMimeType=x-scheme-handler/uwussh;\n"));
+            assert!(read(APP_ID).contains("/AppRun\" %U\n"));
+            assert!(!read(KEYGEN_APP_ID).contains("MimeType="));
+        }
         std::fs::create_dir_all(layout.state.parent().unwrap()).unwrap();
         std::fs::write(
             &layout.state,
