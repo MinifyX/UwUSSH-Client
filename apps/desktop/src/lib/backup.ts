@@ -9,6 +9,7 @@ export type BackupSummary = {
   keys: number;
   knownHosts: number;
   snippets: number;
+  tunnels: number;
   passwords: number;
 };
 

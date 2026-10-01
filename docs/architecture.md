@@ -675,7 +675,7 @@ is safe. An import that brings no new secret needs no vault at all.
 ### UwUSSH's own export
 
 Settings → Import & Export writes everything — workspaces, groups, hosts, keys,
-trusted host keys, snippets, and optionally the passwords and private keys — into
+trusted host keys, snippets, tunnels, and optionally the passwords and private keys — into
 one `.uwussh` file: JSON inside an envelope (`format`, `version`, the app
 version). With secrets, the whole inner document is sealed with a password of
 its own: Argon2id with the vault's parameters, then XChaCha20-Poly1305, with the
@@ -691,6 +691,14 @@ source. A file is data from anywhere, so it is taken with care: host keys only
 for the hosts in the same file, only when the fingerprint really is that key's,
 and never over a key that exists or once existed; key paths only when they are
 on this computer; hosts only when the host form would have accepted them.
+
+Tunnels sit under a key of their own that a file has only when there are any,
+so old and new builds still read each other's files without a new `version`.
+Each names its host by position in the file and lands on the host with that
+address, port and user, whether the import just added it or it was already
+there; one that host already has is skipped, and one the tunnel form would
+refuse is left out. Autostart survives only on a host the import added: a file
+must not make a host the user already had open ports on its next connect.
 
 ## Connecting
 

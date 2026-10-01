@@ -382,6 +382,8 @@ export type ImportReport = {
   keysAdded: number;
   knownHostsAdded: number;
   snippetsAdded: number;
+  /** Only export files carry tunnels. */
+  tunnelsAdded?: number;
   skipped: string[];
 };
 
