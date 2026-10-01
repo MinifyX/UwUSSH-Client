@@ -214,7 +214,6 @@
   "Vom Server trennen?": "Disconnect from the server?",
   "Der Tresor wird wieder nur mit dem Master-Passwort verschlüsselt. Die anderen Geräte synchronisieren weiter.": "The vault is encrypted with the master password alone again. The other devices keep syncing.",
   "Der Sync braucht den offenen Tresor, um zu ver- und entschlüsseln.": "Sync needs the vault open to encrypt and decrypt.",
-  "Code wird erzeugt…": "Making a code…",
   "Auf dem neuen Gerät: Einstellungen → Sync → Mit einem Gerät koppeln.": "On the new device: Settings → Sync → Pair with a device.",
   "Zum Abtippen": "To type",
   "Dazu die Adresse {server}": "Plus the address {server}",

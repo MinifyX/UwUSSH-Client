@@ -12,6 +12,7 @@ repository = "https://github.com/MinifyX/UwUSSH-Client"
 rust-version = "1.89"
 
 [workspace.dependencies]
+uwussh-assist = { path = "crates/uwussh-assist" }
 uwussh-core = { path = "crates/uwussh-core" }
 uwussh-import = { path = "crates/uwussh-import" }
 uwussh-keygen = { path = "crates/uwussh-keygen" }

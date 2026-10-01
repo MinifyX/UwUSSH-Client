@@ -192,7 +192,7 @@ The point where I can stop using anything else.
 - **A Mac app that feels like one** (unreleased, written without a Mac, so it
   waits for a test on one): the system's traffic lights over the title bar
   (`tauri.macos.conf.json`), Terminal.app's shortcuts with ⌘ (one table for
-  all systems, `lib/keymap.ts`; ⌘K is kept free for the AI command), an Edit
+  all systems, `lib/keymap.ts`; ⌘K opens the command assistant), an Edit
   menu so ⌘C, ⌘V and ⌘A work in every field, and Quit that asks about open
   connections. What made typing in the local shell "hang" on a Mac started
   from the Dock: the shell got no `TERM` (zsh's line editor fell back to a dumb
@@ -221,6 +221,11 @@ Where the distance to the commercial clients actually opens up.
 - **Proxmox import** — nodes, LXC and VMs via the API, groups mirroring the
   cluster
 - **Netbox import** — inventory as the source of truth
+- **The command assistant is done, early**: a request in words becomes one
+  command for the host's system, typed but never run, from Ollama, an
+  OpenAI-compatible server, OpenAI, Anthropic or Mistral, with an offline
+  cache for requests asked before. Settings, cache and the sealed API key
+  sync. See [architecture](architecture.md#command-assistant).
 - Local shell tabs (PowerShell, WSL, cmd) and serial console
 - Session recording with asciinema export, persistent searchable scrollback
 - **UwUSSH as an SSH agent** — other programs use the vault's keys through a

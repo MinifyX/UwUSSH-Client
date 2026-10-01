@@ -102,7 +102,7 @@ rev         u64      local bookkeeping, handy in tests and logs
 
 Entities: `Host`, `Group`, `Identity`, `Key`, `Secret`, `Snippet`,
 `PortForward`, `KnownHost`, `TerminalProfile` — the last two of those have no
-table yet. `SessionLog` stays local and does not sync by default, and so do the
+table yet — and the command assistant's `AssistConfig` and `AssistCache`. `SessionLog` stays local and does not sync by default, and so do the
 columns that only mean something here: a key's file path, when this device last
 connected, and the system a connection found.
 
@@ -253,6 +253,32 @@ possible clock, no name, never pushed — which the real record replaces the
 moment it turns up. Until then the host is listed without a login, and a group
 with no name yet is not shown as a group at all.
 
+### Kinds an older build does not know
+
+The command assistant added the first kinds since the first release
+(`assist_config`, `assist_cache`), and builds without them are in the field.
+What they do with such a record decides how a new kind has to travel:
+
+- **This build and later** skip an envelope whose kind they do not know, in a
+  pulled page and in a push answer alike, and move the cursor past a page
+  that held nothing else. The next new kind costs nothing.
+- **0.2.x over UwUSync** reads a page strictly: one unknown kind fails the
+  whole page, every pass. So the client asks with `&assist=1`, like
+  `&manifests=1`, and a server must leave these kinds out for a client that
+  does not — before its own protocol learns them. Today's server rejects the
+  kinds on push, which the next point covers.
+- **A server that does not know them** refuses a push that carries one. The
+  assistant's records therefore go up in their own requests, after everything
+  else, and a refusal is logged and left at that: hosts and keys still sync,
+  only the assistant waits for a newer server. They are not counted as
+  "waiting to sync" either, so that wait shows no banner.
+- **0.2.x over UwULock** skips unknown kinds, but a page made only of them
+  ended its pull without moving the cursor. That is why the assistant has a
+  fixed footprint: one settings record and 200 cache slots with fixed ids
+  (`uwussh-store/src/assist.rs`), 201 records, well under a 500-record page,
+  so a page never consists of them alone. Clearing the cache writes empty
+  slots instead of tombstones, since a tombstone would end the slot for good.
+
 ### Manifests: noticing what the server keeps back
 
 The seal stops a server from forging or altering a record, but not from
@@ -298,7 +324,8 @@ The limits, honestly:
   server that serves an old snapshot of every record and every manifest
   together is indistinguishable from a vault that simply is that old.
 - A manifest lists at most 7,000 records, host keys first, then keys, secrets,
-  logins, hosts, groups and snippets; a bigger vault publishes a partial one
+  logins, hosts, groups and snippets, then the command assistant's settings
+  and cache; a bigger vault publishes a partial one
   and the rest goes unchecked.
 - The check covers versions the listing device had confirmed. An edit made
   after its last manifest is covered once that device publishes again.
@@ -362,6 +389,7 @@ end-to-end run drives two app instances against a real server (see below).
 | `POST /v1/session`                   | A device signs a challenge (Ed25519) → token, one hour                      |
 | `GET /v1/vault`, `PUT /v1/vault/key` | The vault header; a new one on a password change                            |
 | `GET /v1/records?since=<seq>`        | Envelopes newer than a cursor, paginated; `&manifests=1` includes manifests |
+|                                      | `&assist=1`: this build knows the command assistant's two kinds             |
 | `POST /v1/records`                   | Batch push, each record with its `base_seq`                                 |
 | `GET /v1/events`                     | Server-sent events: "changes from seq N"                                    |
 | `POST /v1/pair`, `/v1/pair/{id}`     | Relay for device pairing (SPAKE2), ten minutes                              |
@@ -888,6 +916,39 @@ The app's shortcuts all need Ctrl and never Alt (AltGr is Ctrl+Alt on German
 keyboards), and tab shortcuts add Shift, because plain Ctrl+W belongs to bash.
 Paste keys are passed to the webview instead of xterm.js, so pasting uses the
 browser's own paste event — no clipboard permission, bracketed paste intact.
+
+## Command assistant
+
+A request in words — "liste alle Benutzer auf" — becomes one command for the
+system in the tab, typed at the prompt and **never run**: Rust drops every
+control character, Enter included, before it writes to the session. Ctrl+Shift+K
+(⌘K on a Mac, where Cmd never reaches the terminal) or the sparkle above the
+tabs opens it; Enter asks, Enter again types, Esc closes.
+
+- **The system** is the one the OS probe found for the host (`host.os`, see
+  `uwussh_core::os`), for a local tab this computer's. `uwussh-assist` turns it
+  into a platform — family, shell, package manager — whose key
+  (`linux/bash/apt`, `windows/powershell/winget`, `cisco-ios/ios/none`) goes
+  into the prompt and the cache. The shell can be switched in the popup where
+  there is more than one.
+- **Providers**: Ollama (found on this machine by itself), any
+  OpenAI-compatible server, OpenAI, Anthropic and Mistral, over blocking
+  `reqwest` with rustls, redirects off and plain `http://` only to this
+  machine or a private network. The model answers strict JSON — command,
+  explanation, a danger flag — which is parsed leniently (code fences, text
+  around it) and refused when the command spans lines. Commands that can
+  destroy something are flagged red whatever the model says.
+- **The cache** answers a request it has seen before for the same platform
+  without a model, offline. Requests are normalised — lower case, umlauts
+  folded, German and English filler words dropped, words stemmed and mapped
+  onto one concept each ("Benutzer", "Benutzerkonten", "users" → `user`) — and
+  match when their concept sets overlap by three quarters (Jaccard). Numbers,
+  paths and flags must match exactly, so "die letzten 10 Zeilen" never reuses
+  the answer for 20. "Neu generieren" skips the cache.
+- **Sync and the vault**: settings and cache are records like any other,
+  sealed with the vault key. An API key is a **secret** in the vault, which
+  the settings record only points at; it never reaches the page again, and a
+  locked vault asks to be opened first.
 
 ## Languages
 

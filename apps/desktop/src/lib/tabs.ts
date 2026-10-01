@@ -4,6 +4,7 @@
  * doing and what to tell the user.
  */
 
+import type { AssistTarget } from './assist';
 import { t } from './i18n';
 import type { HostRecord } from './session';
 
@@ -105,4 +106,14 @@ export function neighbourAfterClose(tabs: Tab[], id: string): string | null {
   if (index < 0) return null;
   const rest = tabs.filter((tab) => tab.id !== id);
   return rest[Math.min(index, rest.length - 1)]?.id ?? null;
+}
+
+/** A live terminal: a local shell or an SSH session the assistant can type into. */
+export function canAssist(tab: Tab): boolean {
+  return (tab.kind === 'shell' || tab.kind === 'ssh') && tab.status === 'live';
+}
+
+/** Which system the assistant writes a command for: this computer, or the host. */
+export function assistTargetOf(tab: Tab): AssistTarget {
+  return tab.kind === 'ssh' ? { kind: 'host', os: tab.host.os } : { kind: 'local' };
 }

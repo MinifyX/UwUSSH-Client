@@ -1551,3 +1551,144 @@ html[data-dragging] * {
   align-items: center;
   gap: 5px;
 }
+
+/* ── Command assistant ───────────────────────────────────────────────────── */
+
+.assist {
+  display: grid;
+  gap: 12px;
+  width: min(560px, 100%);
+}
+
+.assist-target {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--uwu-muted);
+}
+
+.assist-target .select {
+  padding: 4px 8px;
+  font-size: 12.5px;
+}
+
+.assist-shell-name {
+  padding: 2px 8px;
+  border-radius: var(--uwu-radius-pill);
+  background: var(--uwu-elevated);
+  border: 1px solid var(--uwu-hairline);
+  font-size: 12px;
+}
+
+.assist-status {
+  margin: 0;
+  font-size: 13px;
+  color: var(--uwu-muted);
+}
+
+.assist-result {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: var(--uwu-radius-control);
+  border: 1px solid var(--uwu-border);
+  background: var(--uwu-elevated);
+}
+
+.assist-result[data-dangerous='true'] {
+  border-color: var(--uwu-danger);
+}
+
+.assist-command-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.assist-command {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--uwu-mono);
+  font-size: 13px;
+  padding: 8px 10px;
+  border-radius: var(--uwu-radius-control);
+  border: 1px solid var(--uwu-border);
+  background: var(--uwu-canvas);
+  color: var(--uwu-ink);
+}
+
+.assist-result[data-dangerous='true'] .assist-command {
+  color: var(--uwu-danger);
+}
+
+.assist-badge {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: var(--uwu-radius-pill);
+  background: var(--uwu-pink-tint);
+  color: var(--uwu-pink-ink);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.assist-explanation {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.assist-danger {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--uwu-radius-control);
+  background: var(--uwu-danger-tint);
+  color: var(--uwu-danger);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.assist-failure {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+
+.assist-provider {
+  display: grid;
+  gap: 12px;
+  padding: 12px 0;
+}
+
+.assist-provider-row {
+  display: flex;
+  gap: 8px;
+  align-items: end;
+  flex-wrap: wrap;
+}
+
+.assist-models {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.assist-models button[aria-pressed='true'] {
+  border-color: var(--uwu-pink);
+  color: var(--uwu-pink-ink);
+}
+
+.assist-cache-command {
+  font-family: var(--uwu-mono);
+}
+
+.assist-cache-danger {
+  color: var(--uwu-danger);
+}
+
+.assist-provider-row input {
+  flex: 1;
+  min-width: 0;
+}

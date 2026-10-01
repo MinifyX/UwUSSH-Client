@@ -5,6 +5,7 @@
 //! `uwussh-store`, and both are tested without a window.
 //!
 //! - [`sessions`] — terminal I/O for any session
+//! - [`assist`] — the command assistant: a request in words to one command
 //! - [`hosts`] — the host list, groups, connecting, host key decisions
 //! - [`files`] — the file browser: SFTP, this computer, SMB shares
 //! - [`tunnels`] — local and remote port forwards
@@ -19,6 +20,7 @@
 //! - [`m0`] — the throughput measurement
 //! - [`menu`] — the macOS menu bar
 
+mod assist;
 mod backup;
 mod device;
 mod dialogs;
@@ -160,6 +162,16 @@ pub fn run() {
             sessions::ack_session,
             sessions::close_session,
             sessions::session_metrics,
+            assist::assist_platform,
+            assist::assist_generate,
+            assist::assist_type_command,
+            assist::assist_settings,
+            assist::assist_save_settings,
+            assist::assist_models,
+            assist::assist_detect_ollama,
+            assist::assist_cache_list,
+            assist::assist_cache_delete,
+            assist::assist_cache_clear,
             hosts::list_hosts,
             hosts::save_host,
             hosts::delete_host,

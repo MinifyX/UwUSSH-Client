@@ -7,7 +7,7 @@ use crate::{Result, StoreError};
 use rusqlite::{params, Connection, OptionalExtension};
 use uuid::Uuid;
 
-pub const SCHEMA_VERSION: i64 = 8;
+pub const SCHEMA_VERSION: i64 = 9;
 
 /// The sync header (`id`, `vault_id`, clock, `rev`, `deleted`) is on every
 /// syncable table from the start; see the crate docs for why.
@@ -394,6 +394,53 @@ CREATE INDEX port_forwards_by_host ON port_forwards (host_id) WHERE deleted = 0;
 UPDATE sync_state SET cursor = 0 WHERE id = 1;
 "#;
 
+/// The command assistant: its settings and its answer cache, both synced
+/// (see `crate::assist`).
+const V9: &str = r#"
+-- One row under a fixed id. `body` is the synced payload as it is sealed, so
+-- fields a newer build added survive an edit here. API keys are not in it:
+-- it points at sealed rows in `secrets`.
+CREATE TABLE assist_config (
+    id                  TEXT    PRIMARY KEY,
+    vault_id            TEXT    NOT NULL,
+    body                TEXT    NOT NULL,
+    hlc_wall_ms         INTEGER NOT NULL,
+    hlc_counter         INTEGER NOT NULL,
+    hlc_device          INTEGER NOT NULL,
+    rev                 INTEGER NOT NULL DEFAULT 1,
+    deleted             INTEGER NOT NULL DEFAULT 0,
+    dirty               INTEGER NOT NULL DEFAULT 1,
+    server_seq          INTEGER NOT NULL DEFAULT 0
+);
+
+-- A fixed number of slots with fixed ids; an empty `command` is a free slot.
+-- `hits` and `used_ms` are this device's own and never travel.
+CREATE TABLE assist_cache (
+    id                  TEXT    PRIMARY KEY,
+    vault_id            TEXT    NOT NULL,
+    platform            TEXT    NOT NULL,
+    request             TEXT    NOT NULL,
+    normalized          TEXT    NOT NULL,
+    command             TEXT    NOT NULL,
+    explanation         TEXT    NOT NULL,
+    dangerous           INTEGER NOT NULL DEFAULT 0,
+    created_ms          INTEGER NOT NULL,
+    used_ms             INTEGER NOT NULL DEFAULT 0,
+    hits                INTEGER NOT NULL DEFAULT 0,
+    hlc_wall_ms         INTEGER NOT NULL,
+    hlc_counter         INTEGER NOT NULL,
+    hlc_device          INTEGER NOT NULL,
+    rev                 INTEGER NOT NULL DEFAULT 1,
+    deleted             INTEGER NOT NULL DEFAULT 0,
+    dirty               INTEGER NOT NULL DEFAULT 1,
+    server_seq          INTEGER NOT NULL DEFAULT 0,
+    sync_extra          TEXT
+);
+CREATE INDEX assist_cache_by_platform ON assist_cache (platform);
+CREATE INDEX assist_config_pending ON assist_config (dirty) WHERE dirty = 1;
+CREATE INDEX assist_cache_pending  ON assist_cache (dirty)  WHERE dirty = 1;
+"#;
+
 pub fn migrate(conn: &mut Connection) -> Result<()> {
     let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
 
@@ -582,6 +629,14 @@ pub fn migrate(conn: &mut Connection) -> Result<()> {
         tx.pragma_update(None, "user_version", 8)?;
         tx.commit()?;
         tracing::info!("store migrated to schema 8");
+    }
+
+    if version < 9 {
+        let tx = conn.transaction()?;
+        tx.execute_batch(V9)?;
+        tx.pragma_update(None, "user_version", 9)?;
+        tx.commit()?;
+        tracing::info!("store migrated to schema 9");
     }
 
     Ok(())
@@ -929,6 +984,77 @@ mod tests {
             .unwrap();
         assert_eq!(tunnels, 0);
         assert_eq!(cursor, 0, "tunnels an older build passed over come in now");
+    }
+
+    /// The assistant's tables, empty, whichever schema a store came from.
+    fn assert_empty_assistant(conn: &Connection) {
+        for table in ["assist_config", "assist_cache"] {
+            let rows: i64 = conn
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(rows, 0);
+        }
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn a_v7_database_upgrades_to_v9_with_tunnels_and_an_empty_assistant() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        for batch in [V1, V2, V3, V4, V4_DROP_GROUP_PATH, V5, V6, V7] {
+            conn.execute_batch(batch).unwrap();
+        }
+        conn.execute(
+            "INSERT INTO meta (id, device_id, vault_id) VALUES (1, 1, 'v')",
+            [],
+        )
+        .unwrap();
+        conn.pragma_update(None, "user_version", 7).unwrap();
+        migrate(&mut conn).unwrap();
+        let tunnels: i64 = conn
+            .query_row("SELECT count(*) FROM port_forwards", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(tunnels, 0);
+        assert_empty_assistant(&conn);
+    }
+
+    #[test]
+    fn a_v8_database_upgrades_to_v9_keeping_its_tunnels_and_its_cursor() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        for batch in [V1, V2, V3, V4, V4_DROP_GROUP_PATH, V5, V6, V7, V8] {
+            conn.execute_batch(batch).unwrap();
+        }
+        conn.execute(
+            "INSERT INTO meta (id, device_id, vault_id) VALUES (1, 1, 'v')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO port_forwards (id, vault_id, host_id, name, kind, bind_address,
+                 bind_port, target_host, target_port, hlc_wall_ms, hlc_counter, hlc_device)
+             VALUES ('t', 'v', 'h', 'db', 'local', '127.0.0.1', 5432, 'db.test', 5432, 1, 0, 1)",
+            [],
+        )
+        .unwrap();
+        conn.execute("UPDATE sync_state SET cursor = 42 WHERE id = 1", [])
+            .unwrap();
+        conn.pragma_update(None, "user_version", 8).unwrap();
+
+        migrate(&mut conn).unwrap();
+
+        let (tunnels, cursor): (i64, i64) = conn
+            .query_row(
+                "SELECT (SELECT count(*) FROM port_forwards),
+                        (SELECT cursor FROM sync_state WHERE id = 1)",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(tunnels, 1);
+        assert_eq!(cursor, 42, "only the move to v8 reads the server again");
+        assert_empty_assistant(&conn);
     }
 
     #[test]

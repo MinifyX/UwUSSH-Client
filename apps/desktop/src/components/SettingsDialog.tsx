@@ -43,6 +43,7 @@ import {
 } from '../lib/settings';
 import { systemName } from '../lib/platform';
 import { allKeysFor, isMac, keysFor, keysForTab, primaryModifier } from '../lib/shortcuts';
+import { AssistSettings } from './AssistSettings';
 import { ExportDialog } from './ExportDialog';
 import { SyncSettings } from './SyncSettings';
 import { Icon } from './Icon';
@@ -52,13 +53,22 @@ import { Nyu } from './nyu/Nyu';
 import { VaultDialog } from './VaultDialog';
 
 export type SettingsSection =
-  'appearance' | 'terminal' | 'highlight' | 'vault' | 'sync' | 'data' | 'updates' | 'about';
+  | 'appearance'
+  | 'terminal'
+  | 'highlight'
+  | 'vault'
+  | 'assist'
+  | 'sync'
+  | 'data'
+  | 'updates'
+  | 'about';
 
 const SECTIONS: { id: SettingsSection; label: string }[] = [
   { id: 'appearance', label: N_('Darstellung') },
   { id: 'terminal', label: N_('Terminal') },
   { id: 'highlight', label: N_('Hervorhebung') },
   { id: 'vault', label: N_('Tresor & Keys') },
+  { id: 'assist', label: N_('KI') },
   { id: 'sync', label: N_('Sync') },
   { id: 'data', label: N_('Import & Export') },
   { id: 'updates', label: N_('Updates') },
@@ -377,6 +387,8 @@ function TerminalSettings() {
           <dd>{t('Dateien des Hosts öffnen')}</dd>
           <dt>{keysFor('type-password')}</dt>
           <dd>{t('Passwort eintippen, wenn danach gefragt wird')}</dd>
+          <dt>{keysFor('assist')}</dt>
+          <dd>{t('Befehl aus Worten')}</dd>
           <dt>{mac ? '⌘C · ⌘V' : t('Strg+Umschalt+C · Strg+Umschalt+V')}</dt>
           <dd>{t('Kopieren · Einfügen')}</dd>
           {mac && (
@@ -1125,6 +1137,7 @@ export function SettingsDialog({
           {section === 'terminal' && <TerminalSettings />}
           {section === 'highlight' && <Highlighting />}
           {section === 'vault' && <Vault onChanged={onChanged} />}
+          {section === 'assist' && <AssistSettings />}
           {section === 'sync' && <SyncSettings />}
           {section === 'data' && <Data onImport={onImport} />}
           {section === 'updates' && (

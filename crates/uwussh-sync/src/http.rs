@@ -428,20 +428,34 @@ fn claimed(request: RequestBuilder, claim: Option<&str>) -> RequestBuilder {
     }
 }
 
+/// The query of one pull.
+///
+/// `manifests` says this build reads manifest records. A build before them
+/// fails on a whole page that holds a kind it does not know, so a server
+/// leaves them out for whoever does not ask; one that does not know the
+/// parameter ignores it.
+///
+/// `assist` says the same for the command assistant's records
+/// (`assist_config`, `assist_cache`): this build skips kinds it does not know
+/// and reads both, so a server that holds them may hand them over. Builds
+/// before 0.3 do not ask and are not sent them.
+fn pull_query(since: SyncCursor, limit: usize) -> [(&'static str, String); 4] {
+    [
+        ("since", since.0.to_string()),
+        ("limit", limit.to_string()),
+        ("manifests", "1".to_string()),
+        ("assist", "1".to_string()),
+    ]
+}
+
 impl Transport for Server {
     fn pull(&self, since: SyncCursor, limit: usize) -> Result<PullResponse, TransportError> {
         let limit = limit.min(MAX_BATCH);
         self.send_limited(
             || {
-                // `manifests` says this build reads manifest records. A build
-                // before them fails on a whole page that holds a kind it does
-                // not know, so a server leaves them out for whoever does not
-                // ask; one that does not know the parameter ignores it.
-                self.client.get(self.url("/v1/records")).query(&[
-                    ("since", since.0.to_string()),
-                    ("limit", limit.to_string()),
-                    ("manifests", "1".to_string()),
-                ])
+                self.client
+                    .get(self.url("/v1/records"))
+                    .query(&pull_query(since, limit))
             },
             true,
             MAX_PAGE_BYTES,
@@ -594,6 +608,7 @@ pub fn from_wire(wire: &WireVault) -> Result<uwussh_vault::VaultHeader, Transpor
 #[cfg(test)]
 mod tests {
     use super::*;
+    use uwussh_proto::EntityKind;
 
     #[test]
     fn a_secret_only_travels_over_tls_or_to_this_machine() {
@@ -664,5 +679,29 @@ mod tests {
         assert_eq!(decode("-_--").unwrap(), vec![251, 255, 190]);
         assert_eq!(decode(" -_-- \n").unwrap(), vec![251, 255, 190]);
         assert!(decode("not base64!!").is_none());
+    }
+
+    #[test]
+    fn a_pull_asks_for_manifests_and_the_assistants_records() {
+        let query = pull_query(SyncCursor(7), 50);
+        let pairs: Vec<(&str, &str)> = query.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        assert_eq!(
+            pairs,
+            [
+                ("since", "7"),
+                ("limit", "50"),
+                ("manifests", "1"),
+                ("assist", "1")
+            ]
+        );
+        // The names the server filters by are the kinds' wire names.
+        assert_eq!(
+            serde_json::to_value(EntityKind::AssistConfig).unwrap(),
+            "assist_config"
+        );
+        assert_eq!(
+            serde_json::to_value(EntityKind::AssistCache).unwrap(),
+            "assist_cache"
+        );
     }
 }

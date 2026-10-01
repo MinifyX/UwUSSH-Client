@@ -69,15 +69,33 @@ test('on the Mac the tab shortcuts are ⌘ ones, like in Terminal.app', () => {
   assert.deepEqual(at(key('KeyA', 'meta')), { kind: 'select-all' });
 });
 
-test('on the Mac Ctrl stays with the terminal and ⌘K and ⌘F stay free', () => {
+test('on the Mac Ctrl stays with the terminal and ⌘F stays free', () => {
   const at = (event: KeyLike, selection = true) => shortcutFor(event, ON, selection, 'macos');
   assert.equal(at(key('KeyC', 'ctrl')), null, '⌃C is the interrupt, selection or not');
   assert.equal(at(key('KeyT', 'ctrl shift')), null);
   assert.equal(at(key('KeyW', 'ctrl')), null);
   assert.equal(at(key('Digit1', 'ctrl shift')), null);
-  assert.equal(at(key('KeyK', 'meta')), null, '⌘K is kept for the AI command');
   assert.equal(at(key('KeyF', 'meta')), null);
   assert.equal(at(key('KeyV', 'meta')), null, '⌘V is pasted by the webview');
+});
+
+test('the command assistant is ⌘K on the Mac and Ctrl+Shift+K elsewhere', () => {
+  assert.deepEqual(shortcutFor(key('KeyK', 'meta'), ON, false, 'macos'), { kind: 'assist' });
+  assert.equal(shortcutFor(key('KeyK', 'ctrl'), ON, false, 'macos'), null, '⌃K kills the line');
+  assert.equal(shortcutFor(key('KeyK', 'ctrl shift'), ON, false, 'macos'), null);
+  for (const system of ['windows', 'linux'] as const) {
+    assert.deepEqual(shortcutFor(key('KeyK', 'ctrl shift'), ON, false, system), {
+      kind: 'assist',
+    });
+    assert.equal(
+      shortcutFor(key('KeyK', 'ctrl'), ON, false, system),
+      null,
+      'Ctrl+K is the shell’s',
+    );
+    assert.equal(shortcutFor(key('KeyK', 'ctrl shift alt'), ON, false, system), null);
+  }
+  assert.equal(shortcutLabel('assist', 'macos', NAMES), '⌘K');
+  assert.equal(shortcutLabel('assist', 'linux', NAMES), 'Strg+Umschalt+K');
 });
 
 test('⌘C copies a selection and is left alone without one', () => {

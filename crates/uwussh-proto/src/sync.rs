@@ -52,6 +52,9 @@ pub struct SyncCursor(pub u64);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PullResponse {
+    /// Records of a kind this build does not know are left out here: it could
+    /// not open them anyway, and one of them must not cost the whole page.
+    #[serde(deserialize_with = "known_envelopes")]
     pub envelopes: Vec<Envelope>,
     pub cursor: SyncCursor,
     /// True when the server has more waiting — page again rather than assume
@@ -72,7 +75,7 @@ pub struct PushResponse {
     pub accepted: Vec<Accepted>,
     /// Records the server refused because someone else wrote first, as it
     /// holds them now. The client merges and tries again.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "known_envelopes")]
     pub conflicts: Vec<Envelope>,
     pub cursor: SyncCursor,
 }
@@ -100,6 +103,33 @@ pub const MAX_BLOB_BYTES: usize = 256 * 1024;
 /// never have to hold that for one request, let alone for several at once.
 /// A batch always holds at least one record, whatever its size.
 pub const MAX_BATCH_BYTES: usize = 8 * 1024 * 1024;
+
+/// A list of envelopes, without the ones whose kind a newer build added.
+///
+/// A build that reads its envelopes strictly fails on the whole page as soon
+/// as one record has a kind it has never heard of — which is what every build
+/// before 0.3 does, and why servers leave new kinds out for clients that do
+/// not ask for them. From here on a client skips such a record instead; one
+/// that is broken in any other way still fails the page, as before.
+fn known_envelopes<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Envelope>, D::Error> {
+    use serde::de::Error;
+    let raw = Vec::<serde_json::Value>::deserialize(d)?;
+    let mut known = Vec::with_capacity(raw.len());
+    for value in raw {
+        let unknown = value
+            .get("kind")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|kind| {
+                serde_json::from_value::<EntityKind>(serde_json::Value::String(kind.into()))
+                    .is_err()
+            });
+        if unknown {
+            continue;
+        }
+        known.push(serde_json::from_value(value).map_err(D::Error::custom)?);
+    }
+    Ok(known)
+}
 
 /// Base64 for byte vectors, so envelopes stay readable in a JSON body.
 mod serde_bytes_vec {
@@ -176,5 +206,66 @@ mod tests {
         let json = serde_json::to_string(&env).expect("serialise");
         let back: Envelope = serde_json::from_str(&json).expect("deserialise");
         assert_eq!(env, back);
+    }
+
+    fn envelope(kind: EntityKind) -> Envelope {
+        Envelope {
+            id: Uuid::now_v7(),
+            vault_id: Uuid::nil(),
+            kind,
+            updated_at: Hlc::new(1_700_000_000_000, 0, 1),
+            base_seq: 0,
+            deleted: false,
+            nonce: vec![0; 24],
+            blob: vec![1, 2, 3],
+            seq: Some(7),
+        }
+    }
+
+    #[test]
+    fn a_page_with_a_kind_from_a_newer_build_still_reads() {
+        let host = envelope(EntityKind::Host);
+        let mut page = serde_json::to_value(PullResponse {
+            envelopes: vec![envelope(EntityKind::Host), host.clone()],
+            cursor: SyncCursor(9),
+            has_more: false,
+        })
+        .unwrap();
+        page["envelopes"][0]["kind"] = "hologram".into();
+        let read: PullResponse = serde_json::from_value(page.clone()).unwrap();
+        assert_eq!(read.envelopes, vec![host]);
+        assert_eq!(read.cursor, SyncCursor(9), "the cursor still moves past it");
+
+        // Anything else broken still fails the page.
+        page["envelopes"][1]["nonce"] = 5.into();
+        assert!(serde_json::from_value::<PullResponse>(page).is_err());
+    }
+
+    #[test]
+    fn a_build_before_the_assistant_fails_on_its_kinds_and_why_servers_filter_them() {
+        // The enum as 0.2 has it, read strictly as 0.2 does.
+        #[derive(Deserialize)]
+        #[serde(rename_all = "snake_case")]
+        #[allow(dead_code)]
+        enum OldKind {
+            Host,
+            Group,
+            Identity,
+            Key,
+            Snippet,
+            PortForward,
+            KnownHost,
+            TerminalProfile,
+            Secret,
+            Manifest,
+        }
+        for kind in EntityKind::ASSIST {
+            let name = serde_json::to_value(kind).unwrap();
+            assert!(serde_json::from_value::<OldKind>(name).is_err());
+        }
+        for kind in &EntityKind::ALL[..10] {
+            let name = serde_json::to_value(kind).unwrap();
+            assert!(serde_json::from_value::<OldKind>(name).is_ok());
+        }
     }
 }

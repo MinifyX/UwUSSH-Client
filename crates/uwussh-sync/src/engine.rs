@@ -123,7 +123,8 @@ pub fn sync_once<T: Transport>(store: &Store, transport: &T) -> Result<SyncRepor
     let mut report = SyncReport::default();
     for round in 1..=MAX_ROUNDS {
         report.rounds = round;
-        let conflicts = push_all(store, transport, &mut report)?;
+        let conflicts =
+            push_all(store, transport, &mut report)? + push_assist(store, transport, &mut report)?;
         let complete = pull_all(store, transport, &mut report)?;
         if conflicts == 0 {
             let complete = complete && publish_manifest(store, transport, &mut report)?;
@@ -163,6 +164,16 @@ fn pull_all<T: Transport>(
             continue;
         }
         if page.envelopes.is_empty() {
+            // A page can be empty and still lead somewhere: every record on it
+            // was of a kind this build does not know, and was left out. The
+            // cursor moves past them, or the next page would be the same one
+            // forever and nothing behind it would ever arrive.
+            if page.cursor.0 > cursor {
+                store.set_sync_cursor(page.cursor.0)?;
+                if page.has_more {
+                    continue;
+                }
+            }
             return Ok(true);
         }
         // Records, not the manifests that came with them.
@@ -280,6 +291,58 @@ fn publish_manifest<T: Transport>(
             .add(store.apply_envelopes(&response.conflicts)?);
     }
     pull_all(store, transport, report)
+}
+
+/// The command assistant's records, in requests of their own. A server that
+/// does not know their kinds yet refuses such a request every time — that is
+/// left for the next pass and costs nothing else: hosts, keys and the rest
+/// went out before. Returns the conflicts, like [`push_all`].
+fn push_assist<T: Transport>(
+    store: &Store,
+    transport: &T,
+    report: &mut SyncReport,
+) -> Result<usize, SyncError> {
+    let mut conflicts = 0;
+    loop {
+        let (envelopes, oversized) = store.pending_assist_envelopes(MAX_BATCH)?;
+        report.oversized += oversized;
+        if envelopes.is_empty() {
+            return Ok(conflicts);
+        }
+        let response = match transport.push(envelopes.clone()) {
+            Ok(response) => response,
+            Err(TransportError::Refused(error)) => {
+                tracing::info!(%error, "the server does not take the assistant's records yet");
+                return Ok(conflicts);
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let accepted: Vec<Pushed> = response
+            .accepted
+            .iter()
+            .filter_map(|taken| {
+                let sent = envelopes.iter().find(|env| env.id == taken.id)?;
+                Some(Pushed {
+                    id: taken.id,
+                    kind: sent.kind,
+                    updated_at: sent.updated_at,
+                    seq: taken.seq,
+                })
+            })
+            .collect();
+        let cleared = store.mark_pushed(&accepted)?;
+        report.pushed += accepted.len();
+        if !response.conflicts.is_empty() {
+            conflicts += response.conflicts.len();
+            report.conflicts += response.conflicts.len();
+            report
+                .apply
+                .add(store.apply_envelopes(&response.conflicts)?);
+        }
+        if accepted.is_empty() || cleared == 0 {
+            return Ok(conflicts);
+        }
+    }
 }
 
 /// Everything waiting here, in batches. Returns how many records the server

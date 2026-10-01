@@ -12,9 +12,8 @@
  *
  * Adding a shortcut is one row in {@link BINDINGS}, one case in the switch in
  * App.tsx, and {@link shortcutLabel} has its label for tooltips. ⌘K
- * (Ctrl+Shift+K elsewhere) is kept free for the AI command popup:
- *
- *   { action: 'ai-command', mac: [cmd('KeyK')], other: [ctrlShift('KeyK')] },
+ * (Ctrl+Shift+K elsewhere — plain Ctrl+K belongs to the shell) opens the
+ * command assistant.
  *
  * This file only imports types, so `node --test` can run its tests as they are.
  */
@@ -33,7 +32,8 @@ export type ShortcutAction =
   | { kind: 'select-tab'; index: number }
   | { kind: 'settings' }
   | { kind: 'copy' }
-  | { kind: 'select-all' };
+  | { kind: 'select-all' }
+  | { kind: 'assist' };
 
 /** The shortcuts that are a plain key combination; `select-tab` takes a digit. */
 export type BoundAction = Exclude<ShortcutAction, { kind: 'select-tab' }>['kind'];
@@ -110,6 +110,8 @@ const BINDINGS: Binding[] = [
   // xterm.js selects everything on ⌘A by itself, but only while it has the
   // keyboard; through the table it works the same from anywhere.
   { action: 'select-all', mac: [cmd('KeyA')], other: [] },
+  // The command assistant, over the terminal it types into.
+  { action: 'assist', mac: [cmd('KeyK')], other: [ctrlShift('KeyK')] },
 ];
 
 function matches(event: KeyLike, chord: Chord): boolean {

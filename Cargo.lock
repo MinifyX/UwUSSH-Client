@@ -7025,6 +7025,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "uwussh-assist"
+version = "0.2.1"
+dependencies = [
+ "reqwest",
+ "rustls",
+ "rustls-native-certs",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tiny_http",
+ "tracing",
+ "url",
+ "webpki-roots",
+ "zeroize",
+]
+
+[[package]]
 name = "uwussh-core"
 version = "0.2.1"
 dependencies = [
@@ -7069,6 +7086,7 @@ dependencies = [
  "tracing-subscriber",
  "trash",
  "uuid",
+ "uwussh-assist",
  "uwussh-core",
  "uwussh-import",
  "uwussh-keygen",

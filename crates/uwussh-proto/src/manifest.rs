@@ -157,7 +157,7 @@ mod tests {
             partial: false,
             entries: (0..count)
                 .map(|index| ManifestEntry {
-                    kind: (index % 12) as u8,
+                    kind: (index % 14) as u8,
                     id: Uuid::from_u128(index as u128 + 1),
                     updated_at: Hlc::new(1_700_000_000_000 + index as u64, 1, 9),
                     deleted: index % 3 == 0,
