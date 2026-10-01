@@ -4,6 +4,7 @@
  */
 
 import app from './app.json';
+import assist from './assist.json';
 import files from './files.json';
 import hosts from './hosts.json';
 import keygen from './keygen.json';
@@ -15,4 +16,5 @@ export const EN: Readonly<Record<string, string>> = {
   ...files,
   ...settings,
   ...keygen,
+  ...assist,
 };

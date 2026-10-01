@@ -194,6 +194,11 @@ Where the distance to the commercial clients actually opens up.
 - **Proxmox import** — nodes, LXC and VMs via the API, groups mirroring the
   cluster
 - **Netbox import** — inventory as the source of truth
+- **The command assistant is done, early**: a request in words becomes one
+  command for the host's system, typed but never run, from Ollama, an
+  OpenAI-compatible server, OpenAI, Anthropic or Mistral, with an offline
+  cache for requests asked before. Settings, cache and the sealed API key
+  sync. See [architecture](architecture.md#command-assistant).
 - Local shell tabs (PowerShell, WSL, cmd) and serial console
 - Session recording with asciinema export, persistent searchable scrollback
 - **UwUSSH as an SSH agent** — other programs use the vault's keys through a

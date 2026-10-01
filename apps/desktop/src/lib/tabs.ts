@@ -4,7 +4,9 @@
  * doing and what to tell the user.
  */
 
+import type { AssistTarget } from './assist';
 import { t } from './i18n';
+import { platform } from './platform';
 import type { Settings } from './settings';
 import type { HostRecord } from './session';
 
@@ -108,6 +110,16 @@ export function neighbourAfterClose(tabs: Tab[], id: string): string | null {
   return rest[Math.min(index, rest.length - 1)]?.id ?? null;
 }
 
+/** A live terminal: a local shell or an SSH session the assistant can type into. */
+export function canAssist(tab: Tab): boolean {
+  return (tab.kind === 'shell' || tab.kind === 'ssh') && tab.status === 'live';
+}
+
+/** Which system the assistant writes a command for: this computer, or the host. */
+export function assistTargetOf(tab: Tab): AssistTarget {
+  return tab.kind === 'ssh' ? { kind: 'host', os: tab.host.os } : { kind: 'local' };
+}
+
 export type ShortcutAction =
   | { kind: 'new-shell' }
   | { kind: 'type-password' }
@@ -118,9 +130,20 @@ export type ShortcutAction =
   | { kind: 'previous-tab' }
   | { kind: 'select-tab'; index: number }
   | { kind: 'settings' }
-  | { kind: 'copy' };
+  | { kind: 'copy' }
+  | { kind: 'assist' };
 
 type KeyLike = Pick<KeyboardEvent, 'key' | 'code' | 'ctrlKey' | 'shiftKey' | 'altKey' | 'metaKey'>;
+
+/**
+ * The command assistant: ⌘K on a Mac, where Cmd never reaches the terminal,
+ * and Ctrl+Shift+K elsewhere, where plain Ctrl+K belongs to the shell.
+ */
+export function isAssistKey(event: KeyLike, mac: boolean = platform() === 'macos'): boolean {
+  if (event.code !== 'KeyK' || event.altKey) return false;
+  if (mac) return event.metaKey && !event.ctrlKey && !event.shiftKey;
+  return event.ctrlKey && event.shiftKey && !event.metaKey;
+}
 
 /**
  * The app's own shortcuts. All of them need Ctrl and never Alt: on a German
@@ -133,6 +156,7 @@ export function shortcutFor(
   settings: Pick<Settings, 'ctrlCCopies'>,
   hasSelection: boolean,
 ): ShortcutAction | null {
+  if (isAssistKey(event)) return { kind: 'assist' };
   if (!event.ctrlKey || event.altKey || event.metaKey) return null;
   if (event.key === 'Tab' || event.code === 'PageDown' || event.code === 'PageUp') {
     const back = event.code === 'PageUp' || (event.key === 'Tab' && event.shiftKey);

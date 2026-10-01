@@ -40,6 +40,7 @@ import {
   type StartupSetting,
 } from '../lib/settings';
 import { systemName } from '../lib/platform';
+import { AssistSettings } from './AssistSettings';
 import { ExportDialog } from './ExportDialog';
 import { SyncSettings } from './SyncSettings';
 import { Icon } from './Icon';
@@ -49,13 +50,22 @@ import { Nyu } from './nyu/Nyu';
 import { VaultDialog } from './VaultDialog';
 
 export type SettingsSection =
-  'appearance' | 'terminal' | 'highlight' | 'vault' | 'sync' | 'data' | 'updates' | 'about';
+  | 'appearance'
+  | 'terminal'
+  | 'highlight'
+  | 'vault'
+  | 'assist'
+  | 'sync'
+  | 'data'
+  | 'updates'
+  | 'about';
 
 const SECTIONS: { id: SettingsSection; label: string }[] = [
   { id: 'appearance', label: N_('Darstellung') },
   { id: 'terminal', label: N_('Terminal') },
   { id: 'highlight', label: N_('Hervorhebung') },
   { id: 'vault', label: N_('Tresor & Keys') },
+  { id: 'assist', label: N_('KI') },
   { id: 'sync', label: N_('Sync') },
   { id: 'data', label: N_('Import & Export') },
   { id: 'updates', label: N_('Updates') },
@@ -1090,6 +1100,7 @@ export function SettingsDialog({
           {section === 'terminal' && <TerminalSettings />}
           {section === 'highlight' && <Highlighting />}
           {section === 'vault' && <Vault onChanged={onChanged} />}
+          {section === 'assist' && <AssistSettings />}
           {section === 'sync' && <SyncSettings />}
           {section === 'data' && <Data onImport={onImport} />}
           {section === 'updates' && (

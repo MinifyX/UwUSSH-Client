@@ -530,6 +530,16 @@ button.quiet {
   color: var(--uwu-pink-ink);
 }
 
+.tab-assist {
+  flex: none;
+  align-self: center;
+  margin-bottom: 3px;
+}
+
+.tab-assist:disabled {
+  opacity: 0.4;
+}
+
 .tab-new {
   flex: none;
   align-self: center;

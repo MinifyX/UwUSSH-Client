@@ -1,3 +1,4 @@
+import { assistShortcutLabel } from '../lib/assist';
 import { t, useLanguage } from '../lib/i18n';
 import type { Tab } from '../lib/tabs';
 import { Icon } from './Icon';
@@ -9,6 +10,10 @@ type Props = {
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   onNewShell: () => void;
+  /** Opens the command assistant over the shown terminal. */
+  onAssist: () => void;
+  /** The shown tab is a live terminal the assistant can type into. */
+  canAssist: boolean;
 };
 
 function stateOf(tab: Tab): 'online' | 'connecting' | 'idle' {
@@ -22,7 +27,15 @@ function stateOf(tab: Tab): 'online' | 'connecting' | 'idle' {
  * connections to the same server sit side by side; the number after a repeated
  * name tells them apart. Middle click closes, like in a browser.
  */
-export function TabBar({ tabs, activeId, onSelect, onClose, onNewShell }: Props) {
+export function TabBar({
+  tabs,
+  activeId,
+  onSelect,
+  onClose,
+  onNewShell,
+  onAssist,
+  canAssist,
+}: Props) {
   useLanguage();
   return (
     <div className="tabbar">
@@ -80,6 +93,19 @@ export function TabBar({ tabs, activeId, onSelect, onClose, onNewShell }: Props)
           );
         })}
       </div>
+      <button
+        className="icon-button tab-assist"
+        onClick={onAssist}
+        disabled={!canAssist}
+        title={
+          canAssist
+            ? t('Befehl aus Worten ({shortcut})', { shortcut: assistShortcutLabel() })
+            : t('Befehl aus Worten: erst ein Terminal öffnen')
+        }
+        aria-label={t('Befehl aus Worten')}
+      >
+        <Icon name="sparkles" size={15} />
+      </button>
       <button
         className="icon-button tab-new"
         onClick={onNewShell}

@@ -7,6 +7,7 @@ import {
   TrustHostKey,
   type SecretKind,
 } from './components/ConnectDialogs';
+import { AssistPopup } from './components/AssistPopup';
 import { FileBrowser } from './components/FileBrowser';
 import { HostForm } from './components/HostForm';
 import { HostList } from './components/HostList';
@@ -58,6 +59,8 @@ import {
   createTab,
   describe,
   isPasteKey,
+  assistTargetOf,
+  canAssist,
   neighbourAfterClose,
   newTabId,
   shortcutFor,
@@ -190,6 +193,8 @@ export function App() {
   } | null>(null);
   const [importing, setImporting] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState<SettingsSection | null>(null);
+  /** The tab the command assistant types into, while it is open. */
+  const [assistFor, setAssistFor] = useState<string | null>(null);
   const [confirmClose, setConfirmClose] = useState(false);
   const [startupVault, setStartupVault] = useState(false);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
@@ -870,6 +875,9 @@ export function App() {
   // ── Derived state ─────────────────────────────────────────────────────────
 
   const activeTab = tabs.find((tab) => tab.id === activeId) ?? null;
+  // The assistant closes with its terminal.
+  const assistTab = tabs.find((tab) => tab.id === assistFor && canAssist(tab)) ?? null;
+  const assistSession = assistTab ? (drivers.current.get(assistTab.id)?.session ?? null) : null;
   const liveConnections = tabs.filter(
     (tab) => (tab.kind === 'ssh' || tab.kind === 'files') && tab.status === 'live',
   ).length;
@@ -899,7 +907,7 @@ export function App() {
   );
   const dialog = dialogs[0] ?? null;
   const modalOpen = Boolean(
-    dialog || form || importing || settingsOpen || confirmClose || startupVault,
+    dialog || form || importing || settingsOpen || confirmClose || startupVault || assistSession,
   );
   const modalRef = useRef(false);
   modalRef.current = modalOpen;
@@ -975,6 +983,9 @@ export function App() {
           break;
         case 'open-files':
           if (tab?.kind === 'ssh' || tab?.kind === 'files') openFilesTab(tab.host);
+          break;
+        case 'assist':
+          if (tab && canAssist(tab) && driver?.session) setAssistFor(tab.id);
           break;
       }
     };
@@ -1052,6 +1063,8 @@ export function App() {
               onSelect={setActiveId}
               onClose={closeTab}
               onNewShell={openShell}
+              onAssist={() => activeId && setAssistFor(activeId)}
+              canAssist={Boolean(activeTab && canAssist(activeTab))}
             />
 
             {activeTab && (
@@ -1242,6 +1255,20 @@ export function App() {
           onDeleted={() => {
             setForm(null);
             void refreshHosts();
+          }}
+        />
+      )}
+
+      {assistTab && assistSession && (
+        <AssistPopup
+          session={assistSession}
+          target={assistTargetOf(assistTab)}
+          targetName={assistTab.kind === 'ssh' ? assistTab.title : t('diesen Rechner')}
+          onClose={() => setAssistFor(null)}
+          onInserted={() => setAssistFor(null)}
+          onSetUp={() => {
+            setAssistFor(null);
+            setSettingsOpen('assist');
           }}
         />
       )}
