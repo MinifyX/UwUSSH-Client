@@ -2,7 +2,7 @@
 //!
 //! Everything that talks to a terminal lives here: local PTY sessions and a
 //! synthetic load source, and SSH sessions — plus what rides along on an SSH
-//! connection: file access over SFTP and finding out what the server runs. All of them produce
+//! connection: file access over SFTP, tunnels, and finding out what the server runs. All of them produce
 //! the same thing — a stream of bytes — so they share [`stream`] and [`flow`],
 //! the parts that decide how those bytes reach the UI without melting the IPC
 //! boundary.
@@ -20,6 +20,7 @@ pub mod sftp;
 pub mod ssh;
 pub mod stream;
 pub mod synthetic;
+pub mod tunnel;
 
 pub use flow::FlowControl;
 pub use metrics::{Metrics, MetricsSnapshot};
@@ -30,6 +31,10 @@ pub use ssh::{
     SshTarget,
 };
 pub use stream::{FrameSink, SinkError};
+pub use tunnel::{
+    SshLink, TunnelError, TunnelKind, TunnelListener, TunnelManager, TunnelSpec, TunnelState,
+    TunnelStatus,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum CoreError {

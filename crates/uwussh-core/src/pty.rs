@@ -40,9 +40,19 @@ pub struct PtySession {
 }
 
 impl PtySession {
-    /// Start the user's default shell.
+    /// Start the user's shell the way the system's own terminal does: on
+    /// macOS as a login shell, everywhere with the environment a terminal is
+    /// expected to set (see [`shell_env`]).
     pub fn spawn_shell<S: FrameSink>(cols: u16, rows: u16, sink: S) -> Result<Self> {
-        Self::spawn(CommandBuilder::new(default_shell()), cols, rows, true, sink)
+        let mut cmd = shell_command();
+        let get = |name: &str| std::env::var(name).ok().filter(|value| !value.is_empty());
+        for (name, value) in shell_env(&get, system_utf8_locale) {
+            match value {
+                Some(value) => cmd.env(name, value),
+                None => cmd.env_remove(name),
+            }
+        }
+        Self::spawn(cmd, cols, rows, true, sink)
     }
 
     /// Run one program in a pty — for M0, `type bigfile` as the realistic
@@ -186,20 +196,245 @@ impl PtySession {
     }
 }
 
+/// Never a zero-sized pty: zsh's line editor and full-screen programs divide
+/// by the width, and a 0×0 terminal is what a not-yet-laid-out view reports.
 fn size(cols: u16, rows: u16) -> PtySize {
     PtySize {
-        rows,
-        cols,
+        rows: rows.max(1),
+        cols: cols.max(1),
         pixel_width: 0,
         pixel_height: 0,
     }
 }
 
 /// PowerShell on Windows rather than whatever `COMSPEC` points at.
-fn default_shell() -> String {
+///
+/// On macOS a login shell, like Terminal.app and iTerm2 start: only a login
+/// zsh reads `/etc/zprofile` (`path_helper`) and `~/.zprofile` (Homebrew's
+/// `shellenv`). An app started from the Finder gets launchd's bare
+/// `/usr/bin:/bin:/usr/sbin:/sbin`, so without it `brew`, `git` from Homebrew
+/// and everything in `/usr/local/bin` were missing. portable-pty's default
+/// program is exactly that: `$SHELL` (or the passwd entry) with `-zsh` as
+/// argv0, started in the home folder.
+///
+/// On Linux the shell starts like in GNOME Terminal or Konsole: not as a login
+/// shell, from `$SHELL`.
+fn shell_command() -> CommandBuilder {
     if cfg!(windows) {
-        "powershell.exe".into()
+        CommandBuilder::new("powershell.exe")
+    } else if cfg!(target_os = "macos") {
+        CommandBuilder::new_default_prog()
     } else {
-        std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".into())
+        CommandBuilder::new(std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".into()))
+    }
+}
+
+/// What the local shell's environment gets on top of the app's own: `Some`
+/// sets a variable, `None` removes it.
+///
+/// An app started from the Finder (or from a desktop menu on Linux) has no
+/// terminal around it, so the environment it hands on has no `TERM` and, on
+/// macOS, no `LANG` either. Without `TERM` zsh's line editor falls back to a
+/// dumb terminal: arrow keys and Backspace print escape sequences, the prompt
+/// redraws in the wrong place, `clear`, `less` and `vim` misbehave. Without a
+/// UTF-8 locale zsh and bash treat an umlaut as two unknown bytes, so typing
+/// `ä` garbles the line. Starting the app from a terminal hides both, because
+/// it then inherits that terminal's variables — which is why this only showed
+/// on a Mac started from the Dock.
+///
+/// `get` reads the app's environment (empty counts as unset); `locale` names
+/// a UTF-8 locale for this system and is only asked when one is missing.
+pub(crate) fn shell_env(
+    get: &dyn Fn(&str) -> Option<String>,
+    locale: impl FnOnce() -> String,
+) -> Vec<(&'static str, Option<String>)> {
+    let mut env = vec![
+        // What xterm.js understands; whatever terminal started the app (tmux,
+        // screen, a Linux console) must not leak through.
+        ("TERM", Some("xterm-256color".to_string())),
+        ("COLORTERM", Some("truecolor".to_string())),
+        ("TERM_PROGRAM", Some("UwUSSH".to_string())),
+        (
+            "TERM_PROGRAM_VERSION",
+            Some(env!("CARGO_PKG_VERSION").to_string()),
+        ),
+        // Started from inside tmux or screen, the shell would believe it
+        // still runs there.
+        ("TMUX", None),
+        ("TMUX_PANE", None),
+        ("STY", None),
+    ];
+
+    if cfg!(windows) {
+        return env;
+    }
+    let is_utf8 = |value: &str| {
+        let lower = value.to_ascii_lowercase();
+        lower.contains("utf-8") || lower.contains("utf8")
+    };
+    // LC_ALL beats everything; someone who set it meant it.
+    if get("LC_ALL").is_some() {
+        return env;
+    }
+    let ctype = get("LC_CTYPE").or_else(|| get("LANG"));
+    if ctype.as_deref().is_some_and(is_utf8) {
+        return env;
+    }
+    let locale = locale();
+    if get("LANG").is_none() {
+        env.push(("LANG", Some(locale.clone())));
+    }
+    env.push(("LC_CTYPE", Some(locale)));
+    env
+}
+
+/// A UTF-8 locale that exists on this system.
+fn system_utf8_locale() -> String {
+    if cfg!(target_os = "macos") {
+        // The region and language from System Settings, as Terminal.app uses
+        // it: `de_DE`, `en_DE`, `de_DE@rg=atzzzz`.
+        let apple = std::process::Command::new("/usr/bin/defaults")
+            .args(["read", "-g", "AppleLocale"])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .and_then(|output| String::from_utf8(output.stdout).ok());
+        pick_utf8_locale(apple.as_deref(), |name| {
+            std::path::Path::new("/usr/share/locale")
+                .join(name)
+                .is_dir()
+        })
+    } else {
+        // glibc 2.35+ and musl always have it.
+        "C.UTF-8".to_string()
+    }
+}
+
+/// The best `xx_YY.UTF-8` for a macOS `AppleLocale`: the exact one, else the
+/// language in its home region (`en_DE` → `en_US` is not guessable, but
+/// `de_LU` → `de_DE` is), else `en_US.UTF-8`, which every Mac has.
+fn pick_utf8_locale(apple_locale: Option<&str>, exists: impl Fn(&str) -> bool) -> String {
+    const FALLBACK: &str = "en_US.UTF-8";
+    let Some(apple) = apple_locale else {
+        return FALLBACK.into();
+    };
+    let base = apple.trim().split('@').next().unwrap_or_default();
+    let mut parts = base.split(['_', '-']);
+    let language = parts.next().unwrap_or_default().to_ascii_lowercase();
+    if language.len() < 2 || !language.chars().all(|c| c.is_ascii_alphabetic()) {
+        return FALLBACK.into();
+    }
+    let region = parts
+        .find(|part| part.len() == 2 && part.chars().all(|c| c.is_ascii_alphabetic()))
+        .map(str::to_ascii_uppercase);
+
+    let mut candidates = Vec::new();
+    if let Some(region) = region {
+        candidates.push(format!("{language}_{region}.UTF-8"));
+    }
+    candidates.push(format!(
+        "{language}_{}.UTF-8",
+        language.to_ascii_uppercase()
+    ));
+    if language == "en" {
+        candidates.push(FALLBACK.into());
+    }
+    candidates
+        .into_iter()
+        .find(|candidate| exists(candidate))
+        .unwrap_or_else(|| FALLBACK.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn env_of(vars: &[(&str, &str)]) -> HashMap<&'static str, Option<String>> {
+        let vars: HashMap<String, String> = vars
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+            .collect();
+        let get = move |name: &str| vars.get(name).cloned();
+        shell_env(&get, || "de_DE.UTF-8".into())
+            .into_iter()
+            .collect()
+    }
+
+    #[test]
+    fn a_shell_started_from_the_dock_still_gets_a_terminal_type() {
+        let env = env_of(&[]);
+        assert_eq!(env["TERM"].as_deref(), Some("xterm-256color"));
+        assert_eq!(env["COLORTERM"].as_deref(), Some("truecolor"));
+        assert_eq!(env["TERM_PROGRAM"].as_deref(), Some("UwUSSH"));
+    }
+
+    #[test]
+    fn the_terminal_the_app_was_started_from_does_not_leak() {
+        let env = env_of(&[
+            ("TERM", "screen-256color"),
+            ("TMUX", "/tmp/tmux-501/default,1,0"),
+        ]);
+        assert_eq!(env["TERM"].as_deref(), Some("xterm-256color"));
+        assert_eq!(env["TMUX"], None);
+        assert!(env.contains_key("TMUX"), "TMUX must be removed explicitly");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_missing_locale_becomes_a_utf8_one() {
+        let env = env_of(&[]);
+        assert_eq!(env["LANG"].as_deref(), Some("de_DE.UTF-8"));
+        assert_eq!(env["LC_CTYPE"].as_deref(), Some("de_DE.UTF-8"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_non_utf8_lang_keeps_its_language_but_gets_utf8_characters() {
+        let env = env_of(&[("LANG", "C")]);
+        assert!(!env.contains_key("LANG"));
+        assert_eq!(env["LC_CTYPE"].as_deref(), Some("de_DE.UTF-8"));
+    }
+
+    #[test]
+    fn a_utf8_locale_or_lc_all_is_left_alone() {
+        for vars in [
+            &[("LANG", "en_GB.UTF-8")][..],
+            &[("LANG", "C"), ("LC_CTYPE", "de_DE.utf8")][..],
+            &[("LC_ALL", "C")][..],
+        ] {
+            let env = env_of(vars);
+            assert!(!env.contains_key("LANG"), "{vars:?}");
+            assert!(!env.contains_key("LC_CTYPE"), "{vars:?}");
+        }
+    }
+
+    #[test]
+    fn the_mac_region_picks_an_existing_locale() {
+        let mac = [
+            "de_DE.UTF-8",
+            "de_AT.UTF-8",
+            "en_US.UTF-8",
+            "en_GB.UTF-8",
+            "fr_FR.UTF-8",
+        ];
+        let exists = |name: &str| mac.contains(&name);
+        assert_eq!(pick_utf8_locale(Some("de_DE\n"), exists), "de_DE.UTF-8");
+        assert_eq!(
+            pick_utf8_locale(Some("de_AT@rg=atzzzz"), exists),
+            "de_AT.UTF-8"
+        );
+        assert_eq!(pick_utf8_locale(Some("de_LU"), exists), "de_DE.UTF-8");
+        assert_eq!(pick_utf8_locale(Some("fr-CA"), exists), "fr_FR.UTF-8");
+        assert_eq!(pick_utf8_locale(Some("en_DE"), exists), "en_US.UTF-8");
+        assert_eq!(pick_utf8_locale(Some("xx"), exists), "en_US.UTF-8");
+        assert_eq!(pick_utf8_locale(Some(""), exists), "en_US.UTF-8");
+        assert_eq!(pick_utf8_locale(None, exists), "en_US.UTF-8");
+    }
+
+    #[test]
+    fn a_pty_is_never_zero_sized() {
+        let size = size(0, 0);
+        assert_eq!((size.cols, size.rows), (1, 1));
     }
 }

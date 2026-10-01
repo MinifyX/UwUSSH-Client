@@ -188,3 +188,16 @@ export function check(label, ok, detail = '') {
   if (!ok) failures += 1;
 }
 export const failed = () => failures;
+
+/**
+ * A fresh profile gets the first-start wizard. The runs that start from one
+ * skip it, the way a user would, once the app has decided (dev builds put
+ * the decision on <html>).
+ */
+export async function passOnboarding(page) {
+  await page.waitFor(`document.documentElement.dataset.onboarding`, { what: 'onboarding check' });
+  if ((await page.eval(`document.documentElement.dataset.onboarding`)) !== 'show') return;
+  await page.waitFor(`document.querySelector('.onboarding')`, { what: 'setup wizard' });
+  await page.click('.modal-footer button', 'Einrichtung überspringen');
+  await page.waitFor(`!document.querySelector('.onboarding')`, { what: 'wizard closed' });
+}

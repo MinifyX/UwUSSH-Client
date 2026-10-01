@@ -68,12 +68,19 @@ impl FlowControl {
 
     pub fn ack(&self, bytes: u64) {
         // Saturating: a renderer that reloaded and acknowledges twice must not
-        // wrap the counter around to eighteen quintillion outstanding bytes.
-        let _ = self
-            .unacked
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
-                Some(v.saturating_sub(bytes))
-            });
+        // wrap the counter around to eighteen quintillion outstanding bytes —
+        // nor a renderer that sends an acknowledgement again after it seemed
+        // lost. (A plain compare-exchange loop: `fetch_update` is deprecated
+        // on current Rust, its successor newer than the MSRV.)
+        let mut current = self.unacked.load(Ordering::Relaxed);
+        while let Err(actual) = self.unacked.compare_exchange_weak(
+            current,
+            current.saturating_sub(bytes),
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ) {
+            current = actual;
+        }
         self.changed.notify_waiters();
     }
 

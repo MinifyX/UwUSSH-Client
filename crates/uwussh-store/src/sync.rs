@@ -27,9 +27,9 @@ use rusqlite::{params, OptionalExtension, Transaction};
 use serde::Serialize;
 use uuid::Uuid;
 use uwussh_proto::{
-    resolve, EntityKind, Envelope, Extra, GroupPayload, Hlc, HostPayload, IdentityPayload,
-    KeyPayload, KnownHostPayload, Resolution, SnippetPayload, Version, MAX_BATCH_BYTES,
-    MAX_BLOB_BYTES,
+    resolve, AssistCachePayload, AssistConfigPayload, EntityKind, Envelope, Extra, GroupPayload,
+    Hlc, HostPayload, IdentityPayload, KeyPayload, KnownHostPayload, PortForwardPayload,
+    Resolution, SnippetPayload, Version, MAX_BATCH_BYTES, MAX_BLOB_BYTES,
 };
 use uwussh_vault::{Sealed, UnlockedVault};
 use zeroize::Zeroizing;
@@ -145,15 +145,18 @@ pub(crate) fn table_of(kind: EntityKind) -> Option<&'static str> {
         // Travels like a record, but is no row of the vault: not pending in
         // the count, and pushed on its own (see `crate::manifest`).
         EntityKind::Manifest => "manifests",
-        // Port forwards and terminal profiles have no table yet. A newer
-        // build's records for them stay on the server, where they do no harm.
-        EntityKind::PortForward | EntityKind::TerminalProfile => return None,
+        EntityKind::PortForward => "port_forwards",
+        EntityKind::AssistConfig => "assist_config",
+        EntityKind::AssistCache => "assist_cache",
+        // Terminal profiles have no table yet. A newer build's records for
+        // them stay on the server, where they do no harm.
+        EntityKind::TerminalProfile => return None,
     })
 }
 
 /// Every table whose rows travel, in the order records must be applied:
 /// whatever a record can point at comes first.
-pub(crate) const SYNCED_KINDS: [EntityKind; 7] = EntityKind::APPLY_ORDER;
+pub(crate) const SYNCED_KINDS: [EntityKind; 10] = EntityKind::APPLY_ORDER;
 
 /// A row waiting to be pushed.
 struct Pending {
@@ -355,7 +358,9 @@ impl Store {
     pub fn pending_count(&self) -> Result<usize> {
         let conn = self.conn.lock();
         let mut total = 0i64;
-        for kind in SYNCED_KINDS {
+        // The assistant's records are left out: a server too old to take them
+        // refuses them on every pass, and "waiting" would never go away.
+        for kind in SYNCED_KINDS.into_iter().filter(|kind| !kind.is_assist()) {
             let Some(table) = table_of(kind) else {
                 continue;
             };
@@ -377,6 +382,22 @@ impl Store {
     /// not stop everything else from syncing. The count comes back so the UI
     /// can say that something stayed behind instead of quietly dropping it.
     pub fn pending_envelopes(&self, limit: usize) -> Result<(Vec<Envelope>, usize)> {
+        let kinds: Vec<EntityKind> = SYNCED_KINDS
+            .into_iter()
+            .filter(|kind| !kind.is_assist())
+            .collect();
+        self.pending_of(&kinds, limit)
+    }
+
+    /// The command assistant's records waiting to be pushed: its settings and
+    /// cached answers. Kept apart from [`Store::pending_envelopes`] for the
+    /// same reason as the manifest: a server that does not know these kinds
+    /// refuses the request they are in, and that must not hold up the rest.
+    pub fn pending_assist_envelopes(&self, limit: usize) -> Result<(Vec<Envelope>, usize)> {
+        self.pending_of(&EntityKind::ASSIST, limit)
+    }
+
+    fn pending_of(&self, kinds: &[EntityKind], limit: usize) -> Result<(Vec<Envelope>, usize)> {
         let conn = self.conn.lock();
         let guard = self.vault.lock();
         let vault = guard.as_ref().ok_or(StoreError::VaultLocked)?;
@@ -385,7 +406,7 @@ impl Store {
         let mut envelopes = Vec::new();
         let mut bytes = 0;
         let mut left_out = 0;
-        'kinds: for kind in SYNCED_KINDS {
+        'kinds: for &kind in kinds {
             if envelopes.len() >= limit {
                 break;
             }
@@ -710,9 +731,21 @@ fn pending_rows(
         }
         EntityKind::Secret => "nonce, blob",
         EntityKind::Manifest => "entries",
-        EntityKind::PortForward | EntityKind::TerminalProfile => return Ok((Vec::new(), 0)),
+        EntityKind::PortForward => {
+            "host_id, name, kind, bind_address, bind_port, target_host, target_port, autostart"
+        }
+        EntityKind::AssistConfig => "body",
+        EntityKind::AssistCache => {
+            "platform, request, normalized, command, explanation, dangerous, created_ms"
+        }
+        EntityKind::TerminalProfile => return Ok((Vec::new(), 0)),
     };
-    let extra = if matches!(kind, EntityKind::Secret | EntityKind::Manifest) {
+    // The assistant's settings are stored as their payload, unknown fields
+    // and all, so there is nothing to keep beside them.
+    let extra = if matches!(
+        kind,
+        EntityKind::Secret | EntityKind::Manifest | EntityKind::AssistConfig
+    ) {
         "NULL"
     } else {
         "sync_extra"
@@ -835,9 +868,40 @@ fn payload_of(
             return Ok(vault.open(id, EntityKind::Secret, &sealed)?);
         }
         EntityKind::Manifest => return Ok(Zeroizing::new(row.get(7)?)),
-        EntityKind::PortForward | EntityKind::TerminalProfile => {
-            return Ok(Zeroizing::new(Vec::new()))
+        EntityKind::PortForward => {
+            let bind_port: i64 = row.get(11)?;
+            let target_port: i64 = row.get(13)?;
+            serde_json::to_vec(&PortForwardPayload {
+                host_id: parse_uuid(&row.get::<_, String>(7)?)?,
+                name: row.get(8)?,
+                kind: row.get(9)?,
+                bind_address: row.get(10)?,
+                bind_port: bind_port as u16,
+                target_host: row.get(12)?,
+                target_port: target_port as u16,
+                autostart: row.get(14)?,
+                extra,
+            })
         }
+        EntityKind::AssistConfig => {
+            let body: String = row.get(7)?;
+            return Ok(Zeroizing::new(body.into_bytes()));
+        }
+        EntityKind::AssistCache => {
+            let dangerous: bool = row.get(12)?;
+            let created: i64 = row.get(13)?;
+            serde_json::to_vec(&AssistCachePayload {
+                platform: row.get(7)?,
+                request: row.get(8)?,
+                normalized: row.get(9)?,
+                command: row.get(10)?,
+                explanation: row.get(11)?,
+                dangerous,
+                created_ms: created as u64,
+                extra,
+            })
+        }
+        EntityKind::TerminalProfile => return Ok(Zeroizing::new(Vec::new())),
     };
     json.map(Zeroizing::new).map_err(|_| StoreError::Invalid {
         field: "record",
@@ -1340,7 +1404,110 @@ fn insert_record(
                 ],
             )?;
         }
-        EntityKind::PortForward | EntityKind::TerminalProfile => return Ok(skipped()),
+        EntityKind::PortForward => {
+            // No placeholder for the host: a tunnel whose host has not
+            // arrived yet is simply not listed until it does.
+            let tunnel: PortForwardPayload = from_payload(payload)?;
+            let extra = extra_to(&tunnel.extra);
+            tx.execute(
+                "INSERT INTO port_forwards
+                    (id, vault_id, host_id, name, kind, bind_address, bind_port, target_host,
+                     target_port, autostart, hlc_wall_ms, hlc_counter, hlc_device, deleted,
+                     dirty, server_seq, sync_extra)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 0, 0, ?14, ?15)
+                 ON CONFLICT (id) DO UPDATE SET
+                    host_id = excluded.host_id, name = excluded.name, kind = excluded.kind,
+                    bind_address = excluded.bind_address, bind_port = excluded.bind_port,
+                    target_host = excluded.target_host, target_port = excluded.target_port,
+                    autostart = excluded.autostart,
+                    hlc_wall_ms = excluded.hlc_wall_ms, hlc_counter = excluded.hlc_counter,
+                    hlc_device = excluded.hlc_device, deleted = 0, dirty = 0,
+                    server_seq = excluded.server_seq, sync_extra = excluded.sync_extra,
+                    rev = rev + 1",
+                params![
+                    id,
+                    vault_id,
+                    tunnel.host_id.to_string(),
+                    tunnel.name,
+                    tunnel.kind,
+                    tunnel.bind_address,
+                    tunnel.bind_port,
+                    tunnel.target_host,
+                    tunnel.target_port,
+                    tunnel.autostart,
+                    clock.wall_ms as i64,
+                    clock.counter,
+                    clock.device,
+                    seq,
+                    extra,
+                ],
+            )?;
+        }
+        EntityKind::AssistConfig => {
+            // Checked, then kept as it came: what a newer build added stays.
+            let _: AssistConfigPayload = from_payload(payload)?;
+            let body = String::from_utf8(payload.to_vec()).map_err(|_| StoreError::Invalid {
+                field: "record",
+                problem: "unreadable",
+            })?;
+            tx.execute(
+                "INSERT INTO assist_config
+                    (id, vault_id, body, hlc_wall_ms, hlc_counter, hlc_device,
+                     deleted, dirty, server_seq)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 0, ?7)
+                 ON CONFLICT (id) DO UPDATE SET
+                    body = excluded.body,
+                    hlc_wall_ms = excluded.hlc_wall_ms, hlc_counter = excluded.hlc_counter,
+                    hlc_device = excluded.hlc_device, deleted = 0, dirty = 0,
+                    server_seq = excluded.server_seq, rev = rev + 1",
+                params![
+                    id,
+                    vault_id,
+                    body,
+                    clock.wall_ms as i64,
+                    clock.counter,
+                    clock.device,
+                    seq,
+                ],
+            )?;
+        }
+        EntityKind::AssistCache => {
+            let entry: AssistCachePayload = from_payload(payload)?;
+            let extra = extra_to(&entry.extra);
+            tx.execute(
+                "INSERT INTO assist_cache
+                    (id, vault_id, platform, request, normalized, command, explanation,
+                     dangerous, created_ms, hlc_wall_ms, hlc_counter, hlc_device,
+                     deleted, dirty, server_seq, sync_extra)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 0, 0, ?13, ?14)
+                 ON CONFLICT (id) DO UPDATE SET
+                    platform = excluded.platform, request = excluded.request,
+                    normalized = excluded.normalized, command = excluded.command,
+                    explanation = excluded.explanation, dangerous = excluded.dangerous,
+                    created_ms = excluded.created_ms,
+                    hlc_wall_ms = excluded.hlc_wall_ms, hlc_counter = excluded.hlc_counter,
+                    hlc_device = excluded.hlc_device, deleted = 0, dirty = 0,
+                    server_seq = excluded.server_seq, sync_extra = excluded.sync_extra,
+                    rev = rev + 1",
+                params![
+                    id,
+                    vault_id,
+                    entry.platform,
+                    entry.request,
+                    entry.normalized,
+                    entry.command,
+                    entry.explanation,
+                    entry.dangerous,
+                    entry.created_ms as i64,
+                    clock.wall_ms as i64,
+                    clock.counter,
+                    clock.device,
+                    seq,
+                    extra,
+                ],
+            )?;
+        }
+        EntityKind::TerminalProfile => return Ok(skipped()),
     }
     Ok(one(ApplyReport {
         applied: 1,

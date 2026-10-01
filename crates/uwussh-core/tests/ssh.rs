@@ -18,6 +18,13 @@ use tokio::net::TcpListener;
 use uwussh_core::{FrameSink, SessionId, SessionManager, SinkError, SshAuth, SshError, SshTarget};
 use zeroize::Zeroizing;
 
+#[path = "support/forwarding.rs"]
+mod forwarding;
+use forwarding::Forwarding;
+
+#[path = "ssh/tunnels.rs"]
+mod tunnels;
+
 const USER: &str = "lorin";
 const PASSWORD: &str = "correct horse battery staple";
 const FLOOD_MIB: usize = 8;
@@ -39,13 +46,18 @@ struct ServerLog {
 struct TestSshd {
     accepted_key: PublicKey,
     log: Arc<Mutex<ServerLog>>,
+    /// Port forwarding, per client connection.
+    forwarding: Forwarding,
 }
 
 impl server::Server for TestSshd {
     type Handler = Self;
     fn new_client(&mut self, _: Option<std::net::SocketAddr>) -> Self {
         self.log.lock().connections += 1;
-        self.clone()
+        Self {
+            forwarding: Forwarding::default(),
+            ..self.clone()
+        }
     }
 }
 
@@ -87,6 +99,42 @@ impl server::Handler for TestSshd {
     ) -> Result<(), Self::Error> {
         reply.accept().await;
         Ok(())
+    }
+
+    async fn channel_open_direct_tcpip(
+        &mut self,
+        channel: Channel<Msg>,
+        host_to_connect: &str,
+        port_to_connect: u32,
+        _originator_address: &str,
+        _originator_port: u32,
+        reply: server::ChannelOpenHandle,
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        self.forwarding
+            .direct(channel, host_to_connect, port_to_connect, reply);
+        Ok(())
+    }
+
+    async fn tcpip_forward(
+        &mut self,
+        address: &str,
+        port: &mut u32,
+        session: &mut Session,
+    ) -> Result<bool, Self::Error> {
+        Ok(self
+            .forwarding
+            .listen(address, port, session.handle())
+            .await)
+    }
+
+    async fn cancel_tcpip_forward(
+        &mut self,
+        address: &str,
+        port: u32,
+        _session: &mut Session,
+    ) -> Result<bool, Self::Error> {
+        Ok(self.forwarding.cancel(address, port).await)
     }
 
     async fn pty_request(
@@ -184,6 +232,7 @@ async fn start_sshd() -> Sshd {
     let mut sshd = TestSshd {
         accepted_key: client_key.public_key().clone(),
         log: Arc::clone(&log),
+        forwarding: Forwarding::default(),
     };
     tokio::spawn(async move {
         let _ = sshd.run_on_socket(config, &listener).await;

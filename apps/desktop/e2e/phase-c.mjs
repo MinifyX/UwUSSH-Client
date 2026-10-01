@@ -5,7 +5,7 @@
 // first (wrong master password, then right), trust the new host key, and then
 // log in with the key — never a password. The server's log proves it.
 import { readFileSync } from 'node:fs';
-import { check, connect, failed, sleep } from './cdp.mjs';
+import { check, connect, failed, sleep, passOnboarding } from './cdp.mjs';
 
 const SHOTS = new URL('./shots/', import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1');
 const SERVER_LOG = process.argv[2];
@@ -19,6 +19,7 @@ const shot = (name) => page.screenshot(`${SHOTS}${name}.png`);
 
 await page.waitFor(`document.querySelector('.sidebar')`, { what: 'app shell' });
 await page.waitFor(`'__uwusshDriver' in window`, { what: 'dev driver hook' });
+await passOnboarding(page);
 await sleep(500);
 
 check(

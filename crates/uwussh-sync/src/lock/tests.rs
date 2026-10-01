@@ -619,7 +619,7 @@ fn newer_kind(store: &Store, server: &MemoryServer) -> Envelope {
     let sealed = vault
         .seal_synced(
             id,
-            EntityKind::PortForward,
+            EntityKind::TerminalProfile,
             clock,
             false,
             b"{\"local\":8080}",
@@ -628,7 +628,7 @@ fn newer_kind(store: &Store, server: &MemoryServer) -> Envelope {
     let envelope = Envelope {
         id,
         vault_id: header.vault_id,
-        kind: EntityKind::PortForward,
+        kind: EntityKind::TerminalProfile,
         updated_at: clock,
         base_seq: 0,
         deleted: false,

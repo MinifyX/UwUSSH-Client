@@ -12,6 +12,7 @@
 //! dropping the fields it has never heard of.
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use uuid::Uuid;
 
 /// Fields a payload did not recognise, kept verbatim so they survive an edit
@@ -48,11 +49,19 @@ pub enum EntityKind {
     /// device can tell whether the server handed it everything. See
     /// [`crate::manifest`].
     Manifest = 9,
+    /// The command assistant's settings: which provider, which model, which
+    /// address. One record per vault, under a fixed id. The API keys are
+    /// [`EntityKind::Secret`] records it points at, never part of it.
+    AssistConfig = 10,
+    /// One slot of the command assistant's answer cache. There is a fixed
+    /// number of slots with fixed ids, and a new answer takes the oldest one,
+    /// so the cache never grows past them on the server either.
+    AssistCache = 11,
 }
 
 impl EntityKind {
     /// Every kind, in discriminant order.
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 12] = [
         Self::Host,
         Self::Group,
         Self::Identity,
@@ -63,6 +72,8 @@ impl EntityKind {
         Self::TerminalProfile,
         Self::Secret,
         Self::Manifest,
+        Self::AssistConfig,
+        Self::AssistCache,
     ];
 
     /// The kind a discriminant stands for, or `None` for one a newer build
@@ -77,15 +88,28 @@ impl EntityKind {
     /// Manifests are not in here on purpose: this list doubles as the list of
     /// record tables, and a manifest sorts last anyway, after the records it
     /// talks about.
-    pub const APPLY_ORDER: [Self; 7] = [
+    pub const APPLY_ORDER: [Self; 10] = [
         Self::Secret,
         Self::Key,
         Self::Identity,
         Self::Group,
         Self::Host,
+        Self::PortForward,
         Self::Snippet,
         Self::KnownHost,
+        Self::AssistConfig,
+        Self::AssistCache,
     ];
+
+    /// Kinds a build before 0.3 does not know. They travel in requests of
+    /// their own, so a server that refuses them refuses only them (see
+    /// `uwussh_sync::engine`), and a pull asks for them by name.
+    pub const ASSIST: [Self; 2] = [Self::AssistConfig, Self::AssistCache];
+
+    /// Whether this kind is one of [`Self::ASSIST`].
+    pub fn is_assist(self) -> bool {
+        Self::ASSIST.contains(&self)
+    }
 
     /// Where this kind sorts when a batch is applied. Unknown-to-us kinds go
     /// last; they are stored and passed on, not understood.
@@ -153,6 +177,30 @@ pub struct KeyPayload {
     pub extra: Extra,
 }
 
+/// A tunnel of a host: `ssh -L` or `ssh -R`. `kind` is a string for the same
+/// reason as a host's workspace: a kind a newer build adds (`dynamic`, say)
+/// is kept and shown, not run, instead of refusing the record.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PortForwardPayload {
+    pub host_id: Uuid,
+    pub name: String,
+    /// `local` or `remote`.
+    pub kind: String,
+    /// Where it listens: on this computer for `local`, on the server for
+    /// `remote`.
+    pub bind_address: String,
+    pub bind_port: u16,
+    /// Where it leads: as the server sees it for `local`, as this computer
+    /// sees it for `remote`.
+    pub target_host: String,
+    pub target_port: u16,
+    /// Starts along with a terminal to its host.
+    #[serde(default)]
+    pub autostart: bool,
+    #[serde(flatten, default, skip_serializing_if = "extra_is_empty")]
+    pub extra: Extra,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SnippetPayload {
     pub label: String,
@@ -171,6 +219,60 @@ pub struct KnownHostPayload {
     pub fingerprint_sha256: String,
     pub public_key: String,
     pub first_seen_ms: u64,
+    #[serde(flatten, default, skip_serializing_if = "extra_is_empty")]
+    pub extra: Extra,
+}
+
+/// The command assistant's settings. `provider` is the one in use (`ollama`,
+/// `openai-compatible`, `openai`, `anthropic`, `mistral`, or empty for off);
+/// `providers` keeps what was set for each, so switching back and forth loses
+/// nothing. Strings rather than enums for the same reason as
+/// [`HostPayload::workspace`]: a build that meets a provider it does not know
+/// shows it as off instead of refusing the record.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AssistConfigPayload {
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default)]
+    pub providers: BTreeMap<String, AssistProviderPayload>,
+    #[serde(flatten, default, skip_serializing_if = "extra_is_empty")]
+    pub extra: Extra,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AssistProviderPayload {
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub base_url: Option<String>,
+    /// Points at a [`EntityKind::Secret`] record. Never the key itself.
+    #[serde(default)]
+    pub key_secret_id: Option<Uuid>,
+    #[serde(flatten, default, skip_serializing_if = "extra_is_empty")]
+    pub extra: Extra,
+}
+
+/// One cached answer. A slot that was cleared has an empty `command`: a
+/// tombstone would beat every later answer written into the same slot.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AssistCachePayload {
+    /// The system the command is for, like `linux/bash/apt`.
+    #[serde(default)]
+    pub platform: String,
+    /// What was asked, as typed.
+    #[serde(default)]
+    pub request: String,
+    /// What was asked, as the cache compares it.
+    #[serde(default)]
+    pub normalized: String,
+    #[serde(default)]
+    pub command: String,
+    #[serde(default)]
+    pub explanation: String,
+    #[serde(default)]
+    pub dangerous: bool,
+    #[serde(default)]
+    pub created_ms: u64,
     #[serde(flatten, default, skip_serializing_if = "extra_is_empty")]
     pub extra: Extra,
 }
@@ -201,6 +303,24 @@ mod tests {
     }
 
     #[test]
+    fn a_tunnel_of_a_kind_this_build_does_not_run_still_reads() {
+        let written = format!(
+            r#"{{"host_id":"{}","name":"socks","kind":"dynamic","bind_address":"127.0.0.1",
+                "bind_port":1080,"target_host":"","target_port":0,"autostart":true,
+                "via":"bastion"}}"#,
+            Uuid::nil()
+        );
+        let tunnel: PortForwardPayload = serde_json::from_str(&written).expect("parse");
+        assert_eq!(tunnel.kind, "dynamic");
+        assert!(tunnel.autostart);
+        let json = serde_json::to_value(&tunnel).unwrap();
+        assert_eq!(
+            json["via"], "bastion",
+            "a field from a newer build survives"
+        );
+    }
+
+    #[test]
     fn nothing_extra_shows_up_when_there_is_nothing_extra() {
         let json = serde_json::to_string(&GroupPayload {
             workspace: "private".into(),
@@ -221,8 +341,9 @@ mod tests {
         assert!(EntityKind::Key.apply_rank() < EntityKind::Identity.apply_rank());
         assert!(EntityKind::Identity.apply_rank() < EntityKind::Host.apply_rank());
         assert!(EntityKind::Group.apply_rank() < EntityKind::Host.apply_rank());
+        assert!(EntityKind::Host.apply_rank() < EntityKind::PortForward.apply_rank());
         assert_eq!(
-            EntityKind::PortForward.apply_rank(),
+            EntityKind::TerminalProfile.apply_rank(),
             EntityKind::APPLY_ORDER.len(),
             "a kind with no table yet sorts last"
         );
@@ -242,11 +363,44 @@ mod tests {
         assert_eq!(EntityKind::TerminalProfile as u8, 7);
         assert_eq!(EntityKind::Secret as u8, 8);
         assert_eq!(EntityKind::Manifest as u8, 9);
+        assert_eq!(EntityKind::AssistConfig as u8, 10);
+        assert_eq!(EntityKind::AssistCache as u8, 11);
         for (index, kind) in EntityKind::ALL.iter().enumerate() {
             assert_eq!(*kind as usize, index, "ALL is in discriminant order");
             assert_eq!(EntityKind::from_discriminant(index as u8), Some(*kind));
         }
-        assert_eq!(EntityKind::from_discriminant(10), None);
+        assert_eq!(EntityKind::from_discriminant(12), None);
+    }
+
+    #[test]
+    fn the_assistant_kinds_have_the_names_the_wire_carries() {
+        assert_eq!(
+            serde_json::to_string(&EntityKind::AssistConfig).unwrap(),
+            r#""assist_config""#
+        );
+        assert_eq!(
+            serde_json::to_string(&EntityKind::AssistCache).unwrap(),
+            r#""assist_cache""#
+        );
+        assert!(EntityKind::Secret.apply_rank() < EntityKind::AssistConfig.apply_rank());
+        assert!(EntityKind::AssistCache.is_assist());
+        assert!(!EntityKind::Host.is_assist());
+    }
+
+    #[test]
+    fn assistant_settings_keep_what_a_newer_build_added() {
+        let written = r#"{"provider":"anthropic","providers":{"anthropic":
+            {"model":"claude-sonnet-5-5","base_url":null,"key_secret_id":null,"effort":"low"}},
+            "temperature":0.2}"#;
+        let config: AssistConfigPayload = serde_json::from_str(written).unwrap();
+        assert_eq!(config.provider, "anthropic");
+        assert!(config.extra.contains_key("temperature"));
+        assert!(config.providers["anthropic"].extra.contains_key("effort"));
+        let json = serde_json::to_value(&config).unwrap();
+        assert_eq!(json["providers"]["anthropic"]["effort"], "low");
+        // An empty slot is still a record, and reads back as one.
+        let empty: AssistCachePayload = serde_json::from_str("{}").unwrap();
+        assert!(empty.command.is_empty());
     }
 
     #[test]

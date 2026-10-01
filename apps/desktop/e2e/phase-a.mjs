@@ -4,7 +4,7 @@
 // the sudo password helper, keyword highlighting, Ctrl+wheel zoom, the detected
 // system, workspaces and dragging, the file browser, and an export.
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { check, connect, failed, sleep } from './cdp.mjs';
+import { check, connect, failed, sleep, passOnboarding } from './cdp.mjs';
 
 const SHOTS = new URL('./shots/', import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1');
 const EXPECTED_FINGERPRINT = process.argv[2];
@@ -24,6 +24,7 @@ const terminalHas = (text) =>
 
 await page.waitFor(`document.querySelector('.sidebar')`, { what: 'app shell' });
 await page.waitFor(`'__uwusshDriver' in window`, { what: 'dev driver hook' });
+await passOnboarding(page);
 await sleep(800);
 check(
   'empty host list shows Nyu and an add button',

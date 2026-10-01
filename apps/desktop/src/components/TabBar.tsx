@@ -1,4 +1,5 @@
 import { t, useLanguage } from '../lib/i18n';
+import { keysFor, keysForTab } from '../lib/shortcuts';
 import type { Tab } from '../lib/tabs';
 import { Icon } from './Icon';
 import { OsIcon } from './OsIcon';
@@ -9,6 +10,10 @@ type Props = {
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   onNewShell: () => void;
+  /** Opens the command assistant over the shown terminal. */
+  onAssist: () => void;
+  /** The shown tab is a live terminal the assistant can type into. */
+  canAssist: boolean;
 };
 
 function stateOf(tab: Tab): 'online' | 'connecting' | 'idle' {
@@ -22,7 +27,15 @@ function stateOf(tab: Tab): 'online' | 'connecting' | 'idle' {
  * connections to the same server sit side by side; the number after a repeated
  * name tells them apart. Middle click closes, like in a browser.
  */
-export function TabBar({ tabs, activeId, onSelect, onClose, onNewShell }: Props) {
+export function TabBar({
+  tabs,
+  activeId,
+  onSelect,
+  onClose,
+  onNewShell,
+  onAssist,
+  canAssist,
+}: Props) {
   useLanguage();
   return (
     <div className="tabbar">
@@ -49,9 +62,7 @@ export function TabBar({ tabs, activeId, onSelect, onClose, onNewShell }: Props)
                 className="tab-select"
                 aria-selected={active}
                 title={
-                  index < 9
-                    ? t('{name} (Strg+Umschalt+{number})', { name, number: index + 1 })
-                    : name
+                  index < 9 ? t('{name} ({keys})', { name, keys: keysForTab(index + 1) }) : name
                 }
                 onClick={() => onSelect(tab.id)}
               >
@@ -71,7 +82,7 @@ export function TabBar({ tabs, activeId, onSelect, onClose, onNewShell }: Props)
               <button
                 className="tab-close"
                 onClick={() => onClose(tab.id)}
-                title={t('Tab schließen (Strg+Umschalt+W)')}
+                title={t('Tab schließen ({keys})', { keys: keysFor('close-tab') })}
                 aria-label={t('{name} schließen', { name: tab.title })}
               >
                 ×
@@ -81,9 +92,22 @@ export function TabBar({ tabs, activeId, onSelect, onClose, onNewShell }: Props)
         })}
       </div>
       <button
+        className="icon-button tab-assist"
+        onClick={onAssist}
+        disabled={!canAssist}
+        title={
+          canAssist
+            ? t('Befehl aus Worten ({shortcut})', { shortcut: keysFor('assist') })
+            : t('Befehl aus Worten: erst ein Terminal öffnen')
+        }
+        aria-label={t('Befehl aus Worten')}
+      >
+        <Icon name="sparkles" size={15} />
+      </button>
+      <button
         className="icon-button tab-new"
         onClick={onNewShell}
-        title={t('Neue lokale Shell (Strg+Umschalt+T)')}
+        title={t('Neue lokale Shell ({keys})', { keys: keysFor('new-shell') })}
         aria-label={t('Neue lokale Shell')}
       >
         +

@@ -107,6 +107,8 @@ pub struct ImportOutcome {
     pub keys_added: usize,
     pub known_hosts_added: usize,
     pub snippets_added: usize,
+    /// Only export files carry tunnels.
+    pub tunnels_added: usize,
 }
 
 impl ImportSet {
@@ -623,6 +625,7 @@ mod tests {
                 keys_added: 1,
                 known_hosts_added: 1,
                 snippets_added: 1,
+                tunnels_added: 0,
             }
         );
 

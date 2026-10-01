@@ -7,11 +7,13 @@ import {
   TrustHostKey,
   type SecretKind,
 } from './components/ConnectDialogs';
+import { AssistPopup } from './components/AssistPopup';
 import { FileBrowser } from './components/FileBrowser';
 import { HostForm } from './components/HostForm';
 import { HostList } from './components/HostList';
 import { Icon } from './components/Icon';
 import { ImportDialog } from './components/ImportDialog';
+import { Onboarding } from './components/Onboarding';
 import { M0Results, M0Status } from './components/M0Panel';
 import { Modal } from './components/Modal';
 import { NyuScene } from './components/nyu/scenes';
@@ -19,6 +21,7 @@ import { SettingsDialog, type SettingsSection } from './components/SettingsDialo
 import { TabBar } from './components/TabBar';
 import { TerminalView } from './components/Terminal';
 import { TitleBar } from './components/TitleBar';
+import { TunnelsDialog } from './components/TunnelsDialog';
 import { UpdateHint } from './components/UpdateHint';
 import { VaultDialog } from './components/VaultDialog';
 import type { Renderer, TerminalDriver } from './lib/driver';
@@ -52,15 +55,26 @@ import {
   type Workspace,
 } from './lib/session';
 import { language, t } from './lib/i18n';
-import { getSettings, useSettings } from './lib/settings';
-import type { Withheld } from './lib/sync';
+import { shortcutFor, terminalKey } from './lib/keymap';
+import { platform } from './lib/platform';
+import { markOnboardingDone, onboardingDecision, onboardingDone } from './lib/onboarding';
+import { getSettings, settingsWereStored, useSettings } from './lib/settings';
+import { keysFor } from './lib/shortcuts';
+import { syncStatus, type Withheld } from './lib/sync';
+import {
+  describeTunnelError,
+  isTunnelError,
+  startTunnel,
+  useTunnelStatuses,
+  type TunnelRecord,
+} from './lib/tunnels';
 import {
   createTab,
   describe,
-  isPasteKey,
+  assistTargetOf,
+  canAssist,
   neighbourAfterClose,
   newTabId,
-  shortcutFor,
   type Notice,
   type Tab,
   type TabKind,
@@ -97,6 +111,9 @@ type Negotiated<T> = { ok: true; value: T } | { ok: false; notice: Notice | null
 
 /** Failures that are not a question for the user, in words the user can act on. */
 function describeFailure(failure: ConnectFailure, host: HostRecord): string {
+  // A tunnel's own trouble — a port in use — comes back the same way.
+  const raw: unknown = failure;
+  if (isTunnelError(raw)) return describeTunnelError(raw);
   switch (failure.kind) {
     case 'unreachable':
       return t('{address} ist nicht erreichbar: {reason}', {
@@ -133,6 +150,27 @@ function describeFailure(failure: ConnectFailure, host: HostRecord): string {
     default:
       return t('Verbindung fehlgeschlagen ({kind}).', { kind: failure.kind });
   }
+}
+
+/** The keyboard goes nowhere: no element has focus. */
+function nothingFocused(): boolean {
+  const active = document.activeElement;
+  return !active || active === document.body || active === document.documentElement;
+}
+
+/** xterm.js' hidden text field, which has the keyboard while the terminal does. */
+function inTerminal(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && target.classList.contains('xterm-helper-textarea');
+}
+
+/** A text field of the app's own, not xterm.js' hidden one. */
+function inTextField(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement) || inTerminal(target)) return false;
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target.isContentEditable
+  );
 }
 
 /** Copies text, with the old way as a fallback where the clipboard API says no. */
@@ -189,9 +227,16 @@ export function App() {
     group?: string | null;
   } | null>(null);
   const [importing, setImporting] = useState(false);
+  /** The tunnels dialog: for one host, or for all of them (`host: null`). */
+  const [tunnelsFor, setTunnelsFor] = useState<{ host: HostRecord | null } | null>(null);
+  const tunnelStatuses = useTunnelStatuses();
   const [settingsOpen, setSettingsOpen] = useState<SettingsSection | null>(null);
+  /** The tab the command assistant types into, while it is open. */
+  const [assistFor, setAssistFor] = useState<string | null>(null);
   const [confirmClose, setConfirmClose] = useState(false);
   const [startupVault, setStartupVault] = useState(false);
+  /** The first-start wizard: on a fresh install, or again from the settings. */
+  const [onboarding, setOnboarding] = useState(false);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [updateDismissed, setUpdateDismissed] = useState(false);
   const backgroundRef = useRef<HTMLDivElement>(null);
@@ -608,6 +653,29 @@ export function App() {
       return result.value;
     };
 
+  /**
+   * Start a tunnel on a connection of its own, through the same conversation
+   * as a terminal: host key, vault, password. Its questions are named after
+   * the tunnel, so they never mix with a tab's. Resolves with what went
+   * wrong, or `null`.
+   */
+  const runTunnel = async (tunnel: TunnelRecord): Promise<string | null> => {
+    const host = hostsRef.current.find((candidate) => candidate.id === tunnel.hostId);
+    if (!host) return t('Diesen Host gibt es nicht mehr.');
+    const attempt = `tunnel-${tunnel.id}`;
+    const result = await negotiate(
+      attempt,
+      host,
+      ({ secret }) => startTunnel(tunnel.id, attempt, secret),
+      () => false,
+    );
+    if (result.ok) {
+      void refreshHosts();
+      return null;
+    }
+    return result.notice?.text ?? t('Nicht verbunden.');
+  };
+
   // ── Opening, closing, switching ───────────────────────────────────────────
 
   const openTab = useCallback((kind: TabKind) => {
@@ -633,7 +701,16 @@ export function App() {
   const onDriverReady = useCallback((id: string, driver: TerminalDriver) => {
     drivers.current.set(id, driver);
     setRenderer(driver.renderer);
-    driver.term.attachCustomKeyEventHandler((event) => !isPasteKey(event, getSettings()));
+    driver.term.attachCustomKeyEventHandler((event) => {
+      const decision = terminalKey(event, getSettings(), platform());
+      if (decision.kind === 'pass') return true;
+      if (decision.kind === 'send') {
+        event.preventDefault();
+        driver.term.input(decision.data);
+      }
+      // `browser`: xterm.js keeps out, the webview pastes or its menu acts.
+      return false;
+    });
     watchPrompts(id, driver);
     // Wait a tick: StrictMode disposes a first driver right away, and only the
     // one that is still there should start anything.
@@ -759,6 +836,29 @@ export function App() {
       // A vault this device doesn't open on its own asks once, now, instead
       // of on the first host that needs it.
       const vault = await vaultState().catch(() => null);
+      if (cancelled) return;
+      // A fresh install gets the setup wizard; one that was set up before
+      // never does (see lib/onboarding.ts).
+      if (!onboardingDone()) {
+        const [known, sync] = await Promise.all([
+          listHosts().catch(() => null),
+          syncStatus().catch(() => null),
+        ]);
+        if (cancelled) return;
+        const decision = onboardingDecision({
+          done: false,
+          settingsStored: settingsWereStored(),
+          hosts: known ? known.length : null,
+          vault: vault?.status ?? null,
+          sync: sync?.backend ?? null,
+        });
+        if (decision === 'settled') markOnboardingDone();
+        if (decision === 'show') setOnboarding(true);
+        // End-to-end runs start with a fresh profile and wait for this.
+        if (import.meta.env.DEV) document.documentElement.dataset.onboarding = decision;
+      } else if (import.meta.env.DEV) {
+        document.documentElement.dataset.onboarding = 'skip';
+      }
       if (!cancelled && vault?.status === 'locked' && !vault.remembered) setStartupVault(true);
       // A vault a refused sync connect left stranded gets its password back now.
       if (!cancelled && vault?.stranded && vault.remembered) setStartupVault(true);
@@ -870,6 +970,9 @@ export function App() {
   // ── Derived state ─────────────────────────────────────────────────────────
 
   const activeTab = tabs.find((tab) => tab.id === activeId) ?? null;
+  // The assistant closes with its terminal.
+  const assistTab = tabs.find((tab) => tab.id === assistFor && canAssist(tab)) ?? null;
+  const assistSession = assistTab ? (drivers.current.get(assistTab.id)?.session ?? null) : null;
   const liveConnections = tabs.filter(
     (tab) => (tab.kind === 'ssh' || tab.kind === 'files') && tab.status === 'live',
   ).length;
@@ -897,9 +1000,25 @@ export function App() {
       ),
     [tabs],
   );
+  const tunnelIds = useMemo(
+    () =>
+      new Set(
+        [...tunnelStatuses.values()].flatMap((status) =>
+          status.state === 'running' ? [status.hostId] : [],
+        ),
+      ),
+    [tunnelStatuses],
+  );
   const dialog = dialogs[0] ?? null;
   const modalOpen = Boolean(
-    dialog || form || importing || settingsOpen || confirmClose || startupVault,
+    dialog ||
+    form ||
+    importing ||
+    settingsOpen ||
+    confirmClose ||
+    startupVault ||
+    tunnelsFor ||
+    assistSession,
   );
   const modalRef = useRef(false);
   modalRef.current = modalOpen;
@@ -922,6 +1041,20 @@ export function App() {
     return () => window.cancelAnimationFrame(frame);
   }, [activeId, modalOpen]);
 
+  // Coming back to the window gives the terminal the keyboard again, unless
+  // something else had it. WKWebView does not always hand focus back to the
+  // element that had it when the app is activated again, and a terminal
+  // that silently ignores typing looks like a hung one.
+  useEffect(() => {
+    const onFocus = () => {
+      if (modalRef.current || !nothingFocused()) return;
+      const id = activeRef.current;
+      if (id) drivers.current.get(id)?.term.focus();
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, []);
+
   // ── Keyboard ──────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -929,8 +1062,25 @@ export function App() {
       if (modalRef.current || event.type !== 'keydown') return;
       const id = activeRef.current;
       const driver = id ? drivers.current.get(id) : undefined;
-      const action = shortcutFor(event, getSettings(), Boolean(driver?.term.hasSelection()));
-      if (!action) return;
+      const action = shortcutFor(
+        event,
+        getSettings(),
+        Boolean(driver?.term.hasSelection()),
+        platform(),
+      );
+      if (!action) {
+        // Nothing has the keyboard (a context menu closed, a button that had
+        // it went away): typing is meant for the terminal in front. Moving
+        // focus during keydown makes the browser deliver this very key's
+        // character to the terminal, so not even the first key is lost.
+        if (driver && nothingFocused() && !event.metaKey && !event.ctrlKey) driver.term.focus();
+        return;
+      }
+      // Copying in a text field (the search, a form) is the field's own
+      // business, and selecting all is the terminal's only while it has the
+      // keyboard — the file list selects its own files.
+      if (action.kind === 'copy' && inTextField(event.target)) return;
+      if (action.kind === 'select-all' && !inTerminal(event.target)) return;
       event.preventDefault();
       event.stopPropagation();
 
@@ -962,6 +1112,9 @@ export function App() {
         case 'settings':
           setSettingsOpen('appearance');
           break;
+        case 'select-all':
+          driver?.term.selectAll();
+          break;
         case 'copy': {
           const selection = driver?.term.getSelection();
           if (selection) {
@@ -975,6 +1128,9 @@ export function App() {
           break;
         case 'open-files':
           if (tab?.kind === 'ssh' || tab?.kind === 'files') openFilesTab(tab.host);
+          break;
+        case 'assist':
+          if (tab && canAssist(tab) && driver?.session) setAssistFor(tab.id);
           break;
       }
     };
@@ -1033,6 +1189,8 @@ export function App() {
             connectingIds={connectingIds}
             openIds={openHostIds}
             shellOpen={tabs.some((tab) => tab.kind === 'shell')}
+            tunnelIds={tunnelIds}
+            onTunnels={(host) => setTunnelsFor({ host })}
             onConnect={connect}
             onConnectAnother={connectAnother}
             onOpenFiles={openFilesTab}
@@ -1052,6 +1210,8 @@ export function App() {
               onSelect={setActiveId}
               onClose={closeTab}
               onNewShell={openShell}
+              onAssist={() => activeId && setAssistFor(activeId)}
+              canAssist={Boolean(activeTab && canAssist(activeTab))}
             />
 
             {activeTab && (
@@ -1072,7 +1232,8 @@ export function App() {
                       className="quiet toolbar-button"
                       onClick={() => typePassword(activeTab.id)}
                       title={t(
-                        'Das Passwort des Hosts ins Terminal tippen (Strg+Umschalt+P). Enter kommt nur dazu, wenn gerade etwas nach einer Eingabe fragt.',
+                        'Das Passwort des Hosts ins Terminal tippen ({keys}). Enter kommt nur dazu, wenn gerade etwas nach einer Eingabe fragt.',
+                        { keys: keysFor('type-password') },
                       )}
                     >
                       <Icon name="key" size={15} />
@@ -1083,7 +1244,9 @@ export function App() {
                   <button
                     className="quiet toolbar-button"
                     onClick={() => openFilesTab(activeTab.host)}
-                    title={t('Dateien dieses Hosts in einem neuen Tab (Strg+Umschalt+F)')}
+                    title={t('Dateien dieses Hosts in einem neuen Tab ({keys})', {
+                      keys: keysFor('open-files'),
+                    })}
                   >
                     <Icon name="files" size={15} />
                     {t('Dateien')}
@@ -1184,7 +1347,7 @@ export function App() {
                         <button className="primary" onClick={() => typePassword(tab.id)}>
                           {t('Eintippen')}
                         </button>
-                        <kbd>{t('Strg+Umschalt+P')}</kbd>
+                        <kbd>{keysFor('type-password')}</kbd>
                         <button
                           className="icon-button"
                           onClick={() => {
@@ -1246,6 +1409,29 @@ export function App() {
         />
       )}
 
+      {tunnelsFor && (
+        <TunnelsDialog
+          hosts={hosts}
+          host={tunnelsFor.host}
+          onStart={runTunnel}
+          onClose={() => setTunnelsFor(null)}
+        />
+      )}
+
+      {assistTab && assistSession && (
+        <AssistPopup
+          session={assistSession}
+          target={assistTargetOf(assistTab)}
+          targetName={assistTab.kind === 'ssh' ? assistTab.title : t('diesen Rechner')}
+          onClose={() => setAssistFor(null)}
+          onInserted={() => setAssistFor(null)}
+          onSetUp={() => {
+            setAssistFor(null);
+            setSettingsOpen('assist');
+          }}
+        />
+      )}
+
       {importing && (
         <ImportDialog onClose={() => setImporting(false)} onImported={() => void refreshHosts()} />
       )}
@@ -1269,6 +1455,20 @@ export function App() {
             setImporting(true);
           }}
           onChanged={() => void refreshHosts()}
+          onRestartOnboarding={() => {
+            setSettingsOpen(null);
+            setOnboarding(true);
+          }}
+        />
+      )}
+
+      {onboarding && (
+        <Onboarding
+          onClose={() => {
+            markOnboardingDone();
+            setOnboarding(false);
+          }}
+          onHostsChanged={() => void refreshHosts()}
         />
       )}
 

@@ -102,7 +102,7 @@ rev         u64      local bookkeeping, handy in tests and logs
 
 Entities: `Host`, `Group`, `Identity`, `Key`, `Secret`, `Snippet`,
 `PortForward`, `KnownHost`, `TerminalProfile` — the last two of those have no
-table yet. `SessionLog` stays local and does not sync by default, and so do the
+table yet — and the command assistant's `AssistConfig` and `AssistCache`. `SessionLog` stays local and does not sync by default, and so do the
 columns that only mean something here: a key's file path, when this device last
 connected, and the system a connection found.
 
@@ -253,6 +253,32 @@ possible clock, no name, never pushed — which the real record replaces the
 moment it turns up. Until then the host is listed without a login, and a group
 with no name yet is not shown as a group at all.
 
+### Kinds an older build does not know
+
+The command assistant added the first kinds since the first release
+(`assist_config`, `assist_cache`), and builds without them are in the field.
+What they do with such a record decides how a new kind has to travel:
+
+- **This build and later** skip an envelope whose kind they do not know, in a
+  pulled page and in a push answer alike, and move the cursor past a page
+  that held nothing else. The next new kind costs nothing.
+- **0.2.x over UwUSync** reads a page strictly: one unknown kind fails the
+  whole page, every pass. So the client asks with `&assist=1`, like
+  `&manifests=1`, and a server must leave these kinds out for a client that
+  does not — before its own protocol learns them. Today's server rejects the
+  kinds on push, which the next point covers.
+- **A server that does not know them** refuses a push that carries one. The
+  assistant's records therefore go up in their own requests, after everything
+  else, and a refusal is logged and left at that: hosts and keys still sync,
+  only the assistant waits for a newer server. They are not counted as
+  "waiting to sync" either, so that wait shows no banner.
+- **0.2.x over UwULock** skips unknown kinds, but a page made only of them
+  ended its pull without moving the cursor. That is why the assistant has a
+  fixed footprint: one settings record and 200 cache slots with fixed ids
+  (`uwussh-store/src/assist.rs`), 201 records, well under a 500-record page,
+  so a page never consists of them alone. Clearing the cache writes empty
+  slots instead of tombstones, since a tombstone would end the slot for good.
+
 ### Manifests: noticing what the server keeps back
 
 The seal stops a server from forging or altering a record, but not from
@@ -298,7 +324,8 @@ The limits, honestly:
   server that serves an old snapshot of every record and every manifest
   together is indistinguishable from a vault that simply is that old.
 - A manifest lists at most 7,000 records, host keys first, then keys, secrets,
-  logins, hosts, groups and snippets; a bigger vault publishes a partial one
+  logins, hosts, groups and snippets, then the command assistant's settings
+  and cache; a bigger vault publishes a partial one
   and the rest goes unchecked.
 - The check covers versions the listing device had confirmed. An edit made
   after its last manifest is covered once that device publishes again.
@@ -362,6 +389,7 @@ end-to-end run drives two app instances against a real server (see below).
 | `POST /v1/session`                   | A device signs a challenge (Ed25519) → token, one hour                      |
 | `GET /v1/vault`, `PUT /v1/vault/key` | The vault header; a new one on a password change                            |
 | `GET /v1/records?since=<seq>`        | Envelopes newer than a cursor, paginated; `&manifests=1` includes manifests |
+|                                      | `&assist=1`: this build knows the command assistant's two kinds             |
 | `POST /v1/records`                   | Batch push, each record with its `base_seq`                                 |
 | `GET /v1/events`                     | Server-sent events: "changes from seq N"                                    |
 | `POST /v1/pair`, `/v1/pair/{id}`     | Relay for device pairing (SPAKE2), ten minutes                              |
@@ -675,7 +703,7 @@ is safe. An import that brings no new secret needs no vault at all.
 ### UwUSSH's own export
 
 Settings → Import & Export writes everything — workspaces, groups, hosts, keys,
-trusted host keys, snippets, and optionally the passwords and private keys — into
+trusted host keys, snippets, tunnels, and optionally the passwords and private keys — into
 one `.uwussh` file: JSON inside an envelope (`format`, `version`, the app
 version). With secrets, the whole inner document is sealed with a password of
 its own: Argon2id with the vault's parameters, then XChaCha20-Poly1305, with the
@@ -691,6 +719,14 @@ source. A file is data from anywhere, so it is taken with care: host keys only
 for the hosts in the same file, only when the fingerprint really is that key's,
 and never over a key that exists or once existed; key paths only when they are
 on this computer; hosts only when the host form would have accepted them.
+
+Tunnels sit under a key of their own that a file has only when there are any,
+so old and new builds still read each other's files without a new `version`.
+Each names its host by position in the file and lands on the host with that
+address, port and user, whether the import just added it or it was already
+there; one that host already has is skipped, and one the tunnel form would
+refuse is left out. Autostart survives only on a host the import added: a file
+must not make a host the user already had open ports on its next connect.
 
 ## Connecting
 
@@ -754,6 +790,17 @@ password is typed but never runs as a command or lands in the history. The
 page only asks `type_session_password` for its own session and never gets
 the password; Rust writes it into that session and nowhere else.
 
+### Password logins get a warning
+
+A host that logs in with a password — typed or stored — instead of a key gets
+a small warning sign in the host list. Its tooltip says why: a password can be
+guessed, tried in bulk or phished, a key never leaves the computer. And how to
+switch: the host form's **SSH key**, a key from UwUKeygen, its public half in
+`authorized_keys`. Only the host's own setting decides, nothing is probed. On
+by default; Settings → Appearance switches it off, and `settings.ts` names the
+setting on its own (`PASSWORD_LOGIN_WARNING`, `setPasswordLoginWarning`) so
+the onboarding can switch it too.
+
 ## Files
 
 A file tab opens its own SSH connection with the host's login — the same
@@ -803,6 +850,44 @@ a port or WebDAV. A local copy never goes into itself, checked on the resolved
 paths (a mapped drive is its share, case doesn't matter), and never deeper than
 128 folders.
 
+## Tunnels
+
+A tunnel is a local (`ssh -L`) or remote (`ssh -R`) port forward of one host:
+where it listens, where that leads, and whether it starts with a terminal.
+Dynamic forwarding (SOCKS) is not there yet.
+
+**Saved per host, synced like one.** Tunnels are records of their own
+(`port_forwards`) that point at their host by id and travel as the
+`PortForward` kind the protocol had from the start. There is no foreign key on
+the host: a tunnel can arrive before its host does and is simply not listed
+until then. Deleting a host tombstones its tunnels in the same transaction.
+The kind is a string, like a workspace: one a newer build adds is kept,
+synced and shown, but not run. Builds before tunnels pass the kind over, and
+their cursor moves on past it — so the migration that adds the table reads
+the server from the start once, and what they passed over comes in.
+
+**Two ways to run.** A tunnel started from the tunnels dialog — **Tunnel…** in
+a host's menu, or the button above the host list — runs without a terminal,
+on a connection of its own that logs in exactly like a terminal: host key
+first, then the stored or asked-for secret, the same dialogs. Every tunnel of
+that host started this way shares that connection, and it closes with the
+last of them. A tunnel marked **Start with the terminal** starts when a
+terminal to its host opens, on that terminal's connection — no second login —
+and stops when the terminal closes. A reloaded page stops those, but not the
+ones on their own connection; it asks Rust what runs.
+
+**In the engine.** `uwussh-core`'s `TunnelManager` runs them on an `SshLink`.
+A local tunnel listens here and opens a `direct-tcpip` channel per
+connection. A remote one asks the server for `tcpip-forward`; the
+connection's handler hands every `forwarded-tcpip` channel to the tunnel
+registered for that port, which connects to the target from here. Stopping
+is one signal every task waits on: the listener goes, and every channel with
+it, before `stop` returns — so the port is free when it does. A connection
+that ends underneath turns its tunnels into "connection lost" rather than
+leaving a listener that leads nowhere. Every change reaches the page as a
+`tunnel:status` event: running on which port, connections so far, or the
+error — a port already in use, a server that won't listen.
+
 ## Tabs
 
 Every session has its own tab, and every tab its own xterm.js terminal and
@@ -831,6 +916,61 @@ The app's shortcuts all need Ctrl and never Alt (AltGr is Ctrl+Alt on German
 keyboards), and tab shortcuts add Shift, because plain Ctrl+W belongs to bash.
 Paste keys are passed to the webview instead of xterm.js, so pasting uses the
 browser's own paste event — no clipboard permission, bracketed paste intact.
+
+## Command assistant
+
+A request in words — "liste alle Benutzer auf" — becomes one command for the
+system in the tab, typed at the prompt and **never run**: Rust drops every
+control character, Enter included, before it writes to the session. Ctrl+Shift+K
+(⌘K on a Mac, where Cmd never reaches the terminal) or the sparkle above the
+tabs opens it; Enter asks, Enter again types, Esc closes.
+
+- **The system** is the one the OS probe found for the host (`host.os`, see
+  `uwussh_core::os`), for a local tab this computer's. `uwussh-assist` turns it
+  into a platform — family, shell, package manager — whose key
+  (`linux/bash/apt`, `windows/powershell/winget`, `cisco-ios/ios/none`) goes
+  into the prompt and the cache. The shell can be switched in the popup where
+  there is more than one.
+- **Providers**: Ollama (found on this machine by itself), any
+  OpenAI-compatible server, OpenAI, Anthropic and Mistral, over blocking
+  `reqwest` with rustls, redirects off and plain `http://` only to this
+  machine or a private network. The model answers strict JSON — command,
+  explanation, a danger flag — which is parsed leniently (code fences, text
+  around it) and refused when the command spans lines. Commands that can
+  destroy something are flagged red whatever the model says.
+- **The cache** answers a request it has seen before for the same platform
+  without a model, offline. Requests are normalised — lower case, umlauts
+  folded, German and English filler words dropped, words stemmed and mapped
+  onto one concept each ("Benutzer", "Benutzerkonten", "users" → `user`) — and
+  match when their concept sets overlap by three quarters (Jaccard). Numbers,
+  paths and flags must match exactly, so "die letzten 10 Zeilen" never reuses
+  the answer for 20. "Neu generieren" skips the cache.
+- **Sync and the vault**: settings and cache are records like any other,
+  sealed with the vault key. An API key is a **secret** in the vault, which
+  the settings record only points at; it never reaches the page again, and a
+  locked vault asks to be opened first.
+
+## First start
+
+A fresh install opens a wizard (`components/Onboarding.tsx`) over the empty
+window: welcome and language, colour scheme and animations, vault and sync,
+import, the command assistant with the password-login warning, and a summary
+with the first shortcuts. Each step can be skipped, and Escape or "Einrichtung
+überspringen" ends it. It owns no logic of its own: the steps call the
+settings' setters and open the vault dialog, the sync settings, the import
+dialog and `AssistProviderSetup` over themselves, and read the vault, sync and
+host state back when those close.
+
+Whether it shows is `onboardingDecision` in `lib/onboarding.ts`, a pure
+function with its own tests. It shows only when nothing says the app was used
+here: no hosts, no vault, no sync, no stored settings. An install that has any
+of them is marked done without seeing it, so deleting the last host later
+does not bring it back; when the store cannot be read, it neither shows nor
+decides. The flag lives in the page's storage next to the settings
+(`uwussh.onboarding`), and Settings → Appearance → "Einrichtung erneut
+starten" opens the wizard again. Dev builds put the decision on `<html
+data-onboarding>`, so the end-to-end phases, which start from fresh
+profiles, can skip it the way a user would.
 
 ## Languages
 
@@ -986,7 +1126,12 @@ the vault key sealed with DPAPI when the vault is remembered on this device (see
   connection, keystroke order, resize, remote exit, an 8 MiB flood that
   arrives complete under a deliberately slow renderer, two tabs logging in to
   the same server side by side, and a reloaded page closing what the old one
-  left open. `tests/files.rs` does the same for files: browsing, upload,
+  left open. Its tunnels part (`tests/ssh/tunnels.rs`, in the same binary)
+  forwards locally and remotely to an echo server, checks that a stopped
+  tunnel's port is free when `stop` returns, that a port already taken is
+  said so, that a terminal's connection ending fails its tunnel, and that
+  tunnels without a terminal share one login — waiting for events, never for
+  time. `tests/files.rs` does the same for files: browsing, upload,
   download, rename, delete and cancel against an in-process SFTP server, root
   through a toy `sudo` with no, a wrong and the right password on one login, and
   the system probe.

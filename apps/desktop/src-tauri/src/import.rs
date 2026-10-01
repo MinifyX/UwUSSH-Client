@@ -279,6 +279,7 @@ pub(crate) struct ImportReport {
     pub keys_added: usize,
     pub known_hosts_added: usize,
     pub snippets_added: usize,
+    pub tunnels_added: usize,
     pub skipped: Vec<String>,
 }
 
@@ -291,6 +292,7 @@ impl ImportReport {
             keys_added: outcome.keys_added,
             known_hosts_added: outcome.known_hosts_added,
             snippets_added: outcome.snippets_added,
+            tunnels_added: outcome.tunnels_added,
             skipped,
         }
     }

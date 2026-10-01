@@ -33,6 +33,8 @@ import {
   type TransferEvent,
 } from '../lib/files';
 import { locale, t, useLanguage } from '../lib/i18n';
+import { hasPrimaryModifier } from '../lib/keymap';
+import { platform } from '../lib/platform';
 import type { HostRecord } from '../lib/session';
 import { Icon } from './Icon';
 import { Modal } from './Modal';
@@ -858,13 +860,13 @@ function FilePane(props: PaneProps) {
         const names = current.entries.map((e) => e.name);
         const from = names.indexOf(current.anchor);
         const to = names.indexOf(entry.name);
-        if (!event.ctrlKey) selected.clear();
+        if (!hasPrimaryModifier(event, platform())) selected.clear();
         for (const name of names.slice(Math.min(from, to), Math.max(from, to) + 1)) {
           selected.add(name);
         }
         return { ...current, selected };
       }
-      if (event.ctrlKey || event.metaKey) {
+      if (hasPrimaryModifier(event, platform())) {
         if (selected.has(entry.name)) selected.delete(entry.name);
         else selected.add(entry.name);
       } else {
@@ -985,12 +987,13 @@ function FilePane(props: PaneProps) {
           aria-multiselectable="true"
           tabIndex={0}
           onKeyDown={(event) => {
-            if (event.key === 'Delete' && selectedEntries.length > 0)
-              props.onDelete(selectedEntries);
+            // A Mac keyboard has no Delete key: ⌘⌫ moves to the trash, as in the Finder.
+            const remove = event.key === 'Delete' || (event.key === 'Backspace' && event.metaKey);
+            if (remove && selectedEntries.length > 0) props.onDelete(selectedEntries);
             if (event.key === 'F2' && selectedEntries.length === 1)
               props.onRename(selectedEntries[0]!);
-            if (event.key === 'Backspace') props.onUp();
-            if (event.key === 'a' && event.ctrlKey) {
+            if (event.key === 'Backspace' && !event.metaKey) props.onUp();
+            if (event.key === 'a' && hasPrimaryModifier(event, platform())) {
               event.preventDefault();
               props.onChange((current) => ({
                 ...current,

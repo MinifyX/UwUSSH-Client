@@ -92,6 +92,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
               [t('Passwörter'), summary.passwords],
               [t('Keys'), summary.keys],
               [t('Host-Keys'), summary.knownHosts],
+              [t('Tunnel'), summary.tunnels],
             ] as const
           ).map(([label, count]) => (
             <li key={label}>

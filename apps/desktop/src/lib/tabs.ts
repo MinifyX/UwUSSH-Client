@@ -4,8 +4,8 @@
  * doing and what to tell the user.
  */
 
+import type { AssistTarget } from './assist';
 import { t } from './i18n';
-import type { Settings } from './settings';
 import type { HostRecord } from './session';
 
 export type TabKind =
@@ -108,69 +108,12 @@ export function neighbourAfterClose(tabs: Tab[], id: string): string | null {
   return rest[Math.min(index, rest.length - 1)]?.id ?? null;
 }
 
-export type ShortcutAction =
-  | { kind: 'new-shell' }
-  | { kind: 'type-password' }
-  | { kind: 'open-files' }
-  | { kind: 'close-tab' }
-  | { kind: 'duplicate-tab' }
-  | { kind: 'next-tab' }
-  | { kind: 'previous-tab' }
-  | { kind: 'select-tab'; index: number }
-  | { kind: 'settings' }
-  | { kind: 'copy' };
-
-type KeyLike = Pick<KeyboardEvent, 'key' | 'code' | 'ctrlKey' | 'shiftKey' | 'altKey' | 'metaKey'>;
-
-/**
- * The app's own shortcuts. All of them need Ctrl and never Alt: on a German
- * keyboard AltGr is Ctrl+Alt, and AltGr+7 has to stay a `{`. Plain Ctrl+letter
- * belongs to the program in the terminal (Ctrl+W deletes a word in bash), so
- * tab shortcuts take Shift as well, like in Windows Terminal.
- */
-export function shortcutFor(
-  event: KeyLike,
-  settings: Pick<Settings, 'ctrlCCopies'>,
-  hasSelection: boolean,
-): ShortcutAction | null {
-  if (!event.ctrlKey || event.altKey || event.metaKey) return null;
-  if (event.key === 'Tab' || event.code === 'PageDown' || event.code === 'PageUp') {
-    const back = event.code === 'PageUp' || (event.key === 'Tab' && event.shiftKey);
-    return { kind: back ? 'previous-tab' : 'next-tab' };
-  }
-  if (!event.shiftKey) {
-    if (event.code === 'Comma') return { kind: 'settings' };
-    if (event.code === 'KeyC' && settings.ctrlCCopies && hasSelection) return { kind: 'copy' };
-    return null;
-  }
-  switch (event.code) {
-    case 'KeyT':
-      return { kind: 'new-shell' };
-    case 'KeyW':
-      return { kind: 'close-tab' };
-    case 'KeyD':
-      return { kind: 'duplicate-tab' };
-    case 'KeyC':
-      return { kind: 'copy' };
-    case 'KeyP':
-      return { kind: 'type-password' };
-    case 'KeyF':
-      return { kind: 'open-files' };
-  }
-  const digit = /^Digit([1-9])$/.exec(event.code);
-  if (digit) return { kind: 'select-tab', index: Number(digit[1]) - 1 };
-  return null;
+/** A live terminal: a local shell or an SSH session the assistant can type into. */
+export function canAssist(tab: Tab): boolean {
+  return (tab.kind === 'shell' || tab.kind === 'ssh') && tab.status === 'live';
 }
 
-/**
- * Keys that must reach the browser instead of the terminal, so the webview
- * pastes natively: xterm.js would otherwise turn Ctrl+V into ^V. Pasting this
- * way needs no clipboard permission, and xterm.js still wraps it in bracketed
- * paste when the program asks for that.
- */
-export function isPasteKey(event: KeyLike, settings: Pick<Settings, 'ctrlVPastes'>): boolean {
-  if (event.altKey || event.metaKey) return false;
-  if (event.shiftKey && !event.ctrlKey && event.code === 'Insert') return true;
-  if (!event.ctrlKey || event.code !== 'KeyV') return false;
-  return event.shiftKey || settings.ctrlVPastes;
+/** Which system the assistant writes a command for: this computer, or the host. */
+export function assistTargetOf(tab: Tab): AssistTarget {
+  return tab.kind === 'ssh' ? { kind: 'host', os: tab.host.os } : { kind: 'local' };
 }

@@ -5,8 +5,10 @@
 //! `uwussh-store`, and both are tested without a window.
 //!
 //! - [`sessions`] — terminal I/O for any session
+//! - [`assist`] — the command assistant: a request in words to one command
 //! - [`hosts`] — the host list, groups, connecting, host key decisions
 //! - [`files`] — the file browser: SFTP, this computer, SMB shares
+//! - [`tunnels`] — local and remote port forwards
 //! - [`keys`] — keys in the vault
 //! - [`keygen`] — UwUKeygen, shared with the standalone app
 //! - [`import`] — the vault and importing other clients' setups
@@ -16,7 +18,9 @@
 //!   the realtime channel
 //! - [`system`] — updates, links, a fresh start for a reloaded page
 //! - [`m0`] — the throughput measurement
+//! - [`menu`] — the macOS menu bar
 
+mod assist;
 mod backup;
 mod device;
 mod dialogs;
@@ -27,9 +31,11 @@ mod keygen;
 mod keys;
 mod lock;
 mod m0;
+mod menu;
 mod sessions;
 mod sync;
 mod system;
+mod tunnels;
 mod updates;
 
 use parking_lot::Mutex;
@@ -37,12 +43,16 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::Manager;
-use uwussh_core::{FrameSink, ObservedHostKey, SessionId, SessionManager, SinkError};
+use uwussh_core::{
+    FrameSink, ObservedHostKey, SessionId, SessionManager, SinkError, TunnelManager,
+};
 use uwussh_store::Store;
 
 pub(crate) struct AppState {
     pub sessions: Arc<SessionManager>,
     pub store: Arc<Store>,
+    /// Running tunnels, with or without a terminal.
+    pub tunnels: Arc<TunnelManager>,
     /// Host keys a server presented in the last connection attempt, per
     /// address and port. Trusting a key is only possible for a key in here,
     /// so a compromised webview cannot hand in a key of its own choosing. Each
@@ -97,7 +107,12 @@ pub fn run() {
         )
         .init();
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Only macOS has a menu bar; Tauri adds none elsewhere either.
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(menu::build).on_menu_event(menu::on_event);
+
+    builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -126,6 +141,7 @@ pub fn run() {
             app.manage(AppState {
                 sessions: Arc::new(SessionManager::new()),
                 store: Arc::new(store),
+                tunnels: Arc::new(TunnelManager::new(tunnels::listener(app.handle().clone()))),
                 presented_keys: Mutex::new(HashMap::new()),
                 session_passwords: Mutex::new(HashMap::new()),
                 session_hosts: Mutex::new(HashMap::new()),
@@ -146,6 +162,16 @@ pub fn run() {
             sessions::ack_session,
             sessions::close_session,
             sessions::session_metrics,
+            assist::assist_platform,
+            assist::assist_generate,
+            assist::assist_type_command,
+            assist::assist_settings,
+            assist::assist_save_settings,
+            assist::assist_models,
+            assist::assist_detect_ollama,
+            assist::assist_cache_list,
+            assist::assist_cache_delete,
+            assist::assist_cache_clear,
             hosts::list_hosts,
             hosts::save_host,
             hosts::delete_host,
@@ -179,6 +205,12 @@ pub fn run() {
             files::local_trash,
             files::local_copy,
             files::smb_connect,
+            tunnels::list_tunnels,
+            tunnels::save_tunnel,
+            tunnels::delete_tunnel,
+            tunnels::tunnel_statuses,
+            tunnels::start_tunnel,
+            tunnels::stop_tunnel,
             keys::list_keys,
             keys::rename_key,
             keys::delete_key,

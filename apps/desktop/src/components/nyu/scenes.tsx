@@ -448,6 +448,63 @@ function Sleepy() {
   );
 }
 
+/** Design: Nyu between a light and a dark card, a sun on one, a moon on the other. */
+function Design() {
+  return (
+    <>
+      <Shadow cx={160} />
+      <Sticker edge={EDGE}>
+        <g transform="rotate(-10 58 92)">
+          <rect x="24" y="58" width="68" height="70" rx="10" fill={NYU.paper} {...S} />
+          <circle cx="58" cy="93" r="14" fill={NYU.star} {...S} strokeWidth={5} />
+        </g>
+        <g transform="rotate(9 264 88)">
+          <rect x="230" y="54" width="68" height="70" rx="10" fill={NYU.outline} {...S} />
+          <circle className="no-edge" cx="262" cy="89" r="15" fill={NYU.lilac} />
+          <circle className="no-edge" cx="270" cy="82" r="12" fill={NYU.outline} />
+        </g>
+      </Sticker>
+      <NyuFigure mood="sparkle" x={160} y={136} scale={0.56} tilt={-2} edge={NYU_EDGE} />
+      <Sticker edge={12}>
+        <Star x={160} y={26} r={9} className="nyu-twinkle" />
+        <Heart x={292} y={168} size={0.6} fill={NYU.mint} />
+      </Sticker>
+    </>
+  );
+}
+
+/** The command assistant: Nyu hands over a prompt, sparks flying off it. */
+function Assist() {
+  return (
+    <>
+      <Shadow cx={150} />
+      <NyuFigure
+        mood="happy"
+        x={140}
+        y={134}
+        scale={0.58}
+        tilt={-4}
+        edge={NYU_EDGE}
+        front={<Paw x={222} y={108} />}
+      />
+      <Sticker edge={EDGE}>
+        <g className="nyu-bob">
+          <g transform="translate(262 84) scale(1.4) translate(-262 -84)">
+            <Prompt x={262} y={84} rotate={8} cursor />
+          </g>
+        </g>
+      </Sticker>
+      <Sticker edge={10}>
+        <g className="nyu-sparks">
+          <Star x={302} y={36} r={9} />
+          <Star x={226} y={36} r={6} />
+          <Star x={306} y={130} r={6} />
+        </g>
+      </Sticker>
+    </>
+  );
+}
+
 const SCENES = {
   welcome: Welcome,
   done: Done,
@@ -460,6 +517,8 @@ const SCENES = {
   files: Files,
   keys: Keys,
   sleepy: Sleepy,
+  design: Design,
+  assist: Assist,
 } satisfies Record<string, () => ReactNode>;
 
 export type SceneName = keyof typeof SCENES;

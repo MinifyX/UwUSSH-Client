@@ -31,6 +31,8 @@ import {
   FONT_SIZE_MIN,
   HIGHLIGHT_COLORS,
   SCROLLBACK_CHOICES,
+  passwordLoginWarningOn,
+  setPasswordLoginWarning,
   updateSettings,
   useSettings,
   workspaceName,
@@ -40,6 +42,8 @@ import {
   type StartupSetting,
 } from '../lib/settings';
 import { systemName } from '../lib/platform';
+import { allKeysFor, isMac, keysFor, keysForTab, primaryModifier } from '../lib/shortcuts';
+import { AssistSettings } from './AssistSettings';
 import { ExportDialog } from './ExportDialog';
 import { SyncSettings } from './SyncSettings';
 import { Icon } from './Icon';
@@ -49,13 +53,22 @@ import { Nyu } from './nyu/Nyu';
 import { VaultDialog } from './VaultDialog';
 
 export type SettingsSection =
-  'appearance' | 'terminal' | 'highlight' | 'vault' | 'sync' | 'data' | 'updates' | 'about';
+  | 'appearance'
+  | 'terminal'
+  | 'highlight'
+  | 'vault'
+  | 'assist'
+  | 'sync'
+  | 'data'
+  | 'updates'
+  | 'about';
 
 const SECTIONS: { id: SettingsSection; label: string }[] = [
   { id: 'appearance', label: N_('Darstellung') },
   { id: 'terminal', label: N_('Terminal') },
   { id: 'highlight', label: N_('Hervorhebung') },
   { id: 'vault', label: N_('Tresor & Keys') },
+  { id: 'assist', label: N_('KI') },
   { id: 'sync', label: N_('Sync') },
   { id: 'data', label: N_('Import & Export') },
   { id: 'updates', label: N_('Updates') },
@@ -73,10 +86,12 @@ type Props = {
   onImport: () => void;
   /** Keys or hosts changed from here: the host list reloads. */
   onChanged: () => void;
+  /** "Einrichtung erneut starten": the first-start wizard, once more. */
+  onRestartOnboarding: () => void;
 };
 
 /** One setting: a label, an optional explanation and its control. */
-function Row({
+export function Row({
   label,
   description,
   children,
@@ -96,7 +111,7 @@ function Row({
   );
 }
 
-function Segmented<T extends string | number>({
+export function Segmented<T extends string | number>({
   label,
   value,
   options,
@@ -124,7 +139,7 @@ function Segmented<T extends string | number>({
   );
 }
 
-function Toggle({
+export function Toggle({
   label,
   checked,
   onChange,
@@ -147,7 +162,7 @@ function Toggle({
   );
 }
 
-function Appearance() {
+function Appearance({ onRestartOnboarding }: { onRestartOnboarding: () => void }) {
   const settings = useSettings();
   return (
     <>
@@ -229,19 +244,43 @@ function Appearance() {
           </div>
         </Row>
       )}
+      <Row
+        label={t('Warnung bei Passwort-Login anzeigen')}
+        description={t(
+          'Ein Warnzeichen in der Hostliste neben Hosts, die sich mit Benutzer und Passwort statt mit einem SSH-Key anmelden.',
+        )}
+      >
+        <Toggle
+          label={t('Warnung bei Passwort-Login anzeigen')}
+          checked={passwordLoginWarningOn(settings)}
+          onChange={setPasswordLoginWarning}
+        />
+      </Row>
+      <Row
+        label={t('Ersteinrichtung')}
+        description={t(
+          'Design, Tresor und Sync, Import und KI noch einmal Schritt für Schritt. Was schon eingerichtet ist, bleibt.',
+        )}
+      >
+        <button onClick={onRestartOnboarding}>{t('Einrichtung erneut starten')}</button>
+      </Row>
     </>
   );
 }
 
 function TerminalSettings() {
   const settings = useSettings();
+  const mac = isMac();
   const sizes = Array.from(
     { length: FONT_SIZE_MAX - FONT_SIZE_MIN + 1 },
     (_, i) => FONT_SIZE_MIN + i,
   );
   return (
     <>
-      <Row label={t('Schriftgröße')} description={t('Oder Strg + Mausrad über dem Terminal.')}>
+      <Row
+        label={t('Schriftgröße')}
+        description={t('Oder {key} + Mausrad über dem Terminal.', { key: primaryModifier() })}
+      >
         <select
           className="select"
           aria-label={t('Schriftgröße')}
@@ -291,7 +330,8 @@ function TerminalSettings() {
       <Row
         label={t('Passwort-Helfer')}
         description={t(
-          'Fragt sudo oder su im Terminal nach dem Passwort, bietet UwUSSH an, das Passwort des Hosts einzutippen (Strg+Umschalt+P).',
+          'Fragt sudo oder su im Terminal nach dem Passwort, bietet UwUSSH an, das Passwort des Hosts einzutippen ({keys}).',
+          { keys: keysFor('type-password') },
         )}
       >
         <Toggle
@@ -300,26 +340,33 @@ function TerminalSettings() {
           onChange={(passwordHelper) => updateSettings({ passwordHelper })}
         />
       </Row>
-      <Row
-        label={t('Strg+C kopiert markierten Text')}
-        description={t('Ohne Markierung geht Strg+C wie immer als Abbruch an das Programm.')}
-      >
-        <Toggle
-          label={t('Strg+C kopiert markierten Text')}
-          checked={settings.ctrlCCopies}
-          onChange={(ctrlCCopies) => updateSettings({ ctrlCCopies })}
-        />
-      </Row>
-      <Row
-        label={t('Strg+V fügt ein')}
-        description={t('Aus: Strg+V geht als ^V an das Programm. Strg+Umschalt+V fügt immer ein.')}
-      >
-        <Toggle
-          label={t('Strg+V fügt ein')}
-          checked={settings.ctrlVPastes}
-          onChange={(ctrlVPastes) => updateSettings({ ctrlVPastes })}
-        />
-      </Row>
+      {/* On a Mac ⌘C and ⌘V copy and paste, and ⌃C and ⌃V always go to the program. */}
+      {!mac && (
+        <>
+          <Row
+            label={t('Strg+C kopiert markierten Text')}
+            description={t('Ohne Markierung geht Strg+C wie immer als Abbruch an das Programm.')}
+          >
+            <Toggle
+              label={t('Strg+C kopiert markierten Text')}
+              checked={settings.ctrlCCopies}
+              onChange={(ctrlCCopies) => updateSettings({ ctrlCCopies })}
+            />
+          </Row>
+          <Row
+            label={t('Strg+V fügt ein')}
+            description={t(
+              'Aus: Strg+V geht als ^V an das Programm. Strg+Umschalt+V fügt immer ein.',
+            )}
+          >
+            <Toggle
+              label={t('Strg+V fügt ein')}
+              checked={settings.ctrlVPastes}
+              onChange={(ctrlVPastes) => updateSettings({ ctrlVPastes })}
+            />
+          </Row>
+        </>
+      )}
       <StartupRow />
       <Row
         label={t('Vor dem Schließen nachfragen')}
@@ -334,25 +381,35 @@ function TerminalSettings() {
       <div className="shortcuts">
         <p className="setting-label">{t('Tastenkürzel')}</p>
         <dl>
-          <dt>{t('Strg+Umschalt+T')}</dt>
+          <dt>{keysFor('new-shell')}</dt>
           <dd>{t('Neue lokale Shell')}</dd>
-          <dt>{t('Strg+Umschalt+D')}</dt>
+          <dt>{keysFor('duplicate-tab')}</dt>
           <dd>{t('Tab duplizieren (neue Verbindung zum selben Host)')}</dd>
-          <dt>{t('Strg+Umschalt+W')}</dt>
+          <dt>{keysFor('close-tab')}</dt>
           <dd>{t('Tab schließen')}</dd>
-          <dt>{t('Strg+Tab · Strg+Umschalt+Tab')}</dt>
-          <dd>{t('Nächster · vorheriger Tab')}</dd>
-          <dt>{t('Strg+Umschalt+1 … 9')}</dt>
+          <dt>{allKeysFor('next-tab')}</dt>
+          <dd>{t('Nächster Tab')}</dd>
+          <dt>{allKeysFor('previous-tab')}</dt>
+          <dd>{t('Vorheriger Tab')}</dd>
+          <dt>{t('{first} … {last}', { first: keysForTab(1), last: keysForTab(9) })}</dt>
           <dd>{t('Zu Tab 1 … 9')}</dd>
-          <dt>{t('Strg+Umschalt+F')}</dt>
+          <dt>{keysFor('open-files')}</dt>
           <dd>{t('Dateien des Hosts öffnen')}</dd>
-          <dt>{t('Strg+Umschalt+P')}</dt>
+          <dt>{keysFor('type-password')}</dt>
           <dd>{t('Passwort eintippen, wenn danach gefragt wird')}</dd>
-          <dt>{t('Strg+Umschalt+C · Strg+Umschalt+V')}</dt>
+          <dt>{keysFor('assist')}</dt>
+          <dd>{t('Befehl aus Worten')}</dd>
+          <dt>{mac ? '⌘C · ⌘V' : t('Strg+Umschalt+C · Strg+Umschalt+V')}</dt>
           <dd>{t('Kopieren · Einfügen')}</dd>
-          <dt>{t('Strg+Mausrad')}</dt>
+          {mac && (
+            <>
+              <dt>⌘← · ⌘→ · ⌘⌫</dt>
+              <dd>{t('Zeilenanfang · Zeilenende · Zeile bis zum Cursor löschen')}</dd>
+            </>
+          )}
+          <dt>{t('{key}+Mausrad', { key: primaryModifier() })}</dt>
           <dd>{t('Schrift größer · kleiner')}</dd>
-          <dt>{t('Strg+,')}</dt>
+          <dt>{keysFor('settings')}</dt>
           <dd>{t('Einstellungen')}</dd>
         </dl>
       </div>
@@ -1067,6 +1124,7 @@ export function SettingsDialog({
   onRunM0,
   onImport,
   onChanged,
+  onRestartOnboarding,
 }: Props) {
   useLanguage();
   const [section, setSection] = useState<SettingsSection>(initial);
@@ -1086,10 +1144,11 @@ export function SettingsDialog({
           ))}
         </nav>
         <div className="settings-content">
-          {section === 'appearance' && <Appearance />}
+          {section === 'appearance' && <Appearance onRestartOnboarding={onRestartOnboarding} />}
           {section === 'terminal' && <TerminalSettings />}
           {section === 'highlight' && <Highlighting />}
           {section === 'vault' && <Vault onChanged={onChanged} />}
+          {section === 'assist' && <AssistSettings />}
           {section === 'sync' && <SyncSettings />}
           {section === 'data' && <Data onImport={onImport} />}
           {section === 'updates' && (

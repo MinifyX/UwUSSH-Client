@@ -166,7 +166,14 @@ The point where I can stop using anything else.
 - **UwUKeygen is done**: PuTTYgen with Nyu, RSA 2048 by default and everything
   else under Advanced, in the host form and as its own app the installer adds.
 - Open a remote file in the local editor and write it back
-- Port forwarding manager: local, remote, dynamic, with autostart per host
+- **Tunnels are done**, local (`-L`) and remote (`-R`): saved per host and
+  synced like hosts, started from **Tunnel…** in the host's menu or the
+  tunnels dialog without a terminal, on a connection of their own with the
+  host's login — or along with a terminal when marked to, on its connection.
+  Status, connections and errors like a port in use in the dialog, a small
+  sign in the host list while one runs. See
+  [architecture](architecture.md#tunnels).
+- Dynamic forwarding (SOCKS, `-D`)
 
 ## M4 · Polish
 
@@ -182,7 +189,35 @@ The point where I can stop using anything else.
   UwUSuite apps: download names without a version, one universal macOS disk
   image, `.deb` and `.rpm` for x64 and arm64 that update themselves, the AUR
   package `uwussh-bin`, and a portable Linux folder.
-- Onboarding, accessibility pass, the full Nyu scene set
+- **A Mac app that feels like one** (unreleased, written without a Mac, so it
+  waits for a test on one): the system's traffic lights over the title bar
+  (`tauri.macos.conf.json`), Terminal.app's shortcuts with ⌘ (one table for
+  all systems, `lib/keymap.ts`; ⌘K opens the command assistant), an Edit
+  menu so ⌘C, ⌘V and ⌘A work in every field, and Quit that asks about open
+  connections. What made typing in the local shell "hang" on a Mac started
+  from the Dock: the shell got no `TERM` (zsh's line editor fell back to a dumb
+  terminal) and no UTF-8 locale (umlauts garbled the line), and it was no login
+  shell, so Homebrew's `PATH` was missing. All three are set now, like
+  Terminal.app does. Also: a size change while a session starts reaches the
+  shell, a terminal shown again is redrawn, a lost acknowledgement is sent
+  again instead of pausing output for good, and typing with nothing focused
+  goes to the terminal. To check on a Mac: dead keys (`^`, `´`, ⌥N `~`) and
+  ⌥ characters (`@`, `[`, `|`) in the local shell and over SSH, ⌘W/⌘T/⌘1,
+  ⌘C/⌘V in the terminal and in text fields, Quit with open connections, full
+  screen.
+- **A warning sign next to password logins**: hosts that log in with a
+  password instead of a key get one in the host list, with a tooltip on why
+  a key is stronger and how to switch with UwUKeygen. On by default, under
+  Settings → Appearance and in the onboarding.
+- **Onboarding** (unreleased): a fresh install opens a setup wizard with Nyu
+  — welcome and language, colour scheme and animations, vault and sync,
+  importing from Termius, PuTTY, KiTTY or `~/.ssh/config`, the command
+  assistant and the password-login warning, and a summary. Every step can be
+  skipped; it reuses the vault dialog, the sync settings, the import dialog
+  and the assistant's provider setup. Someone who already has hosts, a vault,
+  sync or settings never sees it; Settings → Appearance runs it again. See
+  [architecture](architecture.md#first-start).
+- Accessibility pass, the full Nyu scene set
 
 ## M5 · Homelab
 
@@ -194,6 +229,11 @@ Where the distance to the commercial clients actually opens up.
 - **Proxmox import** — nodes, LXC and VMs via the API, groups mirroring the
   cluster
 - **Netbox import** — inventory as the source of truth
+- **The command assistant is done, early**: a request in words becomes one
+  command for the host's system, typed but never run, from Ollama, an
+  OpenAI-compatible server, OpenAI, Anthropic or Mistral, with an offline
+  cache for requests asked before. Settings, cache and the sealed API key
+  sync. See [architecture](architecture.md#command-assistant).
 - Local shell tabs (PowerShell, WSL, cmd) and serial console
 - Session recording with asciinema export, persistent searchable scrollback
 - **UwUSSH as an SSH agent** — other programs use the vault's keys through a
