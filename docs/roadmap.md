@@ -208,8 +208,16 @@ The point where I can stop using anything else.
 - **A warning sign next to password logins**: hosts that log in with a
   password instead of a key get one in the host list, with a tooltip on why
   a key is stronger and how to switch with UwUKeygen. On by default, under
-  Settings → Appearance; the onboarding will ask about it.
-- Onboarding, accessibility pass, the full Nyu scene set
+  Settings → Appearance and in the onboarding.
+- **Onboarding** (unreleased): a fresh install opens a setup wizard with Nyu
+  — welcome and language, colour scheme and animations, vault and sync,
+  importing from Termius, PuTTY, KiTTY or `~/.ssh/config`, the command
+  assistant and the password-login warning, and a summary. Every step can be
+  skipped; it reuses the vault dialog, the sync settings, the import dialog
+  and the assistant's provider setup. Someone who already has hosts, a vault,
+  sync or settings never sees it; Settings → Appearance runs it again. See
+  [architecture](architecture.md#first-start).
+- Accessibility pass, the full Nyu scene set
 
 ## M5 · Homelab
 

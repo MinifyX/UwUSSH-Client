@@ -950,6 +950,28 @@ tabs opens it; Enter asks, Enter again types, Esc closes.
   the settings record only points at; it never reaches the page again, and a
   locked vault asks to be opened first.
 
+## First start
+
+A fresh install opens a wizard (`components/Onboarding.tsx`) over the empty
+window: welcome and language, colour scheme and animations, vault and sync,
+import, the command assistant with the password-login warning, and a summary
+with the first shortcuts. Each step can be skipped, and Escape or "Einrichtung
+überspringen" ends it. It owns no logic of its own: the steps call the
+settings' setters and open the vault dialog, the sync settings, the import
+dialog and `AssistProviderSetup` over themselves, and read the vault, sync and
+host state back when those close.
+
+Whether it shows is `onboardingDecision` in `lib/onboarding.ts`, a pure
+function with its own tests. It shows only when nothing says the app was used
+here: no hosts, no vault, no sync, no stored settings. An install that has any
+of them is marked done without seeing it, so deleting the last host later
+does not bring it back; when the store cannot be read, it neither shows nor
+decides. The flag lives in the page's storage next to the settings
+(`uwussh.onboarding`), and Settings → Appearance → "Einrichtung erneut
+starten" opens the wizard again. Dev builds put the decision on `<html
+data-onboarding>`, so the end-to-end phases, which start from fresh
+profiles, can skip it the way a user would.
+
 ## Languages
 
 The app and UwUKeygen speak German and English. German is the source: every
