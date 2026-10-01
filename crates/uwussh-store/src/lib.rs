@@ -11,6 +11,7 @@
 //! password asks on every connect, and key files stay where they are, referenced
 //! by path.
 
+pub mod assist;
 pub mod backup;
 pub mod credentials;
 pub mod device;
@@ -26,6 +27,10 @@ pub mod secret;
 pub mod sync;
 pub mod vault;
 
+pub use assist::{
+    assist_cache_slot_id, assist_config_id, AssistCacheEntry, AssistProviderDraft,
+    AssistProviderSettings, AssistSettings, NewCacheEntry, ASSIST_CACHE_SLOTS,
+};
 pub use backup::{decode_export, encode_export, export_is_sealed, Backup, BackupSummary};
 pub use credentials::{CredentialSource, RevealedKey};
 pub use groups::GroupRecord;

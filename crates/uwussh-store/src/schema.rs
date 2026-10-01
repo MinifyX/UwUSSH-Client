@@ -7,7 +7,7 @@ use crate::{Result, StoreError};
 use rusqlite::{params, Connection, OptionalExtension};
 use uuid::Uuid;
 
-pub const SCHEMA_VERSION: i64 = 7;
+pub const SCHEMA_VERSION: i64 = 8;
 
 /// The sync header (`id`, `vault_id`, clock, `rev`, `deleted`) is on every
 /// syncable table from the start; see the crate docs for why.
@@ -359,6 +359,53 @@ CREATE TABLE lock_accounts (
 );
 "#;
 
+/// The command assistant: its settings and its answer cache, both synced
+/// (see `crate::assist`).
+const V8: &str = r#"
+-- One row under a fixed id. `body` is the synced payload as it is sealed, so
+-- fields a newer build added survive an edit here. API keys are not in it:
+-- it points at sealed rows in `secrets`.
+CREATE TABLE assist_config (
+    id                  TEXT    PRIMARY KEY,
+    vault_id            TEXT    NOT NULL,
+    body                TEXT    NOT NULL,
+    hlc_wall_ms         INTEGER NOT NULL,
+    hlc_counter         INTEGER NOT NULL,
+    hlc_device          INTEGER NOT NULL,
+    rev                 INTEGER NOT NULL DEFAULT 1,
+    deleted             INTEGER NOT NULL DEFAULT 0,
+    dirty               INTEGER NOT NULL DEFAULT 1,
+    server_seq          INTEGER NOT NULL DEFAULT 0
+);
+
+-- A fixed number of slots with fixed ids; an empty `command` is a free slot.
+-- `hits` and `used_ms` are this device's own and never travel.
+CREATE TABLE assist_cache (
+    id                  TEXT    PRIMARY KEY,
+    vault_id            TEXT    NOT NULL,
+    platform            TEXT    NOT NULL,
+    request             TEXT    NOT NULL,
+    normalized          TEXT    NOT NULL,
+    command             TEXT    NOT NULL,
+    explanation         TEXT    NOT NULL,
+    dangerous           INTEGER NOT NULL DEFAULT 0,
+    created_ms          INTEGER NOT NULL,
+    used_ms             INTEGER NOT NULL DEFAULT 0,
+    hits                INTEGER NOT NULL DEFAULT 0,
+    hlc_wall_ms         INTEGER NOT NULL,
+    hlc_counter         INTEGER NOT NULL,
+    hlc_device          INTEGER NOT NULL,
+    rev                 INTEGER NOT NULL DEFAULT 1,
+    deleted             INTEGER NOT NULL DEFAULT 0,
+    dirty               INTEGER NOT NULL DEFAULT 1,
+    server_seq          INTEGER NOT NULL DEFAULT 0,
+    sync_extra          TEXT
+);
+CREATE INDEX assist_cache_by_platform ON assist_cache (platform);
+CREATE INDEX assist_config_pending ON assist_config (dirty) WHERE dirty = 1;
+CREATE INDEX assist_cache_pending  ON assist_cache (dirty)  WHERE dirty = 1;
+"#;
+
 pub fn migrate(conn: &mut Connection) -> Result<()> {
     let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
 
@@ -539,6 +586,14 @@ pub fn migrate(conn: &mut Connection) -> Result<()> {
         tx.pragma_update(None, "user_version", 7)?;
         tx.commit()?;
         tracing::info!("store migrated to schema 7");
+    }
+
+    if version < 8 {
+        let tx = conn.transaction()?;
+        tx.execute_batch(V8)?;
+        tx.pragma_update(None, "user_version", 8)?;
+        tx.commit()?;
+        tracing::info!("store migrated to schema 8");
     }
 
     Ok(())
@@ -857,6 +912,27 @@ mod tests {
         assert_eq!(active, 0, "nothing switches to UwULock by itself");
         assert_eq!(url, None);
         assert!(Uuid::parse_str(&identifier).is_ok());
+    }
+
+    #[test]
+    fn a_v7_database_upgrades_to_v8_with_an_empty_assistant() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        for batch in [V1, V2, V3, V4, V4_DROP_GROUP_PATH, V5, V6, V7] {
+            conn.execute_batch(batch).unwrap();
+        }
+        conn.execute(
+            "INSERT INTO meta (id, device_id, vault_id) VALUES (1, 1, 'v')",
+            [],
+        )
+        .unwrap();
+        conn.pragma_update(None, "user_version", 7).unwrap();
+        migrate(&mut conn).unwrap();
+        for table in ["assist_config", "assist_cache"] {
+            let rows: i64 = conn
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(rows, 0);
+        }
     }
 
     #[test]

@@ -1135,3 +1135,181 @@ fn a_server_that_never_lets_a_pull_finish_does_not_switch_the_check_off() {
     assert_eq!(report.withheld, Default::default());
     assert!(c.known_host("one.lan", 22).unwrap().is_some());
 }
+
+// ── The command assistant ───────────────────────────────────────────────────
+
+fn assistant_draft(key: PasswordChange) -> uwussh_store::AssistProviderDraft {
+    uwussh_store::AssistProviderDraft {
+        active: "openai".into(),
+        kind: "openai".into(),
+        model: "gpt-5-mini".into(),
+        base_url: None,
+        key,
+    }
+}
+
+fn cache_entry(normalized: &str, command: &str) -> uwussh_store::NewCacheEntry {
+    uwussh_store::NewCacheEntry {
+        platform: "linux/bash/apt".into(),
+        request: normalized.into(),
+        normalized: normalized.into(),
+        command: command.into(),
+        explanation: "erklärt".into(),
+        dangerous: false,
+    }
+}
+
+/// A server whose protocol crate predates the assistant: it cannot read a
+/// request that holds one of its kinds, and refuses all of it.
+struct OldServer<'a>(&'a MemoryServer);
+
+impl crate::Transport for OldServer<'_> {
+    fn pull(
+        &self,
+        since: uwussh_proto::SyncCursor,
+        limit: usize,
+    ) -> Result<uwussh_proto::PullResponse, crate::TransportError> {
+        self.0.pull(since, limit)
+    }
+
+    fn push(
+        &self,
+        envelopes: Vec<Envelope>,
+    ) -> Result<uwussh_proto::PushResponse, crate::TransportError> {
+        if envelopes.iter().any(|env| env.kind.is_assist()) {
+            return Err(crate::TransportError::Refused(
+                "422: unknown variant `assist_config`".into(),
+            ));
+        }
+        self.0.push(envelopes)
+    }
+}
+
+/// What a device sees whose build does not know the assistant's kinds: they
+/// are left out of every page, the cursor and "more" stay as the server said —
+/// what `into_envelope` does on UwULock, and the lenient decoding on UwUSync.
+/// Small pages, so a page of nothing but them is easy to make.
+struct UnknowingView<'a>(&'a MemoryServer);
+
+impl crate::Transport for UnknowingView<'_> {
+    fn pull(
+        &self,
+        since: uwussh_proto::SyncCursor,
+        _limit: usize,
+    ) -> Result<uwussh_proto::PullResponse, crate::TransportError> {
+        let mut page = self.0.pull(since, 4)?;
+        page.envelopes.retain(|env| !env.kind.is_assist());
+        Ok(page)
+    }
+
+    fn push(
+        &self,
+        envelopes: Vec<Envelope>,
+    ) -> Result<uwussh_proto::PushResponse, crate::TransportError> {
+        self.0.push(envelopes)
+    }
+}
+
+#[test]
+fn the_assistants_settings_key_and_answers_reach_the_other_device_sealed() {
+    use crate::Transport;
+    let server = MemoryServer::new();
+    let a = first_device();
+    let key = "sk-test-not-a-real-key-42"; // gitleaks:allow
+    a.save_assist_settings(assistant_draft(PasswordChange::Set {
+        value: SecretText::new(key),
+    }))
+    .unwrap();
+    a.put_assist_cache(cache_entry("benutzer list", "getent passwd"))
+        .unwrap();
+    sync_once(&a, &server).unwrap();
+
+    for record in server.records() {
+        assert!(
+            !record.blob.windows(key.len()).any(|w| w == key.as_bytes()),
+            "the server holds the key only sealed"
+        );
+    }
+    let kinds: Vec<EntityKind> = server.records().iter().map(|env| env.kind).collect();
+    assert!(kinds.contains(&EntityKind::AssistConfig));
+    assert!(kinds.contains(&EntityKind::AssistCache));
+    assert!(kinds.contains(&EntityKind::Secret));
+
+    let b = joined_device(&a);
+    sync_once(&b, &server).unwrap();
+    let settings = b.assist_settings().unwrap();
+    assert_eq!(settings.provider, "openai");
+    assert_eq!(settings.providers["openai"].model, "gpt-5-mini");
+    assert!(settings.providers["openai"].has_key);
+    assert_eq!(
+        b.assist_api_key("openai")
+            .unwrap()
+            .as_deref()
+            .map(String::as_str),
+        Some(key)
+    );
+    let cached = b.assist_cache_entries(Some("linux/bash/apt")).unwrap();
+    assert_eq!(cached.len(), 1);
+    assert_eq!(cached[0].command, "getent passwd");
+
+    // Clearing on b empties the slot on a too.
+    b.clear_assist_cache().unwrap();
+    sync_once(&b, &server).unwrap();
+    sync_once(&a, &server).unwrap();
+    assert!(a.assist_cache_entries(None).unwrap().is_empty());
+    // And nothing waits any more, in either request.
+    assert!(a.pending_assist_envelopes(MAX_BATCH).unwrap().0.is_empty());
+    assert!(server.pull(uwussh_proto::SyncCursor(0), MAX_BATCH).is_ok());
+}
+
+#[test]
+fn a_server_that_does_not_know_the_assistant_still_syncs_everything_else() {
+    let server = MemoryServer::new();
+    let a = first_device();
+    a.save_host(draft("prox-1", "10.0.0.12")).unwrap();
+    a.save_assist_settings(assistant_draft(PasswordChange::Keep))
+        .unwrap();
+
+    let report = sync_once(&a, &OldServer(&server)).unwrap();
+    assert!(report.pushed >= 2, "host and login went out: {report:?}");
+    assert_eq!(a.pending_count().unwrap(), 0, "nothing shows as waiting");
+    assert_eq!(
+        a.pending_assist_envelopes(MAX_BATCH).unwrap().0.len(),
+        1,
+        "the settings wait for a server that takes them"
+    );
+
+    let b = joined_device(&a);
+    sync_once(&b, &OldServer(&server)).unwrap();
+    assert_eq!(names(&b), vec!["prox-1".to_string()]);
+
+    // The server learns the kinds: the settings go out on the next pass.
+    sync_once(&a, &server).unwrap();
+    assert!(a.pending_assist_envelopes(MAX_BATCH).unwrap().0.is_empty());
+    sync_once(&b, &server).unwrap();
+    assert_eq!(b.assist_settings().unwrap().provider, "openai");
+}
+
+#[test]
+fn a_build_that_does_not_know_the_assistant_pulls_past_a_page_full_of_it() {
+    let server = MemoryServer::new();
+    let a = first_device();
+    let b = joined_device(&a);
+    for n in 0..10 {
+        a.put_assist_cache(cache_entry(&format!("frage {n}"), "true"))
+            .unwrap();
+    }
+    sync_once(&a, &server).unwrap();
+    // Written after ten records b cannot read: two and a half pages of them.
+    a.save_host(draft("behind", "10.0.0.9")).unwrap();
+    sync_once(&a, &server).unwrap();
+
+    let report = sync_once(&b, &UnknowingView(&server)).unwrap();
+    assert_eq!(names(&b), vec!["behind".to_string()]);
+    assert!(report.complete);
+    assert!(b.assist_cache_entries(None).unwrap().is_empty());
+    assert!(
+        b.sync_state().unwrap().cursor >= 12,
+        "the cursor went past what b could not read"
+    );
+}
