@@ -182,6 +182,22 @@ The point where I can stop using anything else.
   UwUSuite apps: download names without a version, one universal macOS disk
   image, `.deb` and `.rpm` for x64 and arm64 that update themselves, the AUR
   package `uwussh-bin`, and a portable Linux folder.
+- **A Mac app that feels like one** (unreleased, written without a Mac, so it
+  waits for a test on one): the system's traffic lights over the title bar
+  (`tauri.macos.conf.json`), Terminal.app's shortcuts with ⌘ (one table for
+  all systems, `lib/keymap.ts`; ⌘K is kept free for the AI command), an Edit
+  menu so ⌘C, ⌘V and ⌘A work in every field, and Quit that asks about open
+  connections. What made typing in the local shell "hang" on a Mac started
+  from the Dock: the shell got no `TERM` (zsh's line editor fell back to a dumb
+  terminal) and no UTF-8 locale (umlauts garbled the line), and it was no login
+  shell, so Homebrew's `PATH` was missing. All three are set now, like
+  Terminal.app does. Also: a size change while a session starts reaches the
+  shell, a terminal shown again is redrawn, a lost acknowledgement is sent
+  again instead of pausing output for good, and typing with nothing focused
+  goes to the terminal. To check on a Mac: dead keys (`^`, `´`, ⌥N `~`) and
+  ⌥ characters (`@`, `[`, `|`) in the local shell and over SSH, ⌘W/⌘T/⌘1,
+  ⌘C/⌘V in the terminal and in text fields, Quit with open connections, full
+  screen.
 - Onboarding, accessibility pass, the full Nyu scene set
 
 ## M5 · Homelab
