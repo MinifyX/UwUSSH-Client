@@ -11,11 +11,17 @@ import {
   type HostRecord,
   type Workspace,
 } from '../lib/session';
-import { updateSettings, useSettings, workspaceName } from '../lib/settings';
+import {
+  passwordLoginWarningOn,
+  updateSettings,
+  useSettings,
+  workspaceName,
+} from '../lib/settings';
 import { ContextMenu, type MenuItem } from './ContextMenu';
 import { Icon } from './Icon';
 import { Nyu } from './nyu/Nyu';
 import { OsIcon } from './OsIcon';
+import { Tooltip } from './Tooltip';
 
 type Props = {
   hosts: HostRecord[];
@@ -30,6 +36,10 @@ type Props = {
   openIds: ReadonlySet<string>;
   /** A local shell tab is open. */
   shellOpen: boolean;
+  /** Hosts with a tunnel running right now. */
+  tunnelIds: ReadonlySet<string>;
+  /** Opens the tunnels: of one host, or of all of them. */
+  onTunnels: (host: HostRecord | null) => void;
   /** Brings the host's open tab to the front, or opens one. */
   onConnect: (host: HostRecord) => void;
   /** Always a new tab, next to the ones already open. */
@@ -225,6 +235,7 @@ export function HostList(props: Props) {
               },
             ]),
         { label: t('Dateien öffnen'), icon: 'files', onSelect: () => props.onOpenFiles(host) },
+        { label: t('Tunnel…'), icon: 'tunnel', onSelect: () => props.onTunnels(host) },
         { label: t('Bearbeiten'), icon: 'pencil', onSelect: () => props.onEdit(host) },
         'separator',
         ...(settings.workspaces
@@ -323,9 +334,13 @@ export function HostList(props: Props) {
 
   // ── Rendering ─────────────────────────────────────────────────────────────
 
+  const warnPassword = passwordLoginWarningOn(settings);
+
   const hostRow = (host: HostRecord, next: HostRecord | undefined, draggable: boolean) => {
     const online = onlineIds.has(host.id);
     const connecting = connectingIds.has(host.id);
+    const tunnel = props.tunnelIds.has(host.id);
+    const password = warnPassword && host.auth === 'password';
     return (
       <li
         key={host.id}
@@ -372,7 +387,30 @@ export function HostList(props: Props) {
             />
           </span>
           <span className="host-text">
-            <span className="host-name">{host.name}</span>
+            <span className="host-line">
+              <span className="host-name">{host.name}</span>
+              {tunnel && (
+                <span
+                  className="host-badge"
+                  data-kind="tunnel"
+                  role="img"
+                  aria-label={t('Ein Tunnel läuft')}
+                >
+                  <Icon name="tunnel" size={12} />
+                </span>
+              )}
+              {password && (
+                <Tooltip className="host-badge" content={<PasswordWarning />}>
+                  <span
+                    data-kind="password"
+                    role="img"
+                    aria-label={t('Meldet sich mit Passwort statt mit einem SSH-Key an')}
+                  >
+                    <Icon name="warning" size={12} />
+                  </span>
+                </Tooltip>
+              )}
+            </span>
             <span className="meta">
               {connecting
                 ? t('verbindet…')
@@ -411,6 +449,15 @@ export function HostList(props: Props) {
       <div className="sidebar-head">
         <h2>{t('Hosts')}</h2>
         <span className="spacer" />
+        <button
+          className="icon-button"
+          onClick={() => props.onTunnels(null)}
+          title={t('Tunnel')}
+          aria-label={t('Tunnel')}
+          data-active={props.tunnelIds.size > 0 || undefined}
+        >
+          <Icon name="tunnel" />
+        </button>
         <button
           className="icon-button"
           onClick={props.onImport}
@@ -650,5 +697,25 @@ export function HostList(props: Props) {
         />
       )}
     </aside>
+  );
+}
+
+/** Why a password login gets a warning sign, and how to get rid of it. */
+function PasswordWarning() {
+  return (
+    <div className="password-warning">
+      <b>{t('Anmeldung mit Passwort')}</b>
+      <p>
+        {t(
+          'Passwörter lassen sich erraten, durchprobieren oder abphishen. Ein SSH-Key ist viel stärker: Er verlässt nie deinen Computer, und ohne ihn kommt niemand rein.',
+        )}
+      </p>
+      <p>
+        {t(
+          'So wechselst du: Host bearbeiten, bei Anmeldung „SSH-Key“ wählen und mit „Neuen Key erzeugen…“ (UwUKeygen) einen Key anlegen. Dann „Public Key kopieren“ und auf dem Server in ~/.ssh/authorized_keys eintragen.',
+        )}
+      </p>
+      <p className="meta">{t('Ausschalten unter Einstellungen → Darstellung.')}</p>
+    </div>
   );
 }

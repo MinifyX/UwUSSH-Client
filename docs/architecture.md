@@ -675,7 +675,7 @@ is safe. An import that brings no new secret needs no vault at all.
 ### UwUSSH's own export
 
 Settings → Import & Export writes everything — workspaces, groups, hosts, keys,
-trusted host keys, snippets, and optionally the passwords and private keys — into
+trusted host keys, snippets, tunnels, and optionally the passwords and private keys — into
 one `.uwussh` file: JSON inside an envelope (`format`, `version`, the app
 version). With secrets, the whole inner document is sealed with a password of
 its own: Argon2id with the vault's parameters, then XChaCha20-Poly1305, with the
@@ -691,6 +691,14 @@ source. A file is data from anywhere, so it is taken with care: host keys only
 for the hosts in the same file, only when the fingerprint really is that key's,
 and never over a key that exists or once existed; key paths only when they are
 on this computer; hosts only when the host form would have accepted them.
+
+Tunnels sit under a key of their own that a file has only when there are any,
+so old and new builds still read each other's files without a new `version`.
+Each names its host by position in the file and lands on the host with that
+address, port and user, whether the import just added it or it was already
+there; one that host already has is skipped, and one the tunnel form would
+refuse is left out. Autostart survives only on a host the import added: a file
+must not make a host the user already had open ports on its next connect.
 
 ## Connecting
 
@@ -754,6 +762,17 @@ password is typed but never runs as a command or lands in the history. The
 page only asks `type_session_password` for its own session and never gets
 the password; Rust writes it into that session and nowhere else.
 
+### Password logins get a warning
+
+A host that logs in with a password — typed or stored — instead of a key gets
+a small warning sign in the host list. Its tooltip says why: a password can be
+guessed, tried in bulk or phished, a key never leaves the computer. And how to
+switch: the host form's **SSH key**, a key from UwUKeygen, its public half in
+`authorized_keys`. Only the host's own setting decides, nothing is probed. On
+by default; Settings → Appearance switches it off, and `settings.ts` names the
+setting on its own (`PASSWORD_LOGIN_WARNING`, `setPasswordLoginWarning`) so
+the onboarding can switch it too.
+
 ## Files
 
 A file tab opens its own SSH connection with the host's login — the same
@@ -802,6 +821,44 @@ The address must be a plain host name or IPv4 address, nothing Windows reads as
 a port or WebDAV. A local copy never goes into itself, checked on the resolved
 paths (a mapped drive is its share, case doesn't matter), and never deeper than
 128 folders.
+
+## Tunnels
+
+A tunnel is a local (`ssh -L`) or remote (`ssh -R`) port forward of one host:
+where it listens, where that leads, and whether it starts with a terminal.
+Dynamic forwarding (SOCKS) is not there yet.
+
+**Saved per host, synced like one.** Tunnels are records of their own
+(`port_forwards`) that point at their host by id and travel as the
+`PortForward` kind the protocol had from the start. There is no foreign key on
+the host: a tunnel can arrive before its host does and is simply not listed
+until then. Deleting a host tombstones its tunnels in the same transaction.
+The kind is a string, like a workspace: one a newer build adds is kept,
+synced and shown, but not run. Builds before tunnels pass the kind over, and
+their cursor moves on past it — so the migration that adds the table reads
+the server from the start once, and what they passed over comes in.
+
+**Two ways to run.** A tunnel started from the tunnels dialog — **Tunnel…** in
+a host's menu, or the button above the host list — runs without a terminal,
+on a connection of its own that logs in exactly like a terminal: host key
+first, then the stored or asked-for secret, the same dialogs. Every tunnel of
+that host started this way shares that connection, and it closes with the
+last of them. A tunnel marked **Start with the terminal** starts when a
+terminal to its host opens, on that terminal's connection — no second login —
+and stops when the terminal closes. A reloaded page stops those, but not the
+ones on their own connection; it asks Rust what runs.
+
+**In the engine.** `uwussh-core`'s `TunnelManager` runs them on an `SshLink`.
+A local tunnel listens here and opens a `direct-tcpip` channel per
+connection. A remote one asks the server for `tcpip-forward`; the
+connection's handler hands every `forwarded-tcpip` channel to the tunnel
+registered for that port, which connects to the target from here. Stopping
+is one signal every task waits on: the listener goes, and every channel with
+it, before `stop` returns — so the port is free when it does. A connection
+that ends underneath turns its tunnels into "connection lost" rather than
+leaving a listener that leads nowhere. Every change reaches the page as a
+`tunnel:status` event: running on which port, connections so far, or the
+error — a port already in use, a server that won't listen.
 
 ## Tabs
 
@@ -986,7 +1043,12 @@ the vault key sealed with DPAPI when the vault is remembered on this device (see
   connection, keystroke order, resize, remote exit, an 8 MiB flood that
   arrives complete under a deliberately slow renderer, two tabs logging in to
   the same server side by side, and a reloaded page closing what the old one
-  left open. `tests/files.rs` does the same for files: browsing, upload,
+  left open. Its tunnels part (`tests/ssh/tunnels.rs`, in the same binary)
+  forwards locally and remotely to an echo server, checks that a stopped
+  tunnel's port is free when `stop` returns, that a port already taken is
+  said so, that a terminal's connection ending fails its tunnel, and that
+  tunnels without a terminal share one login — waiting for events, never for
+  time. `tests/files.rs` does the same for files: browsing, upload,
   download, rename, delete and cancel against an in-process SFTP server, root
   through a toy `sudo` with no, a wrong and the right password on one login, and
   the system probe.

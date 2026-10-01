@@ -410,7 +410,8 @@ impl Store {
 
     /// Tombstone, not a hard delete: a device that was offline when this
     /// happened must learn about it on the next sync instead of resurrecting
-    /// the host. A password stored for the host goes with it.
+    /// the host. A password stored for the host goes with it, and so do its
+    /// tunnels.
     pub fn delete_host(&self, id: Uuid) -> Result<()> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
@@ -431,6 +432,7 @@ impl Store {
         if changed == 0 {
             return Err(StoreError::UnknownHost(id));
         }
+        crate::tunnels::delete_host_tunnels(&tx, id, clock)?;
 
         // The identity, and its password, go with the host — unless another
         // host still logs in with them.

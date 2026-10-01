@@ -36,13 +36,14 @@ use uwussh_proto::{EntityKind, Hlc, Manifest, ManifestEntry, MAX_MANIFEST_ENTRIE
 /// The order a manifest lists kinds in, which is also what survives when a
 /// vault has more records than one manifest holds: host keys first, since a
 /// withheld one is a man in the middle, then what logs in, then the rest.
-const PRIORITY: [EntityKind; 7] = [
+const PRIORITY: [EntityKind; 8] = [
     EntityKind::KnownHost,
     EntityKind::Key,
     EntityKind::Secret,
     EntityKind::Identity,
     EntityKind::Host,
     EntityKind::Group,
+    EntityKind::PortForward,
     EntityKind::Snippet,
 ];
 
@@ -646,7 +647,7 @@ mod tests {
                 listed(deleted_here, 100, false),
                 listed(never_had, 100, true),
                 unknown,
-                ManifestEntry::new(EntityKind::PortForward, Uuid::now_v7(), at(100), false),
+                ManifestEntry::new(EntityKind::TerminalProfile, Uuid::now_v7(), at(100), false),
             ],
         );
 

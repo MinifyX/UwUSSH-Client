@@ -77,12 +77,13 @@ impl EntityKind {
     /// Manifests are not in here on purpose: this list doubles as the list of
     /// record tables, and a manifest sorts last anyway, after the records it
     /// talks about.
-    pub const APPLY_ORDER: [Self; 7] = [
+    pub const APPLY_ORDER: [Self; 8] = [
         Self::Secret,
         Self::Key,
         Self::Identity,
         Self::Group,
         Self::Host,
+        Self::PortForward,
         Self::Snippet,
         Self::KnownHost,
     ];
@@ -153,6 +154,30 @@ pub struct KeyPayload {
     pub extra: Extra,
 }
 
+/// A tunnel of a host: `ssh -L` or `ssh -R`. `kind` is a string for the same
+/// reason as a host's workspace: a kind a newer build adds (`dynamic`, say)
+/// is kept and shown, not run, instead of refusing the record.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PortForwardPayload {
+    pub host_id: Uuid,
+    pub name: String,
+    /// `local` or `remote`.
+    pub kind: String,
+    /// Where it listens: on this computer for `local`, on the server for
+    /// `remote`.
+    pub bind_address: String,
+    pub bind_port: u16,
+    /// Where it leads: as the server sees it for `local`, as this computer
+    /// sees it for `remote`.
+    pub target_host: String,
+    pub target_port: u16,
+    /// Starts along with a terminal to its host.
+    #[serde(default)]
+    pub autostart: bool,
+    #[serde(flatten, default, skip_serializing_if = "extra_is_empty")]
+    pub extra: Extra,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SnippetPayload {
     pub label: String,
@@ -201,6 +226,24 @@ mod tests {
     }
 
     #[test]
+    fn a_tunnel_of_a_kind_this_build_does_not_run_still_reads() {
+        let written = format!(
+            r#"{{"host_id":"{}","name":"socks","kind":"dynamic","bind_address":"127.0.0.1",
+                "bind_port":1080,"target_host":"","target_port":0,"autostart":true,
+                "via":"bastion"}}"#,
+            Uuid::nil()
+        );
+        let tunnel: PortForwardPayload = serde_json::from_str(&written).expect("parse");
+        assert_eq!(tunnel.kind, "dynamic");
+        assert!(tunnel.autostart);
+        let json = serde_json::to_value(&tunnel).unwrap();
+        assert_eq!(
+            json["via"], "bastion",
+            "a field from a newer build survives"
+        );
+    }
+
+    #[test]
     fn nothing_extra_shows_up_when_there_is_nothing_extra() {
         let json = serde_json::to_string(&GroupPayload {
             workspace: "private".into(),
@@ -221,8 +264,9 @@ mod tests {
         assert!(EntityKind::Key.apply_rank() < EntityKind::Identity.apply_rank());
         assert!(EntityKind::Identity.apply_rank() < EntityKind::Host.apply_rank());
         assert!(EntityKind::Group.apply_rank() < EntityKind::Host.apply_rank());
+        assert!(EntityKind::Host.apply_rank() < EntityKind::PortForward.apply_rank());
         assert_eq!(
-            EntityKind::PortForward.apply_rank(),
+            EntityKind::TerminalProfile.apply_rank(),
             EntityKind::APPLY_ORDER.len(),
             "a kind with no table yet sorts last"
         );

@@ -291,6 +291,7 @@ export function ImportDialog({ onClose, onImported }: Props) {
               [t('Keys'), step.summary.keys],
               [t('Bekannte Host-Keys'), step.summary.knownHosts],
               [t('Snippets'), step.summary.snippets],
+              [t('Tunnel'), step.summary.tunnels],
             ]}
             secrets={step.summary.passwords > 0 || step.summary.keys > 0}
             skipped={[]}
@@ -435,6 +436,8 @@ function Report({ report }: { report: ImportReport }) {
     [t('Host-Keys'), report.knownHostsAdded],
     [t('Snippets'), report.snippetsAdded],
   ];
+  // Only an export file brings tunnels; other sources don't get the line.
+  if (report.tunnelsAdded) rows.push([t('Tunnel'), report.tunnelsAdded]);
   return (
     <div className="import-preview">
       <NyuScene name="done" className="dialog-scene" />

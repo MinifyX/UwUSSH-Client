@@ -1364,3 +1364,190 @@ html[data-dragging] * {
   border: 1px solid var(--uwu-hairline);
   background: var(--uwu-elevated);
 }
+
+/* ── Badges in the host list: a running tunnel, a password login ──────────── */
+
+.host-line {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.host-badge {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  line-height: 0;
+}
+
+.host-badge[data-kind='tunnel'] {
+  color: var(--uwu-online);
+}
+
+.host-badge [data-kind='password'] {
+  color: var(--uwu-alarm);
+  cursor: help;
+}
+
+.sidebar-head .icon-button[data-active] {
+  color: var(--uwu-online);
+}
+
+/* ── Tooltip: hover and focus, drawn into <body> ──────────────────────────── */
+
+.tooltip {
+  position: fixed;
+  z-index: 1000;
+  max-width: 300px;
+  padding: 10px 12px;
+  border: 1px solid var(--uwu-border);
+  border-radius: var(--uwu-radius-control);
+  background: var(--uwu-surface);
+  color: var(--uwu-ink);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--uwu-ink) 14%, transparent);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+  pointer-events: none;
+  animation: tooltip-in 120ms ease-out;
+}
+
+@keyframes tooltip-in {
+  from {
+    opacity: 0;
+    translate: 0 -2px;
+  }
+}
+
+.password-warning b {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--uwu-alarm);
+}
+
+.password-warning p {
+  margin: 0 0 6px;
+}
+
+.password-warning p:last-child {
+  margin-bottom: 0;
+}
+
+.password-warning .meta {
+  color: var(--uwu-muted);
+}
+
+/* ── Tunnels ──────────────────────────────────────────────────────────────── */
+
+.tunnel-group h3 {
+  margin: 14px 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--uwu-muted);
+}
+
+.tunnel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tunnel-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--uwu-hairline);
+  border-radius: var(--uwu-radius-control);
+  background: var(--uwu-elevated);
+}
+
+.tunnel-row .dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--uwu-offline);
+}
+
+.tunnel-row .dot[data-state='running'] {
+  background: var(--uwu-online);
+}
+
+.tunnel-row .dot[data-state='starting'],
+.tunnel-row .dot[data-state='connecting'] {
+  background: var(--uwu-pink);
+  animation: tab-pulse 1s ease-in-out infinite;
+}
+
+.tunnel-row .dot[data-state='failed'] {
+  background: var(--uwu-alarm);
+}
+
+.tunnel-text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.tunnel-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tunnel-name b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tunnel-tag {
+  flex: none;
+  padding: 0 6px;
+  border-radius: var(--uwu-radius-pill);
+  background: var(--uwu-hairline);
+  color: var(--uwu-muted);
+  font-size: 10.5px;
+}
+
+.tunnel-text .meta {
+  font-family: var(--uwu-mono);
+  font-size: 11px;
+  color: var(--uwu-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tunnel-status {
+  font-size: 12px;
+  color: var(--uwu-muted);
+}
+
+.tunnel-row[data-state='running'] .tunnel-status {
+  color: var(--uwu-online);
+}
+
+.tunnel-row[data-state='failed'] .tunnel-status {
+  color: var(--uwu-alarm);
+}
+
+.tunnel-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+
+.tunnel-actions button.quiet {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}

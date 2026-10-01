@@ -29,6 +29,7 @@ use crate::metrics::{Metrics, MetricsSnapshot};
 use crate::os;
 use crate::sftp::{Elevation, SftpClient, SftpError};
 use crate::stream::{self, FrameSink};
+use crate::tunnel::{self, ClosedGuard, ForwardTable, SshLink};
 use crate::{CoreError, Result};
 use parking_lot::Mutex;
 use russh::client::{self, Handle};
@@ -40,7 +41,7 @@ use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use zeroize::Zeroizing;
 
 /// Long enough for a sleepy VPN, short enough that a typo in the address does
@@ -198,6 +199,11 @@ pub struct SshConnection {
     /// What the server called itself when connecting, like `SSH-2.0-OpenSSH_9.6`.
     banner: Arc<Mutex<Option<String>>>,
     authenticated: bool,
+    /// Remote forwards on this connection, which its handler hands
+    /// `forwarded-tcpip` channels to.
+    forwards: Arc<ForwardTable>,
+    /// Turns true when the connection ends.
+    closed: watch::Receiver<bool>,
 }
 
 impl SshConnection {
@@ -205,10 +211,14 @@ impl SshConnection {
     pub async fn open(target: &SshTarget) -> std::result::Result<Self, SshError> {
         let verdict = Arc::new(Mutex::new(None));
         let banner = Arc::new(Mutex::new(None));
+        let forwards = Arc::new(ForwardTable::default());
+        let (closed_tx, closed) = watch::channel(false);
         let handler = HostKeyCheck {
             trusted: target.trusted_fingerprint.clone(),
             verdict: Arc::clone(&verdict),
             banner: Arc::clone(&banner),
+            forwards: Arc::clone(&forwards),
+            _closed: ClosedGuard(closed_tx),
         };
         let config = Arc::new(client::Config {
             keepalive_interval: Some(Duration::from_secs(30)),
@@ -254,6 +264,8 @@ impl SshConnection {
             opened: Instant::now(),
             banner,
             authenticated: false,
+            forwards,
+            closed,
         })
     }
 
@@ -367,6 +379,8 @@ impl SshConnection {
         let (mut reader, writer) = channel.split();
         let handle = Arc::new(self.handle);
         let banner = self.banner.lock().clone();
+        let forwards = self.forwards;
+        let closed = self.closed;
 
         let metrics = Arc::new(Metrics::new());
         let flow = Arc::new(FlowControl::new(flow_control));
@@ -433,7 +447,15 @@ impl SshConnection {
             flow,
             handle,
             banner,
+            forwards,
+            closed,
         })
+    }
+
+    /// Hand an authenticated connection over to tunnels. It closes when the
+    /// last tunnel on it lets go.
+    pub fn into_link(self) -> SshLink {
+        SshLink::new(Arc::new(self.handle), self.forwards, self.closed, true)
     }
 
     /// Open file access on this authenticated connection. The connection stays
@@ -478,9 +500,22 @@ pub struct SshSession {
     flow: Arc<FlowControl>,
     handle: Arc<Handle<HostKeyCheck>>,
     banner: Option<String>,
+    forwards: Arc<ForwardTable>,
+    closed: watch::Receiver<bool>,
 }
 
 impl SshSession {
+    /// The terminal's connection, for tunnels that run along with it. It
+    /// stays the terminal's: closing the terminal closes it.
+    pub fn link(&self) -> SshLink {
+        SshLink::new(
+            Arc::clone(&self.handle),
+            Arc::clone(&self.forwards),
+            self.closed.clone(),
+            false,
+        )
+    }
+
     pub fn write(&self, data: &[u8]) -> Result<()> {
         self.input
             .send(Input::Data(data.to_vec()))
@@ -610,10 +645,27 @@ pub struct HostKeyCheck {
     trusted: Option<String>,
     verdict: Arc<Mutex<Option<Verdict>>>,
     banner: Arc<Mutex<Option<String>>>,
+    forwards: Arc<ForwardTable>,
+    /// Dropped with the handler, which is when the connection has ended.
+    _closed: ClosedGuard,
 }
 
 impl client::Handler for HostKeyCheck {
     type Error = russh::Error;
+
+    async fn server_channel_open_forwarded_tcpip(
+        &mut self,
+        channel: russh::Channel<client::Msg>,
+        _connected_address: &str,
+        connected_port: u32,
+        _originator_address: &str,
+        _originator_port: u32,
+        reply: client::ChannelOpenHandle,
+        _session: &mut client::Session,
+    ) -> std::result::Result<(), Self::Error> {
+        tunnel::forwarded(&self.forwards, channel, connected_port, reply);
+        Ok(())
+    }
 
     async fn kex_done(
         &mut self,

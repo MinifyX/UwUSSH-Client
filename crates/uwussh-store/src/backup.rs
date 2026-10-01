@@ -10,6 +10,10 @@
 //! Importing goes through [`Store::import`], so an export read back into the
 //! same store adds nothing twice, and one read into another store keeps
 //! workspaces, groups, their order and every login.
+//!
+//! Tunnels came later. A file names them only when there are some, under a
+//! key older builds ignore, so files go both ways between old and new builds
+//! without a new version number: an old file simply has none.
 
 use crate::hosts::{AuthMethod, Workspace};
 use crate::import::{
@@ -17,6 +21,7 @@ use crate::import::{
     SnippetInput,
 };
 use crate::secret::SecretText;
+use crate::tunnels::TunnelDraft;
 use crate::{now_ms, Result, Store, StoreError};
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
@@ -143,6 +148,8 @@ pub struct Backup {
     pub known_hosts: Vec<BackupKnownHost>,
     #[serde(default)]
     pub snippets: Vec<BackupSnippet>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tunnels: Vec<BackupTunnel>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -219,6 +226,22 @@ pub struct BackupSnippet {
     pub group: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupTunnel {
+    /// Index into [`Backup::hosts`].
+    pub host: usize,
+    #[serde(default)]
+    pub name: String,
+    pub kind: String,
+    pub bind_address: String,
+    pub bind_port: u16,
+    pub target_host: String,
+    pub target_port: u16,
+    #[serde(default)]
+    pub autostart: bool,
+}
+
 /// What a file holds, in counts, for the preview. Nothing identifying.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -228,6 +251,7 @@ pub struct BackupSummary {
     pub keys: usize,
     pub known_hosts: usize,
     pub snippets: usize,
+    pub tunnels: usize,
     pub passwords: usize,
 }
 
@@ -239,6 +263,7 @@ impl Backup {
             keys: self.keys.iter().filter(|k| k.private_key.is_some()).count(),
             known_hosts: self.known_hosts.len(),
             snippets: self.snippets.len(),
+            tunnels: self.tunnels.len(),
             passwords: self.hosts.iter().filter(|h| h.password.is_some()).count(),
         }
     }
@@ -289,7 +314,9 @@ impl Store {
         }
 
         let mut hosts = Vec::new();
+        let mut host_index: HashMap<Uuid, usize> = HashMap::new();
         for host in self.list_hosts()? {
+            host_index.insert(host.id, hosts.len());
             let password = if secrets && host.has_password {
                 Some(text(self.reveal_host_password(host.id)?)?)
             } else {
@@ -328,12 +355,30 @@ impl Store {
             .map(|(label, body, group)| BackupSnippet { label, body, group })
             .collect();
 
+        let tunnels = self
+            .list_tunnels()?
+            .into_iter()
+            .filter_map(|t| {
+                Some(BackupTunnel {
+                    host: *host_index.get(&t.host_id)?,
+                    name: t.name,
+                    kind: t.kind,
+                    bind_address: t.bind_address,
+                    bind_port: t.bind_port,
+                    target_host: t.target_host,
+                    target_port: t.target_port,
+                    autostart: t.autostart,
+                })
+            })
+            .collect();
+
         Ok(Backup {
             groups,
             hosts,
             keys,
             known_hosts,
             snippets,
+            tunnels,
         })
     }
 
@@ -345,7 +390,16 @@ impl Store {
             keys,
             known_hosts,
             snippets,
+            tunnels,
         } = backup;
+
+        // Who each tunnel's host is, by what tells hosts apart on import:
+        // address, port and user.
+        let tunnel_hosts: Vec<(String, u16, String)> = hosts
+            .iter()
+            .map(|h| host_match(&h.address, h.port, &h.username))
+            .collect();
+        let before: HashSet<Uuid> = self.list_hosts()?.into_iter().map(|h| h.id).collect();
 
         // Keys without their private half can't be used; hosts that pointed
         // at one ask for a password instead.
@@ -400,7 +454,7 @@ impl Store {
             });
         }
 
-        self.import(ImportSet {
+        let mut outcome = self.import(ImportSet {
             groups: groups
                 .into_iter()
                 .map(|g| GroupInput {
@@ -430,8 +484,111 @@ impl Store {
                     group_path: s.group,
                 })
                 .collect(),
-        })
+        })?;
+        outcome.tunnels_added = self.import_tunnels(tunnels, &tunnel_hosts, &before)?;
+        Ok(outcome)
     }
+
+    /// A file's tunnels, onto the hosts they belong to — added just now or
+    /// already there. One the host already has is not added twice; one the
+    /// tunnel form would refuse is left out. Only a host this import added
+    /// keeps a tunnel's autostart: a file must not make a host the user
+    /// already had open ports the next time a terminal connects.
+    fn import_tunnels(
+        &self,
+        tunnels: Vec<BackupTunnel>,
+        tunnel_hosts: &[(String, u16, String)],
+        before: &HashSet<Uuid>,
+    ) -> Result<usize> {
+        if tunnels.is_empty() {
+            return Ok(0);
+        }
+        let hosts: HashMap<(String, u16, String), Uuid> = self
+            .list_hosts()?
+            .into_iter()
+            .map(|h| (host_match(&h.address, h.port, &h.username), h.id))
+            .collect();
+        let mut existing: HashSet<_> = self
+            .list_tunnels()?
+            .into_iter()
+            .map(|t| {
+                tunnel_match(
+                    t.host_id,
+                    &t.kind,
+                    &t.bind_address,
+                    t.bind_port,
+                    &t.target_host,
+                    t.target_port,
+                )
+            })
+            .collect();
+        let mut added = 0;
+        for tunnel in tunnels {
+            let Some(&host_id) = tunnel_hosts.get(tunnel.host).and_then(|key| hosts.get(key))
+            else {
+                continue;
+            };
+            let key = tunnel_match(
+                host_id,
+                &tunnel.kind,
+                &tunnel.bind_address,
+                tunnel.bind_port,
+                &tunnel.target_host,
+                tunnel.target_port,
+            );
+            if existing.contains(&key) {
+                continue;
+            }
+            let saved = self.save_tunnel(TunnelDraft {
+                id: None,
+                host_id,
+                name: tunnel.name,
+                kind: tunnel.kind,
+                bind_address: Some(tunnel.bind_address),
+                bind_port: tunnel.bind_port,
+                target_host: tunnel.target_host,
+                target_port: tunnel.target_port,
+                autostart: tunnel.autostart && !before.contains(&host_id),
+            });
+            match saved {
+                Ok(_) => {
+                    existing.insert(key);
+                    added += 1;
+                }
+                Err(StoreError::Invalid { field, problem }) => {
+                    tracing::info!(field, problem, "a tunnel from the file left out");
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(added)
+    }
+}
+
+fn host_match(address: &str, port: u16, username: &str) -> (String, u16, String) {
+    (
+        address.trim().to_ascii_lowercase(),
+        port,
+        username.trim().to_string(),
+    )
+}
+
+fn tunnel_match(
+    host: Uuid,
+    kind: &str,
+    bind_address: &str,
+    bind_port: u16,
+    target_host: &str,
+    target_port: u16,
+) -> (Uuid, String, String, u16, String, u16) {
+    (
+        host,
+        kind.to_string(),
+        bind_address.trim().to_ascii_lowercase(),
+        bind_port,
+        target_host.trim().to_ascii_lowercase(),
+        target_port,
+    )
 }
 
 impl Store {
@@ -671,7 +828,20 @@ mod tests {
         let mut pve = draft("pve", "10.0.0.6");
         pve.auth = AuthMethod::Key;
         pve.key_id = Some(key.id);
-        store.save_host(pve).unwrap();
+        let pve = store.save_host(pve).unwrap();
+        store
+            .save_tunnel(TunnelDraft {
+                id: None,
+                host_id: pve.id,
+                name: "proxmox ui".into(),
+                kind: "local".into(),
+                bind_address: None,
+                bind_port: 8006,
+                target_host: "127.0.0.1".into(),
+                target_port: 8006,
+                autostart: true,
+            })
+            .unwrap();
 
         store
             .trust_host_key(
@@ -697,6 +867,7 @@ mod tests {
                 keys: 1,
                 known_hosts: 1,
                 snippets: 0,
+                tunnels: 1,
                 passwords: 1
             }
         );
@@ -832,6 +1003,99 @@ mod tests {
             AuthMethod::Password,
             "without its key, the host asks for a password"
         );
+    }
+
+    #[test]
+    fn tunnels_travel_with_their_host_and_never_twice() {
+        let file = encode_export_with(
+            &full_store().export_backup(false).unwrap(),
+            None,
+            "test",
+            FAST,
+        )
+        .unwrap();
+
+        // Into a store without the host: it comes with its tunnel, which
+        // still starts with it.
+        let fresh = Store::open_in_memory().unwrap();
+        let outcome = fresh
+            .import_backup(decode_export(&file, None).unwrap())
+            .unwrap();
+        assert_eq!(outcome.tunnels_added, 1);
+        let tunnels = fresh.list_tunnels().unwrap();
+        let pve = fresh
+            .list_hosts()
+            .unwrap()
+            .into_iter()
+            .find(|h| h.name == "pve")
+            .unwrap();
+        assert_eq!(tunnels.len(), 1);
+        assert_eq!(tunnels[0].host_id, pve.id);
+        assert_eq!(tunnels[0].name, "proxmox ui");
+        assert_eq!(tunnels[0].bind_address, "127.0.0.1");
+        assert!(tunnels[0].autostart);
+
+        // Read again: nothing new.
+        let again = fresh
+            .import_backup(decode_export(&file, None).unwrap())
+            .unwrap();
+        assert_eq!(again.tunnels_added, 0);
+        assert_eq!(fresh.list_tunnels().unwrap().len(), 1);
+
+        // Into a store that has the host but not the tunnel: added, but it
+        // does not start with a host the file didn't bring.
+        let had_it = Store::open_in_memory().unwrap();
+        had_it
+            .import_backup(Backup {
+                hosts: decode_export(&file, None).unwrap().hosts,
+                ..Backup::default()
+            })
+            .unwrap();
+        assert!(had_it.list_tunnels().unwrap().is_empty());
+        let outcome = had_it
+            .import_backup(decode_export(&file, None).unwrap())
+            .unwrap();
+        assert_eq!((outcome.hosts_added, outcome.tunnels_added), (0, 1));
+        assert!(!had_it.list_tunnels().unwrap()[0].autostart);
+    }
+
+    #[test]
+    fn a_file_from_before_tunnels_still_reads_and_one_with_them_says_so_only_then() {
+        let old = br#"{"format":"uwussh-export","version":1,"app":"0.2.1","data":{"groups":[],
+            "hosts":[{"name":"web","address":"192.0.2.10","port":22,"username":"nyu","auth":"password"}],
+            "keys":[],"knownHosts":[],"snippets":[]}}"#;
+        let backup = decode_export(old, None).unwrap();
+        assert!(backup.tunnels.is_empty());
+        let store = Store::open_in_memory().unwrap();
+        let outcome = store.import_backup(backup).unwrap();
+        assert_eq!((outcome.hosts_added, outcome.tunnels_added), (1, 0));
+
+        // A store without tunnels writes a file an old build reads as ever.
+        let file =
+            encode_export_with(&store.export_backup(false).unwrap(), None, "test", FAST).unwrap();
+        assert!(!String::from_utf8(file.to_vec())
+            .unwrap()
+            .contains("tunnels"));
+    }
+
+    #[test]
+    fn a_tunnel_the_form_would_refuse_or_without_its_host_is_left_out() {
+        let mut backup = full_store().export_backup(false).unwrap();
+        let odd = |host, kind: &str| BackupTunnel {
+            host,
+            name: String::new(),
+            kind: kind.into(),
+            bind_address: "127.0.0.1".into(),
+            bind_port: 9000,
+            target_host: "db.test".into(),
+            target_port: 5432,
+            autostart: false,
+        };
+        backup.tunnels.push(odd(0, "dynamic"));
+        backup.tunnels.push(odd(99, "local"));
+        let store = Store::open_in_memory().unwrap();
+        let outcome = store.import_backup(backup).unwrap();
+        assert_eq!(outcome.tunnels_added, 1, "only the real one");
     }
 
     #[test]

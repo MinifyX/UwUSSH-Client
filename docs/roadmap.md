@@ -166,7 +166,14 @@ The point where I can stop using anything else.
 - **UwUKeygen is done**: PuTTYgen with Nyu, RSA 2048 by default and everything
   else under Advanced, in the host form and as its own app the installer adds.
 - Open a remote file in the local editor and write it back
-- Port forwarding manager: local, remote, dynamic, with autostart per host
+- **Tunnels are done**, local (`-L`) and remote (`-R`): saved per host and
+  synced like hosts, started from **Tunnel…** in the host's menu or the
+  tunnels dialog without a terminal, on a connection of their own with the
+  host's login — or along with a terminal when marked to, on its connection.
+  Status, connections and errors like a port in use in the dialog, a small
+  sign in the host list while one runs. See
+  [architecture](architecture.md#tunnels).
+- Dynamic forwarding (SOCKS, `-D`)
 
 ## M4 · Polish
 
@@ -198,6 +205,10 @@ The point where I can stop using anything else.
   ⌥ characters (`@`, `[`, `|`) in the local shell and over SSH, ⌘W/⌘T/⌘1,
   ⌘C/⌘V in the terminal and in text fields, Quit with open connections, full
   screen.
+- **A warning sign next to password logins**: hosts that log in with a
+  password instead of a key get one in the host list, with a tooltip on why
+  a key is stronger and how to switch with UwUKeygen. On by default, under
+  Settings → Appearance; the onboarding will ask about it.
 - Onboarding, accessibility pass, the full Nyu scene set
 
 ## M5 · Homelab

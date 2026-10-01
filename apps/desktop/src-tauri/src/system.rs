@@ -16,6 +16,9 @@ pub(crate) async fn close_all_sessions(state: State<'_, AppState>) -> Result<usi
     state.transfers.cancel_all();
     state.session_passwords.lock().clear();
     state.session_hosts.lock().clear();
+    // Tunnels on the old page's terminals stop with them; the ones on a
+    // connection of their own keep running, and the new page lists them.
+    state.tunnels.stop_terminals().await;
     Ok(state.sessions.close_all())
 }
 

@@ -7,7 +7,7 @@ use crate::{Result, StoreError};
 use rusqlite::{params, Connection, OptionalExtension};
 use uuid::Uuid;
 
-pub const SCHEMA_VERSION: i64 = 7;
+pub const SCHEMA_VERSION: i64 = 8;
 
 /// The sync header (`id`, `vault_id`, clock, `rev`, `deleted`) is on every
 /// syncable table from the start; see the crate docs for why.
@@ -359,6 +359,41 @@ CREATE TABLE lock_accounts (
 );
 "#;
 
+/// Tunnels: local and remote port forwards, per host.
+const V8: &str = r#"
+-- One tunnel of a host. `host_id` has no foreign key on purpose: a tunnel can
+-- arrive from the server before its host does, and is simply not listed until
+-- the host is there. `kind` is not checked either: one a newer build adds is
+-- kept and synced, just not run.
+CREATE TABLE port_forwards (
+    id                  TEXT    PRIMARY KEY,
+    vault_id            TEXT    NOT NULL,
+    host_id             TEXT    NOT NULL,
+    name                TEXT    NOT NULL,
+    kind                TEXT    NOT NULL,
+    bind_address        TEXT    NOT NULL,
+    bind_port           INTEGER NOT NULL,
+    target_host         TEXT    NOT NULL,
+    target_port         INTEGER NOT NULL,
+    autostart           INTEGER NOT NULL DEFAULT 0,
+    hlc_wall_ms         INTEGER NOT NULL,
+    hlc_counter         INTEGER NOT NULL,
+    hlc_device          INTEGER NOT NULL,
+    rev                 INTEGER NOT NULL DEFAULT 1,
+    deleted             INTEGER NOT NULL DEFAULT 0,
+    dirty               INTEGER NOT NULL DEFAULT 1,
+    server_seq          INTEGER NOT NULL DEFAULT 0,
+    sync_extra          TEXT
+);
+
+CREATE INDEX port_forwards_by_host ON port_forwards (host_id) WHERE deleted = 0;
+
+-- Builds before this one passed over tunnels other devices synced, and their
+-- cursor moved on past them. Reading the server from the start once brings
+-- them in; everything else comes back as what is already here.
+UPDATE sync_state SET cursor = 0 WHERE id = 1;
+"#;
+
 pub fn migrate(conn: &mut Connection) -> Result<()> {
     let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
 
@@ -539,6 +574,14 @@ pub fn migrate(conn: &mut Connection) -> Result<()> {
         tx.pragma_update(None, "user_version", 7)?;
         tx.commit()?;
         tracing::info!("store migrated to schema 7");
+    }
+
+    if version < 8 {
+        let tx = conn.transaction()?;
+        tx.execute_batch(V8)?;
+        tx.pragma_update(None, "user_version", 8)?;
+        tx.commit()?;
+        tracing::info!("store migrated to schema 8");
     }
 
     Ok(())
@@ -857,6 +900,35 @@ mod tests {
         assert_eq!(active, 0, "nothing switches to UwULock by itself");
         assert_eq!(url, None);
         assert!(Uuid::parse_str(&identifier).is_ok());
+    }
+
+    #[test]
+    fn a_v7_database_gets_tunnels_and_reads_the_server_from_the_start_once() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        for batch in [V1, V2, V3, V4, V4_DROP_GROUP_PATH, V5, V6, V7] {
+            conn.execute_batch(batch).unwrap();
+        }
+        conn.execute(
+            "INSERT INTO meta (id, device_id, vault_id) VALUES (1, 1, 'v')",
+            [],
+        )
+        .unwrap();
+        conn.execute("UPDATE sync_state SET cursor = 42 WHERE id = 1", [])
+            .unwrap();
+        conn.pragma_update(None, "user_version", 7).unwrap();
+
+        migrate(&mut conn).unwrap();
+
+        let (tunnels, cursor): (i64, i64) = conn
+            .query_row(
+                "SELECT (SELECT count(*) FROM port_forwards),
+                        (SELECT cursor FROM sync_state WHERE id = 1)",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(tunnels, 0);
+        assert_eq!(cursor, 0, "tunnels an older build passed over come in now");
     }
 
     #[test]

@@ -8,7 +8,9 @@
 
 use uuid::Uuid;
 use uwussh_proto::{EntityKind, Envelope, Extra, Hlc, HostPayload, Resolution, Version, MAX_BATCH};
-use uwussh_store::{AuthMethod, HostDraft, PasswordChange, SecretText, Store, Workspace};
+use uwussh_store::{
+    AuthMethod, HostDraft, PasswordChange, SecretText, Store, TunnelDraft, Workspace,
+};
 use uwussh_vault::KdfParams;
 
 use crate::{sync_once, MemoryServer, SyncError};
@@ -124,6 +126,71 @@ fn a_host_i_removed_stays_removed_on_the_other_device() {
     let c = joined_device(&a);
     sync_once(&c, &server).unwrap();
     assert!(names(&c).is_empty());
+}
+
+#[test]
+fn a_tunnel_travels_with_its_host_and_goes_when_the_host_goes() {
+    let server = MemoryServer::new();
+    let a = first_device();
+    let b = joined_device(&a);
+    let host = a.save_host(draft("web", "192.0.2.20")).unwrap();
+    let tunnel = a
+        .save_tunnel(TunnelDraft {
+            id: None,
+            host_id: host.id,
+            name: "Admin".into(),
+            kind: "remote".into(),
+            bind_address: None,
+            bind_port: 9000,
+            target_host: "127.0.0.1".into(),
+            target_port: 3000,
+            autostart: true,
+        })
+        .unwrap();
+    sync_once(&a, &server).unwrap();
+    sync_once(&b, &server).unwrap();
+    assert_eq!(b.list_tunnels().unwrap(), vec![tunnel]);
+
+    a.delete_host(host.id).unwrap();
+    sync_once(&a, &server).unwrap();
+    sync_once(&b, &server).unwrap();
+    assert!(b.list_hosts().unwrap().is_empty());
+    assert!(b.list_tunnels().unwrap().is_empty());
+}
+
+#[test]
+fn a_tunnel_that_arrives_before_its_host_shows_up_once_the_host_does() {
+    let server = MemoryServer::new();
+    let a = first_device();
+    let b = joined_device(&a);
+    let host = a.save_host(draft("web", "192.0.2.21")).unwrap();
+    a.save_tunnel(TunnelDraft {
+        id: None,
+        host_id: host.id,
+        name: String::new(),
+        kind: "local".into(),
+        bind_address: None,
+        bind_port: 5432,
+        target_host: "localhost".into(),
+        target_port: 5432,
+        autostart: false,
+    })
+    .unwrap();
+    sync_once(&a, &server).unwrap();
+
+    // Only the tunnel reaches B at first, the way a page can end between two
+    // records: it is stored, but not listed without its host.
+    let tunnels: Vec<Envelope> = server
+        .records()
+        .into_iter()
+        .filter(|env| env.kind == EntityKind::PortForward)
+        .collect();
+    assert_eq!(tunnels.len(), 1);
+    b.apply_envelopes(&tunnels).unwrap();
+    assert!(b.list_tunnels().unwrap().is_empty());
+
+    sync_once(&b, &server).unwrap();
+    assert_eq!(b.list_tunnels().unwrap().len(), 1);
 }
 
 #[test]
