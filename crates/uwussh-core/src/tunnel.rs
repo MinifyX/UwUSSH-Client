@@ -27,10 +27,12 @@ use russh::{Channel, Disconnect};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
+use std::task::{Context, Poll};
 use std::time::Duration;
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
@@ -312,20 +314,70 @@ async fn pipe<S>(
     shared.connections.fetch_add(1, Ordering::Relaxed);
     shared.active.fetch_add(1, Ordering::Relaxed);
     shared.changed();
-    tokio::select! {
-        copied = tokio::io::copy_bidirectional(&mut socket, &mut ssh) => {
-            if let Ok((out, back)) = copied {
-                shared.bytes_out.fetch_add(out, Ordering::Relaxed);
-                shared.bytes_in.fetch_add(back, Ordering::Relaxed);
-            }
+    {
+        // Counted as the bytes pass, so a connection that ends in a reset
+        // still adds what it carried.
+        let mut counted = Counted {
+            inner: &mut socket,
+            shared: &shared,
+        };
+        tokio::select! {
+            _ = tokio::io::copy_bidirectional(&mut counted, &mut ssh) => {}
+            _ = raised(&mut stop) => {}
         }
-        _ = raised(&mut stop) => {}
     }
     let _ = ssh.shutdown().await;
     drop(ssh);
     drop(socket);
     shared.active.fetch_sub(1, Ordering::Relaxed);
     shared.changed();
+}
+
+/// The local socket of a forwarded connection, adding what it reads to
+/// `bytes_out` and what it writes to `bytes_in`.
+struct Counted<'a> {
+    inner: &'a mut TcpStream,
+    shared: &'a Shared,
+}
+
+impl AsyncRead for Counted<'_> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        let before = buf.filled().len();
+        let polled = Pin::new(&mut *self.inner).poll_read(cx, buf);
+        let read = (buf.filled().len() - before) as u64;
+        if read > 0 {
+            self.shared.bytes_out.fetch_add(read, Ordering::Relaxed);
+        }
+        polled
+    }
+}
+
+impl AsyncWrite for Counted<'_> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        let polled = Pin::new(&mut *self.inner).poll_write(cx, buf);
+        if let Poll::Ready(Ok(written)) = polled {
+            self.shared
+                .bytes_in
+                .fetch_add(written as u64, Ordering::Relaxed);
+        }
+        polled
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut *self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut *self.inner).poll_shutdown(cx)
+    }
 }
 
 struct Running {
@@ -511,6 +563,12 @@ impl TunnelManager {
     /// A host was deleted: its tunnels stop.
     pub async fn stop_host(&self, host: Uuid) -> usize {
         self.stop_where(|shared| shared.host_id == host).await
+    }
+
+    /// Every terminal closes at once (a reloaded page): their tunnels stop.
+    /// Tunnels on a connection of their own keep running.
+    pub async fn stop_terminals(&self) -> usize {
+        self.stop_where(|shared| shared.session.is_some()).await
     }
 
     pub async fn stop_all(&self) -> usize {
