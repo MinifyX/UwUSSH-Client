@@ -57,9 +57,20 @@ export function sshMenuSpec(options: Options) {
   return spec;
 }
 
+/** The bar that is set now, and its submenus: closed once the next one is set. */
+let shown: Array<{ close: () => Promise<void> }> = [];
+/** One build at a time, in the order asked: a late older bar must not win. */
+let queue: Promise<void> = Promise.resolve();
+
 /** Sets the menu bar; call again when the language or an entry's state changes. */
-export async function setSshMacMenu(options: Options): Promise<void> {
-  if (desktop !== 'mac') return;
+export function setSshMacMenu(options: Options): Promise<void> {
+  if (desktop !== 'mac') return Promise.resolve();
+  const next = queue.then(() => build(options));
+  queue = next.catch(() => undefined);
+  return next;
+}
+
+async function build(options: Options): Promise<void> {
   const submenus = await Promise.all(
     sshMenuSpec(options).map(async (spec) => ({
       spec,
@@ -72,4 +83,9 @@ export async function setSshMacMenu(options: Options): Promise<void> {
     if (spec.role === 'window') await submenu.setAsWindowsMenuForNSApp();
     if (spec.role === 'help') await submenu.setAsHelpMenuForNSApp();
   }
+  // Every rebuild (a tab switch, the language) made new menu resources; the
+  // old ones would pile up in the app's resource table.
+  const old = shown;
+  shown = [menu, ...submenus.map(({ submenu }) => submenu)];
+  await Promise.all(old.map((resource) => resource.close().catch(() => undefined)));
 }
