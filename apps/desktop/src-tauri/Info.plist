@@ -22,10 +22,17 @@
   flag set, App Store Connect asks once per build until the approved
   documentation's code is added here as ITSEncryptionExportComplianceCode.
   docs/app-store.md → Export compliance has the answers and what is open.
+
+  NSLocalNetworkUsageDescription: macOS 15 asks before an app reaches the
+  local network, which is where most SSH hosts (a NAS, a Raspberry Pi, a
+  home server) are. Without a purpose string the question explains nothing,
+  and App Review asks for one. English, like UwURDP's.
 -->
 <plist version="1.0">
 <dict>
   <key>ITSAppUsesNonExemptEncryption</key>
   <true/>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>UwUSSH connects to the SSH servers you add, which are often on your local network.</string>
 </dict>
 </plist>

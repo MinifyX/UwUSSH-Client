@@ -14,12 +14,12 @@ it.
 
 |                          | GitHub (setup, DMG)                                 | Mac App Store                                                                                 |
 | ------------------------ | --------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| Cargo features           | default (`self-update`)                             | `--no-default-features --features mas`                                                        |
+| Cargo features           | default (`self-update`, `local-shell`)              | `--no-default-features --features mas`                                                        |
 | Config                   | `tauri.conf.json` (+ `tauri.macos.conf.json`)       | + `tauri.mas.conf.json`                                                                       |
 | Updates                  | updater plugin, feed on the `updates` branch, setup | none compiled in (`updates.rs` is not built); the store updates it                            |
 | `app_flavor`             | `"github"`                                          | `"app-store"` — the page hides the update UI and the local shell                              |
 | Sandbox                  | no                                                  | yes, `macos/Entitlements.mas.plist`                                                           |
-| Local shell, M0 PTY run  | yes                                                 | no: `spawn_shell_session` refuses, no local tab                                               |
+| Local shell, M0 PTY run  | yes                                                 | not compiled in (no `local-shell`, no PTY code); the command stand-in refuses, no local tab   |
 | Key files a host names   | read from where they are                            | readable once picked (`pick_key_path`) or inside a granted folder (`grant_ssh_folder`)        |
 | `~/.ssh/config` import   | found on its own                                    | after the person grants `~/.ssh` once in an open panel                                        |
 | Termius import           | yes                                                 | no: its data is in another app's folders and its key in Termius' keychain item                |
@@ -41,7 +41,12 @@ and only until it quits. Everything UwUSSH keeps for later goes through
 `src-tauri/src/sandbox_access.rs`: a **security-scoped bookmark** per picked
 file or folder in `bookmarks.json` next to `uwussh.db`, resolved and switched
 on in `setup` before the page loads (at most 256; a file inside a bookmarked
-folder needs none of its own).
+folder needs none of its own — unless that folder is only a file browser place,
+which the person may take off again: `~/.ssh` or a key file inside one gets its
+own bookmark, and forgetting the place keeps it). A bookmark that does not
+resolve at start-up (an external disk or a share that is not there) is kept in
+the file without access, so it works again on the next start with the disk
+back; picking the path again replaces it.
 
 | What                                  | How it gets access                                                            | Kept across restarts |
 | ------------------------------------- | ----------------------------------------------------------------------------- | -------------------- |

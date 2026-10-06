@@ -105,11 +105,13 @@ pub(crate) async fn export_hosts(
 /// Inside the Mac App Store sandbox the save panel opens the one file the
 /// person named and nothing beside it, so the temporary file is refused;
 /// there the export is written straight into the file instead — not
-/// crash-safe, but written.
+/// crash-safe, but written. Every other build reports the error as before.
 fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let temporary = path.with_extension(format!("uwussh-{}.tmp", Uuid::now_v7().simple()));
     match std::fs::write(&temporary, bytes) {
-        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+        Err(error)
+            if cfg!(feature = "mas") && error.kind() == std::io::ErrorKind::PermissionDenied =>
+        {
             return std::fs::write(path, bytes);
         }
         other => other?,
