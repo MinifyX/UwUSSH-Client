@@ -243,10 +243,6 @@
   color: var(--uwu-warning-ink);
 }
 
-.notice button {
-  padding: 4px 12px;
-}
-
 /*
  * The terminal must never be able to widen the layout. xterm.js sizes its
  * canvas from the container, and the container is a grid item whose minimum
@@ -279,17 +275,17 @@
   height: 100%;
   border-radius: var(--uwu-radius-card);
   overflow: hidden;
-  background: #141016;
+  background: var(--uwu-stage);
   padding: 10px;
 }
 
-/* The terminal is always dark, whatever the app theme. */
+/* The terminal is the stage: dark whatever the app theme. */
 .terminal-host ::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, #b3a8b3 35%, transparent) padding-box;
+  background: color-mix(in srgb, var(--uwu-stage-muted) 35%, transparent) padding-box;
 }
 
 .terminal-host ::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, #ff7fac 70%, transparent) padding-box;
+  background: color-mix(in srgb, var(--uwu-pink) 70%, transparent) padding-box;
 }
 
 /* What the terminal opens in: no padding of its own, so it measures true. */
@@ -326,16 +322,11 @@
 }
 
 .toolbar-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
   color: var(--uwu-muted);
 }
 
 .toolbar-button:hover:not(:disabled) {
   color: var(--uwu-ink);
-  background: var(--uwu-elevated);
 }
 
 /* ── Terminal pane overlays ────────────────────────────── */
@@ -352,8 +343,8 @@
   justify-items: center;
   gap: 8px;
   border-radius: var(--uwu-radius-card);
-  background: color-mix(in srgb, #141016 88%, transparent);
-  color: #f0e7ee;
+  background: var(--uwu-stage-overlay);
+  color: var(--uwu-stage-ink);
   text-align: center;
   animation: overlay-in 220ms ease both;
   z-index: 3;
@@ -388,24 +379,20 @@
   border-radius: var(--uwu-radius-pill);
   border: 1px solid var(--uwu-pink);
   background: var(--uwu-surface);
-  box-shadow: 0 16px 40px -16px rgba(20, 16, 22, 0.6);
+  box-shadow: var(--uwu-shadow-float);
   font-size: 13px;
   animation: helper-in 260ms cubic-bezier(0.2, 0.9, 0.3, 1.3) both;
 }
 
-.password-helper .icon {
-  color: var(--uwu-pink);
+.password-helper > svg {
+  flex: none;
+  color: var(--uwu-pink-solid);
 }
 
 .password-helper span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.password-helper button.primary {
-  padding: 5px 14px;
-  border-radius: var(--uwu-radius-pill);
 }
 
 .password-helper kbd {

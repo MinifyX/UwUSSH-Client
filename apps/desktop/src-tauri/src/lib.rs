@@ -19,7 +19,8 @@
 //! - [`system`] — updates, links, a fresh start for a reloaded page
 //! - [`links`] — `uwussh://connect/<host id>` links
 //! - [`m0`] — the throughput measurement
-//! - [`menu`] — the macOS menu bar
+//!
+//! The macOS menu bar is the page's (`setMacMenu` in App.tsx).
 
 mod assist;
 mod backup;
@@ -33,7 +34,6 @@ mod keys;
 mod links;
 mod lock;
 mod m0;
-mod menu;
 mod sessions;
 mod sync;
 mod system;
@@ -110,9 +110,6 @@ pub fn run() {
         .init();
 
     let builder = tauri::Builder::default();
-    // Only macOS has a menu bar; Tauri adds none elsewhere either.
-    #[cfg(target_os = "macos")]
-    let builder = builder.menu(menu::build).on_menu_event(menu::on_event);
 
     // One UwUSSH per user, registered first: a second start hands its link
     // over and quits before anything else of it runs. A run with a database
@@ -132,6 +129,20 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            // macOS ends an app without asking the window; this asks the page
+            // first (`onMacQuit` in App.tsx, answered through `finish_quit`),
+            // which asks the person while connections are open.
+            #[cfg(target_os = "macos")]
+            {
+                use tauri::Emitter;
+                let handle = app.handle().clone();
+                if let Err(error) = uwu_macos::install_quit_guard(move || {
+                    handle.emit(uwu_macos::QUIT_EVENT, ()).is_ok()
+                }) {
+                    tracing::warn!(%error, "quit guard");
+                }
+            }
+
             if updates::apply_pending_on_start(app.handle()) {
                 // The downloaded setup replaces this version and starts UwUSSH again.
                 std::process::exit(0);
@@ -172,6 +183,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            finish_quit,
+            quit_app,
             sessions::spawn_shell_session,
             sessions::write_session,
             sessions::resize_session,
@@ -276,6 +289,7 @@ pub fn run() {
             lock::lock_forget_move,
             lock::lock_app_sync_off,
             lock::lock_sign_out,
+            system::app_flavor,
             system::close_all_sessions,
             system::set_update_channel,
             system::update_status,
@@ -288,6 +302,38 @@ pub fn run() {
             m0::m0_autorun,
             m0::m0_finish,
         ])
-        .run(tauri::generate_context!())
-        .expect("failed to start UwUSSH");
+        .build(tauri::generate_context!())
+        .expect("failed to start UwUSSH")
+        .run(|app, event| {
+            // macOS: ⌘W and the red light only hid the window (App.tsx); a
+            // click on the Dock icon brings it back.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen {
+                has_visible_windows: false,
+                ..
+            } = event
+            {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (app, event);
+        });
+}
+
+/// The page's answer to a quit from the Dock, ⌘Q or a logout (macOS): go ahead
+/// or stay. Does nothing elsewhere.
+#[tauri::command]
+fn finish_quit(proceed: bool) {
+    uwu_macos::reply_quit(proceed);
+}
+
+/// Ends the app after the person said yes to quitting with connections open.
+/// On macOS the quit question answered "stay" first, so macOS is not waiting
+/// for anything; this ends the app the way closing its last window would.
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
 }

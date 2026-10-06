@@ -123,3 +123,16 @@ mod tests {
         }
     }
 }
+
+/// Which build this is: `"github"` for every download from GitHub (it updates
+/// itself and has the local shell), `"app-store"` for the Mac App Store build
+/// (the `mas` feature: no updater, no local shell, the sandbox decides what it
+/// may open). The page asks once, before its first render (`lib/flavor.ts`).
+#[tauri::command]
+pub(crate) fn app_flavor() -> &'static str {
+    if cfg!(feature = "mas") {
+        "app-store"
+    } else {
+        "github"
+    }
+}

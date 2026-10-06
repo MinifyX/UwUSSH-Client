@@ -7084,6 +7084,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "uwu-macos"
+version = "1.5.0"
+source = "git+https://github.com/MinifyX/UwUSuite-Design?tag=v1.5.0#596277aeb65f13dc3721b010aa7b9ad3cbb5503d"
+dependencies = [
+ "objc2",
+]
+
+[[package]]
 name = "uwukeygen"
 version = "0.3.0-beta.2"
 dependencies = [
@@ -7190,6 +7198,7 @@ dependencies = [
  "tracing-subscriber",
  "trash",
  "uuid",
+ "uwu-macos",
  "uwussh-assist",
  "uwussh-core",
  "uwussh-import",

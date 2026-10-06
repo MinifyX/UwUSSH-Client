@@ -11,6 +11,16 @@ rust-version.workspace = true
 name = "uwussh_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# What every download from GitHub is: a copy that looks for its own updates
+# and installs them, with a local shell beside the SSH tabs.
+default = ["self-update"]
+self-update = []
+# The Mac App Store build: `--no-default-features --features mas`. The store
+# updates the app, the sandbox decides what it may open, and the local shell
+# is not offered. See docs/app-store.md.
+mas = []
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -46,6 +56,10 @@ trash = "5"
 uuid.workspace = true
 zeroize.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# macOS: ⌘Q, the Dock and logging out quit through the page, which asks first
+# while connections are open (lib.rs, App.tsx). Nothing off macOS; the tag
+# matches the @uwusuite/design version in package.json.
+uwu-macos = { git = "https://github.com/MinifyX/UwUSuite-Design", tag = "v1.5.0" }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = [
