@@ -6,10 +6,7 @@
 //! same channel — which is exactly the dance a real server does with
 //! `sudo sftp-server` on a pseudo-terminal.
 
-#[path = "support/file_server.rs"]
-mod file_server;
-
-use file_server::FileServer;
+use crate::file_server::FileServer;
 use parking_lot::Mutex;
 use russh::keys::{Algorithm, HashAlg, PrivateKey};
 use russh::server::{self, Auth, Msg, Server as _, Session};

@@ -18,11 +18,8 @@ use tokio::net::TcpListener;
 use uwussh_core::{FrameSink, SessionId, SessionManager, SinkError, SshAuth, SshError, SshTarget};
 use zeroize::Zeroizing;
 
-#[path = "support/forwarding.rs"]
-mod forwarding;
-use forwarding::Forwarding;
+use crate::forwarding::Forwarding;
 
-#[path = "ssh/tunnels.rs"]
 mod tunnels;
 
 const USER: &str = "lorin";
