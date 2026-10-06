@@ -95,7 +95,7 @@ export function ContextMenu({ x, y, items, onClose, label }: Props) {
             disabled={item.disabled}
             data-danger={item.danger || undefined}
             className={cx(
-              'flex items-center gap-2.5 rounded-xl border-0 bg-transparent px-3 py-2 text-left text-meta font-medium break-words hover:bg-pink-tint/60 focus:bg-pink-tint/60 focus:outline-none disabled:opacity-50',
+              'flex items-center gap-2.5 rounded-xl border-0 bg-transparent px-3 py-2 text-left text-meta font-medium break-words hover:bg-pink-tint/60 focus:bg-pink-tint/60 focus:outline-none contrast-high:focus:outline-2 contrast-high:focus:-outline-offset-2 contrast-high:focus:outline-ink disabled:opacity-50',
               item.danger ? 'text-danger-ink' : 'text-ink',
             )}
             onClick={() => {

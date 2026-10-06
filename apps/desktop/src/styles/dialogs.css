@@ -68,18 +68,6 @@ dd {
   line-height: 1.5;
 }
 
-/* A warning note, like @uwusuite/design's <Hint tone="warning"> (still used by the sync settings). */
-.import-warning {
-  margin: 4px 0 0;
-  padding: 10px 14px;
-  border-radius: var(--uwu-radius-control);
-  border: 1px solid color-mix(in srgb, var(--uwu-warning) 40%, transparent);
-  background: var(--uwu-warning-tint);
-  color: var(--uwu-warning-ink);
-  font-size: var(--uwu-text-meta);
-  line-height: 1.5;
-}
-
 .import-preview {
   display: grid;
   gap: 12px;

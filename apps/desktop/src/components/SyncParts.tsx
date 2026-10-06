@@ -263,7 +263,8 @@ export function PasswordConfirm({
     <Modal
       title={title}
       tone={tone === 'danger' ? 'warning' : 'default'}
-      onCancel={onCancel}
+      // Not while it works: the × would leave it running unseen.
+      onCancel={() => !busy && onCancel()}
       footer={
         <>
           <Button data-autofocus onClick={onCancel} disabled={busy}>

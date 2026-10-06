@@ -113,7 +113,8 @@ export function VaultDialog({ reason, cancelLabel = t('Abbrechen'), onDone, onCa
               ? t('Tresor entsperren')
               : t('Tresor')
       }
-      onCancel={onCancel}
+      // Not while it works: the × would leave it running unseen.
+      onCancel={() => !busy && onCancel()}
       footer={
         <>
           <span className="spacer" />
