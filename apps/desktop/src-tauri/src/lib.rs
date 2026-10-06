@@ -147,6 +147,7 @@ pub fn run() {
 
     builder
         .setup(|app| {
+            std::thread::spawn(sync::device_name);
             // macOS ends an app without asking the window; this asks the page
             // first (`onMacQuit` in App.tsx, answered through `finish_quit`),
             // which asks the person while connections are open.

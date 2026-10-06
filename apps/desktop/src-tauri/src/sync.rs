@@ -478,7 +478,16 @@ pub(crate) fn sync_status(
 }
 
 /// This computer's name, the way the other devices will see it listed.
+///
+/// Asked once and kept: `scutil` and NSHost can take a moment, and the sync
+/// status asks often. `lib.rs` warms it on a thread at start, so no command on
+/// the main thread waits for it.
 pub(crate) fn device_name() -> String {
+    static NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    NAME.get_or_init(look_up_device_name).clone()
+}
+
+fn look_up_device_name() -> String {
     let from_env = ["COMPUTERNAME", "HOSTNAME"]
         .iter()
         .find_map(|name| std::env::var(name).ok())

@@ -85,6 +85,8 @@ const marketingVersion = conf.version.replace(/[-+].*$/, '');
 const buildNumber = env.MAS_BUILD_NUMBER ?? '1';
 if (!/^\d+(\.\d+){0,2}$/.test(buildNumber))
   fail(`MAS_BUILD_NUMBER "${buildNumber}" is not one to three numbers.`);
+if (options.sign && !signing)
+  fail('--sign needs APPLE_MAS_APP_IDENTITY and the other signing variables.');
 if (signing && !env.MAS_BUILD_NUMBER)
   fail('A signed build needs MAS_BUILD_NUMBER: App Store Connect refuses a build number twice.');
 if (signing) {
