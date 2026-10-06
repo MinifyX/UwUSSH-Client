@@ -1,3 +1,4 @@
+import { Button, Icon, ICONS } from '@uwusuite/design';
 import { useEffect, useState } from 'react';
 import {
   asBackupFailure,
@@ -17,7 +18,6 @@ import {
   type ImportSource,
   type ImportSummary,
 } from '../lib/session';
-import { Icon } from './Icon';
 import { useCloseGuard } from './CloseGuard';
 import { Modal } from './Modal';
 import { NyuScene } from './nyu/scenes';
@@ -205,14 +205,17 @@ export function ImportDialog({ onClose, onImported }: Props) {
             {step.sources.map((source) => (
               <button
                 key={source}
+                type="button"
                 className="import-source"
                 disabled={busy}
                 onClick={() => void guard(() => preview(source))}
               >
+                <Icon icon={ICONS.import} className="text-muted" />
                 {LABEL[source]}
               </button>
             ))}
             <button
+              type="button"
               className="import-source"
               disabled={busy}
               onClick={() => void guard(pickFolder)}
@@ -220,10 +223,17 @@ export function ImportDialog({ onClose, onImported }: Props) {
                 'Ein portables KiTTY (Ordner mit Sessions), ein Sessions-Ordner oder .reg-Exporte von PuTTY und KiTTY',
               )}
             >
-              <Icon name="folder" size={16} /> {t('KiTTY- / PuTTY-Sitzungen aus Ordner…')}
+              <Icon icon={ICONS.folder} className="text-muted" />
+              {t('KiTTY- / PuTTY-Sitzungen aus Ordner…')}
             </button>
-            <button className="import-source" disabled={busy} onClick={() => void guard(pickFile)}>
-              <Icon name="file" size={16} /> {t('UwUSSH-Export (.uwussh)…')}
+            <button
+              type="button"
+              className="import-source"
+              disabled={busy}
+              onClick={() => void guard(pickFile)}
+            >
+              <Icon icon={ICONS.file} className="text-muted" />
+              {t('UwUSSH-Export (.uwussh)…')}
             </button>
             {step.sources.length === 0 && (
               <p className="import-note">
@@ -310,16 +320,17 @@ export function ImportDialog({ onClose, onImported }: Props) {
         return (
           <>
             <span className="spacer" />
-            <button data-secondary onClick={closeGuard.request}>
+            <Button data-secondary onClick={closeGuard.request}>
               {t('Abbrechen')}
-            </button>
-            <button
-              className="primary"
-              disabled={busy || nothing}
+            </Button>
+            <Button
+              variant="primary"
+              busy={busy}
+              disabled={nothing}
               onClick={() => void guard(() => importSource(step.source))}
             >
               {busy ? t('Importiere…') : t('Importieren')}
-            </button>
+            </Button>
           </>
         );
       }
@@ -327,16 +338,16 @@ export function ImportDialog({ onClose, onImported }: Props) {
         return (
           <>
             <span className="spacer" />
-            <button data-secondary onClick={closeGuard.request}>
+            <Button data-secondary onClick={closeGuard.request}>
               {t('Abbrechen')}
-            </button>
-            <button
-              className="primary"
+            </Button>
+            <Button
+              variant="primary"
               disabled={busy || !password}
               onClick={() => void guard(() => unlockFile(step.file))}
             >
               {t('Öffnen')}
-            </button>
+            </Button>
           </>
         );
       case 'file-preview': {
@@ -345,16 +356,17 @@ export function ImportDialog({ onClose, onImported }: Props) {
         return (
           <>
             <span className="spacer" />
-            <button data-secondary onClick={closeGuard.request}>
+            <Button data-secondary onClick={closeGuard.request}>
               {t('Abbrechen')}
-            </button>
-            <button
-              className="primary"
-              disabled={busy || nothing}
+            </Button>
+            <Button
+              variant="primary"
+              busy={busy}
+              disabled={nothing}
               onClick={() => void guard(() => importFile(step.file, step.password))}
             >
               {busy ? t('Importiere…') : t('Importieren')}
-            </button>
+            </Button>
           </>
         );
       }
@@ -362,18 +374,18 @@ export function ImportDialog({ onClose, onImported }: Props) {
         return (
           <>
             <span className="spacer" />
-            <button className="primary" onClick={onClose}>
+            <Button variant="primary" onClick={onClose}>
               {t('Fertig')}
-            </button>
+            </Button>
           </>
         );
       default:
         return (
           <>
             <span className="spacer" />
-            <button data-secondary onClick={closeGuard.request}>
+            <Button data-secondary onClick={closeGuard.request}>
               {t('Abbrechen')}
-            </button>
+            </Button>
           </>
         );
     }

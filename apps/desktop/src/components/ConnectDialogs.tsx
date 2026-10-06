@@ -1,3 +1,4 @@
+import { Button } from '@uwusuite/design';
 import { Fragment, useState, type FormEvent, type ReactNode } from 'react';
 import { N_, t, useLanguage } from '../lib/i18n';
 import type { HostRecord, ObservedHostKey } from '../lib/session';
@@ -74,12 +75,12 @@ export function SecretPrompt({
       footer={
         <>
           <span className="spacer" />
-          <button data-secondary onClick={onCancel}>
+          <Button data-secondary onClick={onCancel}>
             {t('Abbrechen')}
-          </button>
-          <button className="primary" onClick={() => submit()}>
+          </Button>
+          <Button variant="primary" onClick={() => submit()}>
             {secret === 'sudo' ? t('Als root öffnen') : t('Verbinden')}
-          </button>
+          </Button>
         </>
       }
     >
@@ -182,12 +183,13 @@ export function TrustHostKey({ host, observed, onTrust, onCancel }: TrustProps) 
       footer={
         <>
           <span className="spacer" />
-          <button data-secondary onClick={onCancel}>
+          {/* Both data-secondary: neither gets focus, so Enter cannot trust a key by accident. */}
+          <Button data-secondary onClick={onCancel}>
             {t('Abbrechen')}
-          </button>
-          <button className="primary" data-secondary onClick={onTrust}>
+          </Button>
+          <Button variant="primary" data-secondary onClick={onTrust}>
             {t('Vertrauen und verbinden')}
-          </button>
+          </Button>
         </>
       }
     >
@@ -246,13 +248,13 @@ export function HostKeyChanged({
       onCancel={onReject}
       footer={
         <>
-          <button className="danger" data-secondary onClick={onAccept}>
+          <Button variant="danger" data-secondary onClick={onAccept}>
             {t('Neuen Schlüssel akzeptieren')}
-          </button>
+          </Button>
           <span className="spacer" />
-          <button className="primary" data-autofocus onClick={onReject}>
+          <Button variant="primary" data-autofocus onClick={onReject}>
             {t('Ablehnen')}
-          </button>
+          </Button>
         </>
       }
     >

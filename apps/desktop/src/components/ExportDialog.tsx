@@ -1,3 +1,4 @@
+import { Button, ICONS } from '@uwusuite/design';
 import { useState } from 'react';
 import { asBackupFailure, exportHosts, type BackupSummary } from '../lib/backup';
 import { t, useLanguage } from '../lib/i18n';
@@ -74,9 +75,9 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
         footer={
           <>
             <span className="spacer" />
-            <button className="primary" onClick={onClose}>
+            <Button variant="primary" onClick={onClose}>
               {t('Fertig')}
-            </button>
+            </Button>
           </>
         }
       >
@@ -112,12 +113,17 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
       footer={
         <>
           <span className="spacer" />
-          <button data-secondary onClick={guard.request} disabled={busy}>
+          <Button data-secondary onClick={guard.request} disabled={busy}>
             {t('Abbrechen')}
-          </button>
-          <button className="primary" onClick={() => void run()} disabled={!ready}>
+          </Button>
+          <Button
+            variant="primary"
+            icon={ICONS.export}
+            onClick={() => void run()}
+            disabled={!ready}
+          >
             {busy ? t('Exportiere…') : t('Speichern unter…')}
-          </button>
+          </Button>
         </>
       }
     >
