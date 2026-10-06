@@ -92,11 +92,13 @@ export function TerminalView({ onReady, onDispose }: TerminalViewProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // The stage around the terminal is the package's `stage` (dark in both
+  // themes), the same colour as the terminal's own background (lib/driver.ts).
   // The padding lives on the outer box. xterm.js' fit addon measures the
   // element the terminal opens in with its padding included, so a padded one
   // gets a row and a few columns more than fit, and the last line is cut off.
   return (
-    <div className="terminal-host">
+    <div className="terminal-host bg-stage">
       <div className="terminal-screen" ref={hostRef} />
     </div>
   );

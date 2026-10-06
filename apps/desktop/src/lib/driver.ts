@@ -34,12 +34,13 @@ import {
  * "Nyu" — the default terminal theme: the 16 ANSI colours translated into the
  * UwU palette. Classic schemes ship alongside it untouched; a terminal that
  * fights the colours of the program running in it is a broken terminal.
+ *
+ * The ANSI colours are UwUSSH's own (only UwUSSH has a terminal). Background,
+ * foreground and the cursor's text are the suite's stage tokens, so the
+ * terminal and the stage around it (`bg-stage`) are one surface.
  */
-const NYU_THEME = {
-  background: '#141016',
-  foreground: '#f0e7ee',
+const NYU_ANSI = {
   cursor: '#ff7fac',
-  cursorAccent: '#141016',
   selectionBackground: '#4d2338',
   black: '#2c2430',
   red: '#ff6b8b',
@@ -58,6 +59,39 @@ const NYU_THEME = {
   brightCyan: '#a3e5e0',
   brightWhite: '#faf5f9',
 };
+
+/** `--uwu-stage` and `--uwu-stage-ink` from @uwusuite/design; the hex values are their values in 1.5. */
+function nyuTheme() {
+  const style = getComputedStyle(document.documentElement);
+  const token = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback;
+  const stage = token('--uwu-stage', '#0c0a0d');
+  const ink = token('--uwu-stage-ink', '#f8f2f6');
+  return { ...NYU_ANSI, background: stage, foreground: ink, cursorAccent: stage };
+}
+
+/**
+ * The terminal's font: JetBrains Mono, which @uwusuite/design bundles (its
+ * fonts.css, as "JetBrains Mono Variable"). An installed JetBrains Mono comes
+ * next, then the system's monospace.
+ */
+const TERMINAL_FONT =
+  "'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace";
+
+/**
+ * A web font loads only once something uses it, and xterm.js measures its
+ * cell size once, when it opens: measured with the fallback, every glyph of
+ * the real font would sit in a cell of the wrong width. So this waits for the
+ * font, and the caller measures again once it is there.
+ */
+function terminalFontReady(size: number): Promise<boolean> {
+  if (typeof document === 'undefined' || !document.fonts) return Promise.resolve(false);
+  const spec = `${size}px "JetBrains Mono Variable"`;
+  if (document.fonts.check(spec)) return Promise.resolve(false);
+  return document.fonts
+    .load(spec)
+    .then((faces) => faces.length > 0)
+    .catch(() => false);
+}
 
 export type Renderer = 'webgl' | 'canvas';
 
@@ -112,13 +146,14 @@ export class TerminalDriver {
   private hidden = false;
   /** Acknowledgements that failed in a row; a session that is gone fails every time. */
   private ackFailures = 0;
+  private disposed = false;
 
   constructor(host: HTMLElement, options: TerminalOptions) {
     this.host = host;
     this.term = new Terminal({
-      fontFamily: "'JetBrains Mono', ui-monospace, Consolas, monospace",
+      fontFamily: TERMINAL_FONT,
       lineHeight: 1.25,
-      theme: NYU_THEME,
+      theme: nyuTheme(),
       allowProposedApi: true,
       // Option stays Option on a Mac: on a German keyboard ⌥L is @, ⌥5 is [
       // and ⌥7 is |. (xterm.js still turns ⌥← and ⌥→ into word jumps.)
@@ -145,6 +180,13 @@ export class TerminalDriver {
     this.term.open(host);
     this.loadWebgl();
     this.refit();
+    void terminalFontReady(options.fontSize).then((loaded) => {
+      if (!loaded || this.disposed) return;
+      // xterm.js measures again only when the option changes.
+      this.term.options.fontFamily = 'monospace';
+      this.term.options.fontFamily = TERMINAL_FONT;
+      this.refit();
+    });
 
     this.term.onData((data) => {
       if (this.sessionId) void writeSession(this.sessionId, data);
@@ -293,6 +335,7 @@ export class TerminalDriver {
   }
 
   dispose() {
+    this.disposed = true;
     void this.detach();
     window.clearTimeout(this.promptTimer);
     this.promptListeners.clear();
