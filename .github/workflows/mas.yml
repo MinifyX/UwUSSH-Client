@@ -31,22 +31,14 @@ on:
     paths:
       - '.github/workflows/mas.yml'
       - 'scripts/build-mas.mjs'
-      - 'apps/desktop/src-tauri/Cargo.toml'
-      - 'apps/desktop/src-tauri/Info.plist'
-      - 'apps/desktop/src-tauri/macos/**'
-      - 'apps/desktop/src-tauri/tauri.mas.conf.json'
-      - 'apps/desktop/src-tauri/src/sandbox_access.rs'
-      - 'apps/desktop/src-tauri/src/sync.rs'
-      - 'apps/desktop/src-tauri/src/import.rs'
-      - 'apps/desktop/src-tauri/capabilities/**'
-      - 'apps/desktop/src-tauri/tauri.macos.conf.json'
-      - 'crates/uwussh-core/src/home.rs'
-      - 'apps/desktop/src-tauri/src/lib.rs'
-      - 'apps/desktop/src-tauri/src/system.rs'
-      - 'apps/desktop/src-tauri/src/updates.rs'
-      - 'apps/desktop/src-tauri/tauri.conf.json'
-      - 'apps/desktop/src/lib/flavor.ts'
+      # Everything the store build compiles: the app's Rust code and config,
+      # every workspace crate and the dependency versions. Warm, the check
+      # takes about two minutes, so no finer filter is worth a miss.
+      - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'crates/**'
+      - 'apps/desktop/src-tauri/**'
+      - 'apps/desktop/src/lib/flavor.ts'
 
 permissions:
   contents: read
