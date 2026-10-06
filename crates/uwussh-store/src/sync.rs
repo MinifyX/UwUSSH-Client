@@ -1666,7 +1666,10 @@ mod tests {
 
         let state = store.sync_state().unwrap();
         assert!(state.paired());
-        assert_eq!(state.server_url.as_deref(), Some("https://nas.example:8443"));
+        assert_eq!(
+            state.server_url.as_deref(),
+            Some("https://nas.example:8443")
+        );
         assert_eq!(state.tls_fingerprint.as_deref(), Some("SHA256:abc"));
         assert_eq!(state.account_id, Some(enrolment.account_id));
         assert!(state.paired_ms.is_some());

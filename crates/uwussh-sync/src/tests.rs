@@ -273,7 +273,13 @@ fn the_server_holds_nothing_it_can_read() {
     assert!(!held.is_empty());
     for env in &held {
         let haystack = String::from_utf8_lossy(&env.blob).to_string();
-        for secret in ["prox-1", "192.0.2.12", "hunter2", "Homelab", "SHA256:abcdef"] {
+        for secret in [
+            "prox-1",
+            "192.0.2.12",
+            "hunter2",
+            "Homelab",
+            "SHA256:abcdef",
+        ] {
             assert!(
                 !haystack.contains(secret),
                 "{secret} must not be readable in a blob"

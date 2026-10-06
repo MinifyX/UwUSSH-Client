@@ -184,7 +184,7 @@ mod tests {
     fn a_trusted_key_is_found_regardless_of_address_case() {
         let store = Store::open_in_memory().unwrap();
         store
-            .trust_host_key("Prox-1.LAN", 22, "ssh-ed25519", KEY_A.0, KEY_A.1)
+            .trust_host_key("Prox-1.EXAMPLE", 22, "ssh-ed25519", KEY_A.0, KEY_A.1)
             .unwrap();
 
         let found = store.known_host("prox-1.example", 22).unwrap().unwrap();

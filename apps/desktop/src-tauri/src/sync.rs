@@ -1018,8 +1018,12 @@ mod tests {
         let spoken = format!("K7M4Q-{words}");
         assert!(target_of(&spoken, None, None).is_none());
         assert!(target_of(&spoken, Some("  "), None).is_none());
-        let target =
-            target_of(&spoken, Some("https://nas.example:8443"), Some(" SHA256:abc ")).unwrap();
+        let target = target_of(
+            &spoken,
+            Some("https://nas.example:8443"),
+            Some(" SHA256:abc "),
+        )
+        .unwrap();
         assert_eq!(target.id, "K7M4Q");
         assert_eq!(target.words, words);
         assert_eq!(target.tls_fingerprint.as_deref(), Some("SHA256:abc"));

@@ -5,7 +5,7 @@
 //!
 //! * Keys are **case-insensitive** (`HostName`, `hostname` and `HOSTNAME` are
 //!   the same option), values are not.
-//! * A `Host` line with wildcards (`Host *`, `Host *.lan`) is a rule, not a
+//! * A `Host` line with wildcards (`Host *`, `Host *.example`) is a rule, not a
 //!   machine. Importing those produces hosts nobody can connect to, so they
 //!   are skipped and reported rather than silently turned into junk entries.
 
@@ -395,7 +395,7 @@ Host db-01
     ProxyJump edge-bastion
     Port 2222
 
-Host *.lan
+Host *.example
     User admin
 
 Host edge-bastion
@@ -418,7 +418,7 @@ Host edge-bastion
     fn wildcards_are_skipped_and_reported() {
         let result = imported();
         assert!(result.hosts.iter().all(|h| !h.name.contains('*')));
-        assert!(result.skipped.iter().any(|(name, _)| name == "*.lan"));
+        assert!(result.skipped.iter().any(|(name, _)| name == "*.example"));
     }
 
     #[test]

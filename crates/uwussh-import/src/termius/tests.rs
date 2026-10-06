@@ -251,7 +251,9 @@ fn homelab() -> Fixture {
                         &[
                             (
                                 "content",
-                                Sealed(r#"{"label":"pve-1","address":"pve-1.example","version":1}"#),
+                                Sealed(
+                                    r#"{"label":"pve-1","address":"pve-1.example","version":1}"#,
+                                ),
                             ),
                             ("group", Ref(2)),
                             ("ssh_config", Ref(11)),
