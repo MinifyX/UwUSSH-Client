@@ -8,6 +8,7 @@ import {
   type BackupSummary,
   type PickedExport,
 } from '../lib/backup';
+import { grantSshFolder, isAppStore } from '../lib/flavor';
 import { t, useLanguage } from '../lib/i18n';
 import {
   availableImports,
@@ -134,6 +135,18 @@ export function ImportDialog({ onClose, onImported }: Props) {
     });
   }
 
+  /**
+   * Store build: the sandbox hides `~/.ssh/config` until the person points at
+   * the folder once. Afterwards the sources are asked for again.
+   */
+  async function grantSsh() {
+    const folder = await grantSshFolder();
+    if (!folder) return;
+    const sources = await availableImports();
+    setStep({ kind: 'pick', sources });
+    if (!sources.includes('openssh')) setError(t('In {folder} liegt keine config.', { folder }));
+  }
+
   async function pickFile() {
     const file = await pickExportFile();
     if (!file) return;
@@ -196,9 +209,19 @@ export function ImportDialog({ onClose, onImported }: Props) {
         return <p className="import-note">{t('Wird gesucht…')}</p>;
 
       case 'pick': {
-        const [beforeConfig, afterConfig] = t(
-          'Auf diesem Rechner wurden keine anderen SSH-Clients gefunden. UwUSSH liest Termius, PuTTY, KiTTY und {config} dort, wo sie ihre Daten ablegen.',
+        // The store build reads only what the person hands it: no Termius,
+        // and `~/.ssh` once it was let in.
+        const store = isAppStore();
+        const [beforeConfig, afterConfig] = (
+          store
+            ? t(
+                'UwUSSH darf hier nur lesen, was du freigibst. Gib ~/.ssh frei, dann liest es {config}.',
+              )
+            : t(
+                'Auf diesem Rechner wurden keine anderen SSH-Clients gefunden. UwUSSH liest Termius, PuTTY, KiTTY und {config} dort, wo sie ihre Daten ablegen.',
+              )
         ).split('{config}');
+        const offerGrant = store && !step.sources.includes('openssh');
         return (
           <div className="import-sources">
             <p className="import-note">{t('Woraus möchtest du importieren?')}</p>
@@ -214,6 +237,18 @@ export function ImportDialog({ onClose, onImported }: Props) {
                 {LABEL[source]}
               </button>
             ))}
+            {offerGrant && (
+              <button
+                type="button"
+                className="import-source"
+                disabled={busy}
+                onClick={() => void guard(grantSsh)}
+                title={t('Damit UwUSSH ~/.ssh/config und deine Key-Dateien lesen darf')}
+              >
+                <Icon icon={ICONS.sshKey} className="text-muted" />
+                {t('~/.ssh freigeben…')}
+              </button>
+            )}
             <button
               type="button"
               className="import-source"
@@ -235,7 +270,7 @@ export function ImportDialog({ onClose, onImported }: Props) {
               <Icon icon={ICONS.file} className="text-muted" />
               {t('UwUSSH-Export (.uwussh)…')}
             </button>
-            {step.sources.length === 0 && (
+            {(step.sources.length === 0 || offerGrant) && (
               <p className="import-note">
                 {beforeConfig}
                 <code>~/.ssh/config</code>

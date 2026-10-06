@@ -1,5 +1,6 @@
 import { Button, Icon, IconButton, ICONS, Segmented } from '@uwusuite/design';
 import { useRef, useEffect, useState, type FormEvent } from 'react';
+import { pickKeyPath } from '../lib/flavor';
 import { N_, t } from '../lib/i18n';
 import { keyPublicLine, listKeys, type KeyRecord } from '../lib/keys';
 import {
@@ -40,7 +41,10 @@ const PROBLEMS: Record<string, Record<string, string>> = {
     required: N_('Benutzername fehlt'),
     whitespace: N_('Der Benutzername darf keine Leerzeichen enthalten'),
   },
-  keyPath: { required: N_('Pfad zur Key-Datei fehlt') },
+  keyPath: {
+    required: N_('Pfad zur Key-Datei fehlt'),
+    unpickable: N_('Keys auf Netzlaufwerken liest UwUSSH nicht'),
+  },
   keyId: { unknown: N_('Diesen Key gibt es nicht mehr'), required: N_('Wähle einen Key') },
   port: { 'out-of-range': N_('Port zwischen 1 und 65535') },
   password: { required: N_('Das Passwort ist leer') },
@@ -139,6 +143,16 @@ export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, o
       if (errors[field] || errors.form)
         setErrors((current) => ({ ...current, [field]: undefined, form: undefined }));
     };
+
+  /** A panel for the key file; in the store build that is also what lets the app read it. */
+  const pickKeyFile = () =>
+    void pickKeyPath()
+      .then((picked) => {
+        if (picked === null) return;
+        setKeyPath(picked);
+        setErrors((current) => ({ ...current, keyPath: undefined, form: undefined }));
+      })
+      .catch(() => setErrors((current) => ({ ...current, keyPath: PROBLEMS.keyPath?.unpickable })));
 
   const passwordChange = (): PasswordChange => {
     if (forget) return { kind: 'forget' };
@@ -427,24 +441,31 @@ export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, o
                   </div>
                 </>
               ) : (
-                <label className="field">
-                  <span>{t('Key-Datei')}</span>
-                  <input
-                    value={keyPath}
-                    onChange={edit('keyPath', setKeyPath)}
-                    placeholder="~/.ssh/id_ed25519"
-                    aria-invalid={Boolean(errors.keyPath)}
-                    autoComplete="off"
-                    spellCheck={false}
-                  />
-                  {errors.keyPath ? (
-                    <em className="field-error">{t(errors.keyPath)}</em>
-                  ) : (
-                    <em className="field-hint">
-                      {t('OpenSSH, PEM oder PuTTY-.ppk. Die Datei bleibt, wo sie ist.')}
-                    </em>
-                  )}
-                </label>
+                <>
+                  <label className="field">
+                    <span>{t('Key-Datei')}</span>
+                    <input
+                      value={keyPath}
+                      onChange={edit('keyPath', setKeyPath)}
+                      placeholder="~/.ssh/id_ed25519"
+                      aria-invalid={Boolean(errors.keyPath)}
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                    {errors.keyPath ? (
+                      <em className="field-error">{t(errors.keyPath)}</em>
+                    ) : (
+                      <em className="field-hint">
+                        {t('OpenSSH, PEM oder PuTTY-.ppk. Die Datei bleibt, wo sie ist.')}
+                      </em>
+                    )}
+                  </label>
+                  <div className="key-buttons">
+                    <Button size="sm" icon={ICONS.file} onClick={pickKeyFile}>
+                      {t('Datei wählen…')}
+                    </Button>
+                  </div>
+                </>
               )}
 
               {passwordBlock(

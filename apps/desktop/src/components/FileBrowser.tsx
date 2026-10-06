@@ -33,6 +33,7 @@ import {
   type Place,
   type TransferEvent,
 } from '../lib/files';
+import { forgetLocalFolder, pickLocalFolder } from '../lib/flavor';
 import { locale, t, useLanguage } from '../lib/i18n';
 import { hasPrimaryModifier } from '../lib/keymap';
 import { platform } from '../lib/platform';
@@ -190,6 +191,28 @@ export function FileBrowser({ host, open, onLive }: Props) {
       })
       .catch((e) => setLocal((pane) => ({ ...pane, error: String(e) })));
   }, [list]);
+
+  /**
+   * A folder from a panel. In the store build that is the only way to reach
+   * one, and it stays among the places; elsewhere it just opens.
+   */
+  const pickFolder = () =>
+    void pickLocalFolder()
+      .then(async (picked) => {
+        if (!picked) return;
+        setPlaces(await localPlaces());
+        void list('local', picked.path);
+      })
+      .catch((e) => setNotice(describeFilesFailure(asFilesFailure(e))));
+
+  /** Takes a picked folder off the places again. */
+  const forgetFolder = (place: Place) =>
+    void forgetLocalFolder(place.path)
+      .then(() => localPlaces())
+      .then(setPlaces)
+      .catch((e) => setNotice(describeFilesFailure(asFilesFailure(e))));
+
+  const pickedHere = places.find((p) => p.kind === 'picked' && p.path === local.path);
 
   // ── The server side ───────────────────────────────────────────────────────
 
@@ -484,19 +507,34 @@ export function FileBrowser({ host, open, onLive }: Props) {
           pane={local}
           dropping={dropSide === 'local'}
           toolbar={
-            <select
-              className="places"
-              value=""
-              onChange={(event) => event.target.value && void list('local', event.target.value)}
-              aria-label={t('Ort wählen')}
-            >
-              <option value="">{t('Orte…')}</option>
-              {places.map((place) => (
-                <option key={place.path} value={place.path}>
-                  {place.kind === 'drive' ? place.label : placeLabel(place)}
-                </option>
-              ))}
-            </select>
+            <>
+              <select
+                className="places"
+                value=""
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (value === PICK_FOLDER) pickFolder();
+                  else if (value) void list('local', value);
+                }}
+                aria-label={t('Ort wählen')}
+              >
+                <option value="">{t('Orte…')}</option>
+                {places.map((place) => (
+                  <option key={place.path} value={place.path}>
+                    {place.kind === 'drive' ? place.label : placeLabel(place)}
+                  </option>
+                ))}
+                <option value={PICK_FOLDER}>{t('Ordner wählen…')}</option>
+              </select>
+              {pickedHere && (
+                <IconButton
+                  icon={ICONS.close}
+                  size="sm"
+                  label={t('Aus den Orten entfernen')}
+                  onClick={() => forgetFolder(pickedHere)}
+                />
+              )}
+            </>
           }
           onNavigate={(path) => void list('local', path)}
           onUp={() => void up('local')}
@@ -814,6 +852,9 @@ export function FileBrowser({ host, open, onLive }: Props) {
     </div>
   );
 }
+
+/** The places menu's last entry: a folder panel instead of a path. */
+const PICK_FOLDER = ':pick';
 
 function placeLabel(place: Place) {
   return (

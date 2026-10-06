@@ -125,5 +125,11 @@
   "Mindestens 8 Zeichen.": "At least 8 characters.",
   "Wiederholen": "Repeat",
   "Stimmt nicht überein.": "Doesn't match.",
-  "Ohne Geheimnisse ist die Datei lesbares JSON. Hosts mit gespeichertem Passwort fragen nach dem Import wieder beim Verbinden.": "Without secrets, the file is readable JSON. Hosts with a saved password will ask again when you connect after the import."
+  "Ohne Geheimnisse ist die Datei lesbares JSON. Hosts mit gespeichertem Passwort fragen nach dem Import wieder beim Verbinden.": "Without secrets, the file is readable JSON. Hosts with a saved password will ask again when you connect after the import.",
+  "Ordner wählen…": "Choose folder…",
+  "Aus den Orten entfernen": "Remove from places",
+  "In {folder} liegt keine config.": "There is no config in {folder}.",
+  "UwUSSH darf hier nur lesen, was du freigibst. Gib ~/.ssh frei, dann liest es {config}.": "UwUSSH may only read what you give it access to here. Share ~/.ssh and it reads {config}.",
+  "Damit UwUSSH ~/.ssh/config und deine Key-Dateien lesen darf": "So UwUSSH may read ~/.ssh/config and your key files",
+  "~/.ssh freigeben…": "Share ~/.ssh…"
 }
