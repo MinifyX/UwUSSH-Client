@@ -42,6 +42,7 @@ import {
   m0Autorun,
   m0Finish,
   sessionCanTypePassword,
+  saveHost,
   setHostPassword,
   setUpdateChannel,
   spawnShellSession,
@@ -64,7 +65,7 @@ import { shortcutFor, terminalKey, type ShortcutAction } from './lib/keymap';
 import { platform } from './lib/platform';
 import { markOnboardingDone, onboardingDecision, onboardingDone } from './lib/onboarding';
 import { getSettings, settingsWereStored, useSettings } from './lib/settings';
-import { localShellAvailable } from './lib/flavor';
+import { isAppStore, localShellAvailable, pickKeyPath } from './lib/flavor';
 import { setSshMacMenu } from './lib/macMenu';
 import { desktop, keysFor } from './lib/shortcuts';
 import { findLinkedHost } from './lib/links';
@@ -158,6 +159,16 @@ function describeFailure(failure: ConnectFailure, host: HostRecord): string {
     default:
       return t('Verbindung fehlgeschlagen ({kind}).', { kind: failure.kind });
   }
+}
+
+/** A failure from Rust as text: its message when it has one. */
+function describeError(error: unknown): string {
+  if (typeof error === 'object' && error !== null) {
+    const { message, kind } = error as { message?: unknown; kind?: unknown };
+    if (typeof message === 'string') return message;
+    if (typeof kind === 'string') return kind;
+  }
+  return String(error);
 }
 
 /** The keyboard goes nowhere: no element has focus. */
@@ -490,6 +501,24 @@ export function App() {
             sudo = answer.value;
             continue;
           }
+          case 'key-unreadable':
+            // The store build may read a key file only once it was picked in a
+            // panel (or lies in a folder that was): offer the panel, then retry.
+            if (isAppStore() && failure.keyPath !== '<vault>') {
+              return stop({
+                tone: 'error',
+                text: `${describeFailure(failure, host)} ${t('UwUSSH darf nur Dateien lesen, die du freigibst.')}`,
+                action: {
+                  label: t('Key-Datei wählen…'),
+                  run: () => void pickKeyAndRetry(id, host),
+                },
+              });
+            }
+            return stop({
+              tone: 'error',
+              text: describeFailure(failure, host),
+              action: retry ? undefined : { label: t('Nochmal'), run: () => void restart(id) },
+            });
           default:
             return stop({
               tone: 'error',
@@ -644,6 +673,41 @@ export function App() {
       return;
     }
     void startRef.current(id);
+  };
+
+  /**
+   * Store build, a key file the sandbox kept out: pick it in a panel (which
+   * lets the app in from then on), store it on the host when it lies
+   * elsewhere, and connect again.
+   */
+  const pickKeyAndRetry = async (id: string, host: HostRecord) => {
+    try {
+      const picked = await pickKeyPath();
+      if (picked === null) return;
+      if (picked !== host.keyPath) {
+        const saved = await saveHost({
+          id: host.id,
+          name: host.name,
+          address: host.address,
+          port: host.port,
+          username: host.username,
+          auth: 'key',
+          keyPath: picked,
+          groupPath: host.groupPath,
+          workspace: host.workspace,
+          keyId: null,
+          password: { kind: 'keep' },
+        });
+        hostsRef.current = hostsRef.current.map((h) => (h.id === saved.id ? saved : h));
+        void refreshHosts();
+      }
+      restart(id);
+    } catch (e) {
+      setAppNotice({
+        tone: 'error',
+        text: t('Key-Datei nicht übernommen: {error}', { error: describeError(e) }),
+      });
+    }
   };
 
   /** Opening a file tab's server side, through the same conversation. */
@@ -912,7 +976,8 @@ export function App() {
     boot ??= closeAllSessions()
       .catch(() => 0)
       .then(async () => ({
-        autorun: await m0Autorun().catch(() => false),
+        // The measurement spawns local programs, which the store build cannot.
+        autorun: localShellAvailable() && (await m0Autorun().catch(() => false)),
         link: await takeLink().catch(() => null),
       }));
     let cancelled = false;

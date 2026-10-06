@@ -1170,17 +1170,20 @@ function About({ onRunM0 }: { onRunM0: () => void }) {
           {t('Lizenz')}
         </Button>
       </div>
-      <details className="about-diagnostics">
-        <summary>{t('Diagnose')}</summary>
-        <p className="setting-description">
-          {t(
-            'Misst in einem eigenen Tab, wie schnell das Terminal Ausgabe verarbeitet (Meilenstein M0).',
-          )}
-        </p>
-        <Button size="sm" onClick={onRunM0}>
-          {t('Durchsatz messen')}
-        </Button>
-      </details>
+      {/* The measurement runs local programs in a terminal: none in the store build. */}
+      {localShellAvailable() && (
+        <details className="about-diagnostics">
+          <summary>{t('Diagnose')}</summary>
+          <p className="setting-description">
+            {t(
+              'Misst in einem eigenen Tab, wie schnell das Terminal Ausgabe verarbeitet (Meilenstein M0).',
+            )}
+          </p>
+          <Button size="sm" onClick={onRunM0}>
+            {t('Durchsatz messen')}
+          </Button>
+        </details>
+      )}
     </div>
   );
 }
