@@ -1291,20 +1291,11 @@ export function App() {
   performRef.current = perform;
 
   /**
-   * On a Mac a menu accelerator and the page's own keydown can both see the
-   * same ⌘ key. Whichever comes first acts; the other is dropped, so ⌘T opens
-   * one shell and not two.
+   * The actions whose keys belong to the macOS menu bar right now (its
+   * accelerators, see the menu below). Empty until the menu is set, and off
+   * macOS, so the page then handles every shortcut itself.
    */
-  const lastShortcut = useRef({ key: '', at: 0 });
-  const once = (action: ShortcutAction) => {
-    const key = JSON.stringify(action);
-    const now = performance.now();
-    if (lastShortcut.current.key === key && now - lastShortcut.current.at < 150) return;
-    lastShortcut.current = { key, at: now };
-    performRef.current(action);
-  };
-  const onceRef = useRef(once);
-  onceRef.current = once;
+  const menuKeys = useRef<ReadonlySet<ShortcutAction['kind']>>(new Set());
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -1330,9 +1321,18 @@ export function App() {
       // keyboard — the file list selects its own files.
       if (action.kind === 'copy' && inTextField(event.target)) return;
       if (action.kind === 'select-all' && !inTerminal(event.target)) return;
+      if (menuKeys.current.has(action.kind)) {
+        // The menu bar has this key (⌘T, ⌘W, ⌘D, ⌘,, ⇧⌘F, ⇧⌘P, ⌘K). WebKit
+        // offers a ⌘ key to the page first and to the menu only when the
+        // page leaves it alone, so the page must not take it: the menu acts,
+        // exactly once, and ⌘W with no tab still reaches it to hide the
+        // window. The terminal must not see it either.
+        event.stopPropagation();
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
-      onceRef.current(action);
+      performRef.current(action);
     };
     // Capture phase: the terminal must not see the app's own shortcuts.
     window.addEventListener('keydown', onKey, true);
@@ -1341,12 +1341,12 @@ export function App() {
 
   /**
    * The menu bar acts like the keyboard: nothing while a dialog is open (the
-   * dialog has the window), the shown tab otherwise. Its accelerators reach
-   * AppKit before the page, so the menu is where ⌘T, ⌘W, ⌘D, ⇧⌘F, ⇧⌘P and
-   * ⌘K are handled on a Mac.
+   * dialog has the window), the shown tab otherwise. On a Mac the menu is
+   * where ⌘T, ⌘W, ⌘D, ⌘,, ⇧⌘F, ⇧⌘P and ⌘K are handled; the page's keydown
+   * leaves them to it (`menuKeys`), so each acts once without any timing.
    */
   const fromMenu = (action: ShortcutAction) => () => {
-    if (!modalRef.current) onceRef.current(action);
+    if (!modalRef.current) performRef.current(action);
   };
 
   // ⌘W with no tab open, and "Fenster schließen": the window hides, the
@@ -1365,7 +1365,7 @@ export function App() {
     void setSshMacMenu({
       appName: 'UwUSSH',
       lang,
-      onSettings: () => setSettingsOpen('appearance'),
+      onSettings: fromMenu({ kind: 'settings' }),
       file: [
         ...(shell
           ? [
@@ -1437,7 +1437,23 @@ export function App() {
         { text: t('Versionshinweise'), action: () => void openProjectPage('releases') },
         { text: t('Problem melden'), action: () => void openProjectPage('issues') },
       ],
-    }).catch(() => undefined);
+    })
+      .then(() => {
+        // Every action given an accelerator above, and nothing else.
+        menuKeys.current = new Set<ShortcutAction['kind']>([
+          ...(shell ? (['new-shell'] as const) : []),
+          'close-tab',
+          'settings',
+          'duplicate-tab',
+          'open-files',
+          'type-password',
+          'assist',
+        ]);
+      })
+      .catch(() => {
+        // No menu bar: the page keeps every shortcut.
+        menuKeys.current = new Set();
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lang, hasTabs, activeKind, activeCanType]);
 
