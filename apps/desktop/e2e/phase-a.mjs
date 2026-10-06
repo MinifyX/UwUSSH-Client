@@ -379,13 +379,13 @@ await page.waitFor(
   },
 );
 await page.click('.settings-nav button', 'Terminal');
-await page.click('.segmented button', 'Strich');
+await page.click('.settings-content [role=radio]', 'Strich');
 await sleep(200);
 check(
   'a terminal setting reaches the open terminals right away',
   (await page.eval(`window.__uwusshDriver.term.options.cursorStyle`)) === 'bar',
 );
-await page.click('.segmented button', 'Block');
+await page.click('.settings-content [role=radio]', 'Block');
 await page.click('.settings-nav button', 'Updates');
 // A beta build starts on the beta channel, a release on the stable one.
 const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
@@ -393,7 +393,7 @@ const channel = version.includes('-') ? 'Beta' : 'Stabil';
 check(
   `a ${version.includes('-') ? 'beta build' : 'release'} is on the ${channel} channel`,
   await page.eval(
-    `[...document.querySelectorAll('.segmented button')].find(b => b.textContent === '${channel}')?.getAttribute('aria-checked') === 'true'`,
+    `[...document.querySelectorAll('.settings-content [role=radio]')].find(b => b.textContent === '${channel}')?.getAttribute('aria-checked') === 'true'`,
   ),
 );
 await shot('10d-settings');
@@ -401,7 +401,7 @@ await shot('10d-settings');
 // ── English: the whole app switches at once, and back ─────────────────────
 const topTitle = `[...document.querySelectorAll('.modal-title')].pop()?.textContent`;
 await page.click('.settings-nav button', 'Darstellung');
-await page.click('.segmented button', 'English');
+await page.click('.settings-content [role=radio]', 'English');
 await page.waitFor(`${topTitle} === 'Settings'`, { what: 'settings in English' });
 check(
   'switching to English translates the open dialog right away',
@@ -428,7 +428,7 @@ await page.waitFor(`!document.querySelector('.modal')`, { what: 'English host fo
 await page.click('.titlebar-action[aria-label="Settings"]');
 await page.waitFor(`${topTitle} === 'Settings'`, { what: 'settings again' });
 await page.click('.settings-nav button', 'Appearance');
-await page.click('.segmented button', 'Deutsch');
+await page.click('.settings-content [role=radio]', 'Deutsch');
 await page.waitFor(`${topTitle} === 'Einstellungen'`, { what: 'settings back in German' });
 check('and back to German', await page.eval(`document.documentElement.lang === 'de'`));
 await page.key('Escape');

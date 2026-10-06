@@ -92,11 +92,9 @@
   "{count} Hosts": "{count} hosts",
   "Public Key kopieren": "Copy public key",
   "Public Key von {label} kopieren": "Copy public key of {label}",
-  "Als Datei exportieren": "Export as file",
   "{label} exportieren": "Export {label}",
   "Umbenennen": "Rename",
   "{label} umbenennen": "Rename {label}",
-  "Wird noch benutzt": "Still in use",
   "Löschen": "Delete",
   "{label} löschen": "Delete {label}",
   "Key umbenennen": "Rename key",
@@ -308,5 +306,12 @@
   "Vorheriger Tab": "Previous tab",
   "{first} … {last}": "{first} … {last}",
   "Zeilenanfang · Zeilenende · Zeile bis zum Cursor löschen": "Start of line · end of line · delete to the start of the line",
-  "{key}+Mausrad": "{key}+mouse wheel"
+  "{key}+Mausrad": "{key}+mouse wheel",
+  "Kontrast": "Contrast",
+  "Normal": "Normal",
+  "Hoch": "High",
+  "Schrift": "Font",
+  "Verbinden 0123 Il1 O0": "Connect 0123 Il1 O0",
+  "Die Schrift der Oberfläche, nur auf diesem Gerät. UwU Sans ist die Schrift aller UwU-Apps. Das Terminal behält seine eigene.": "The interface font, on this device only. UwU Sans is the font of all UwU apps. The terminal keeps its own.",
+  "{label}: wird noch benutzt": "{label}: still in use"
 }

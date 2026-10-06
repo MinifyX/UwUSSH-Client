@@ -1,4 +1,22 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import {
+  Button,
+  FONT_CHOICES,
+  FONT_NAMES,
+  FONT_STACKS,
+  Icon,
+  IconButton,
+  ICONS,
+  Nyu as SuiteNyu,
+  Segmented,
+  Select,
+  SettingRow,
+  Switch,
+  Tag,
+  TextInput,
+  Wordmark,
+  type FontChoice,
+} from '@uwusuite/design';
+import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react';
 import pkg from '../../package.json';
 import { customRegex, HIGHLIGHT_HEX } from '../lib/highlight';
 import { locale, N_, t, useLanguage } from '../lib/i18n';
@@ -41,15 +59,14 @@ import {
   type HighlightRule,
   type StartupSetting,
 } from '../lib/settings';
+import { localShellAvailable, updatesAvailableInApp } from '../lib/flavor';
 import { systemName } from '../lib/platform';
 import { allKeysFor, isMac, keysFor, keysForTab, primaryModifier } from '../lib/shortcuts';
 import { AssistSettings } from './AssistSettings';
 import { ExportDialog } from './ExportDialog';
 import { SyncSettings } from './SyncSettings';
-import { Icon } from './Icon';
 import { KeyImportDialog, KeygenDialog } from './keygen/KeyDialogs';
 import { Modal } from './Modal';
-import { Nyu } from './nyu/Nyu';
 import { VaultDialog } from './VaultDialog';
 
 export type SettingsSection =
@@ -90,7 +107,10 @@ type Props = {
   onRestartOnboarding: () => void;
 };
 
-/** One setting: a label, an optional explanation and its control. */
+/**
+ * One setting: a label, an optional explanation (plain text) and its control,
+ * on @uwusuite/design's SettingRow. Several controls sit side by side.
+ */
 export function Row({
   label,
   description,
@@ -101,44 +121,13 @@ export function Row({
   children: ReactNode;
 }) {
   return (
-    <div className="setting-row">
-      <div className="setting-text">
-        <p className="setting-label">{label}</p>
-        {description && <p className="setting-description">{description}</p>}
-      </div>
-      <div className="setting-control">{children}</div>
-    </div>
+    <SettingRow label={label} description={description}>
+      <div className="flex flex-wrap items-center justify-end gap-2">{children}</div>
+    </SettingRow>
   );
 }
 
-export function Segmented<T extends string | number>({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: T;
-  options: { value: T; label: string }[];
-  onChange: (value: T) => void;
-}) {
-  return (
-    <div className="segmented" role="radiogroup" aria-label={label}>
-      {options.map((option) => (
-        <button
-          key={String(option.value)}
-          type="button"
-          role="radio"
-          aria-checked={option.value === value}
-          onClick={() => onChange(option.value)}
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
+/** An on/off setting: the package's Switch, named by its row. */
 export function Toggle({
   label,
   checked,
@@ -148,17 +137,50 @@ export function Toggle({
   checked: boolean;
   onChange: (checked: boolean) => void;
 }) {
+  return <Switch label={label} checked={checked} onChange={onChange} />;
+}
+
+/**
+ * Settings → Darstellung → Schrift: the package's choices (UwU Sans, Manrope,
+ * Rubik, DM Sans, the system's), each one shown in itself, as in UwULock.
+ * The arrow keys move the choice, like Segmented. The terminal keeps its own
+ * font size (Settings → Terminal).
+ */
+function FontPicker({
+  value,
+  onChange,
+}: {
+  value: FontChoice;
+  onChange: (font: FontChoice) => void;
+}) {
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
+    if (!step) return;
+    event.preventDefault();
+    const index = FONT_CHOICES.indexOf(value);
+    const next = (index + step + FONT_CHOICES.length) % FONT_CHOICES.length;
+    onChange(FONT_CHOICES[next]!);
+    event.currentTarget.querySelectorAll<HTMLButtonElement>('[role=radio]')[next]?.focus();
+  };
   return (
-    <button
-      type="button"
-      role="switch"
-      className="toggle"
-      aria-checked={checked}
-      aria-label={label}
-      onClick={() => onChange(!checked)}
-    >
-      <span className="toggle-thumb" />
-    </button>
+    <div className="font-picker" role="radiogroup" aria-label={t('Schrift')} onKeyDown={onKeyDown}>
+      {FONT_CHOICES.map((choice) => (
+        <button
+          key={choice}
+          type="button"
+          role="radio"
+          aria-checked={value === choice}
+          tabIndex={value === choice ? 0 : -1}
+          onClick={() => onChange(choice)}
+          style={{ fontFamily: FONT_STACKS[choice] }}
+        >
+          <span className="font-picker-name">
+            {choice === 'system' ? t('System') : FONT_NAMES[choice]}
+          </span>
+          <span className="font-picker-sample">{t('Verbinden 0123 Il1 O0')}</span>
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -194,6 +216,21 @@ function Appearance({ onRestartOnboarding }: { onRestartOnboarding: () => void }
         />
       </Row>
       <Row
+        label={t('Kontrast')}
+        description={t('„System“ folgt der Einstellung von {system}.', { system: systemName() })}
+      >
+        <Segmented
+          label={t('Kontrast')}
+          value={settings.contrast}
+          onChange={(contrast) => updateSettings({ contrast })}
+          options={[
+            { value: 'system', label: t('System') },
+            { value: 'normal', label: t('Normal') },
+            { value: 'high', label: t('Hoch') },
+          ]}
+        />
+      </Row>
+      <Row
         label={t('Animationen')}
         description={t('„System“ folgt der Einstellung von {system}.', { system: systemName() })}
       >
@@ -208,6 +245,17 @@ function Appearance({ onRestartOnboarding }: { onRestartOnboarding: () => void }
           ]}
         />
       </Row>
+      <div className="flex flex-col gap-3 border-b border-hairline py-3.5">
+        <div className="flex flex-col gap-0.5">
+          <p className="text-body font-semibold">{t('Schrift')}</p>
+          <p className="text-[12.5px] text-muted">
+            {t(
+              'Die Schrift der Oberfläche, nur auf diesem Gerät. UwU Sans ist die Schrift aller UwU-Apps. Das Terminal behält seine eigene.',
+            )}
+          </p>
+        </div>
+        <FontPicker value={settings.font} onChange={(font) => updateSettings({ font })} />
+      </div>
       <Row
         label={t('Privat und Business')}
         description={t(
@@ -227,9 +275,9 @@ function Appearance({ onRestartOnboarding }: { onRestartOnboarding: () => void }
         >
           <div className="workspace-names">
             {(['private', 'business'] as const).map((id) => (
-              <input
+              <TextInput
                 key={id}
-                className="search"
+                className="h-9"
                 value={settings.workspaceNames[id]}
                 placeholder={id === 'private' ? t('Privat') : t('Business')}
                 maxLength={24}
@@ -262,7 +310,9 @@ function Appearance({ onRestartOnboarding }: { onRestartOnboarding: () => void }
           'Design, Tresor und Sync, Import und KI noch einmal Schritt für Schritt. Was schon eingerichtet ist, bleibt.',
         )}
       >
-        <button onClick={onRestartOnboarding}>{t('Einrichtung erneut starten')}</button>
+        <Button size="sm" onClick={onRestartOnboarding}>
+          {t('Einrichtung erneut starten')}
+        </Button>
       </Row>
     </>
   );
@@ -281,8 +331,8 @@ function TerminalSettings() {
         label={t('Schriftgröße')}
         description={t('Oder {key} + Mausrad über dem Terminal.', { key: primaryModifier() })}
       >
-        <select
-          className="select"
+        <Select
+          className="w-28"
           aria-label={t('Schriftgröße')}
           value={settings.fontSize}
           onChange={(event) => updateSettings({ fontSize: Number(event.target.value) })}
@@ -292,7 +342,7 @@ function TerminalSettings() {
               {size} px
             </option>
           ))}
-        </select>
+        </Select>
       </Row>
       <Row label={t('Cursor')}>
         <Segmented<CursorStyle>
@@ -319,10 +369,12 @@ function TerminalSettings() {
       >
         <Segmented
           label={t('Scrollback')}
-          value={settings.scrollback}
-          onChange={(scrollback) => updateSettings({ scrollback })}
+          value={String(settings.scrollback)}
+          onChange={(lines) =>
+            updateSettings({ scrollback: Number(lines) as (typeof SCROLLBACK_CHOICES)[number] })
+          }
           options={SCROLLBACK_CHOICES.map((lines) => ({
-            value: lines,
+            value: String(lines),
             label: lines.toLocaleString(locale()),
           }))}
         />
@@ -379,10 +431,14 @@ function TerminalSettings() {
         />
       </Row>
       <div className="shortcuts">
-        <p className="setting-label">{t('Tastenkürzel')}</p>
+        <p className="text-body font-semibold">{t('Tastenkürzel')}</p>
         <dl>
-          <dt>{keysFor('new-shell')}</dt>
-          <dd>{t('Neue lokale Shell')}</dd>
+          {localShellAvailable() && (
+            <>
+              <dt>{keysFor('new-shell')}</dt>
+              <dd>{t('Neue lokale Shell')}</dd>
+            </>
+          )}
           <dt>{keysFor('duplicate-tab')}</dt>
           <dd>{t('Tab duplizieren (neue Verbindung zum selben Host)')}</dd>
           <dt>{keysFor('close-tab')}</dt>
@@ -444,11 +500,16 @@ function StartupRow() {
       >
         <Segmented<StartupSetting>
           label={t('Beim Start öffnen')}
-          value={settings.startup}
+          value={
+            settings.startup === 'shell' && !localShellAvailable() ? 'nothing' : settings.startup
+          }
           onChange={(startup) => updateSettings({ startup })}
           options={[
             { value: 'nothing', label: t('Nichts') },
-            { value: 'shell', label: t('Lokale Shell') },
+            // The App Store build has no local shell.
+            ...(localShellAvailable()
+              ? [{ value: 'shell' as const, label: t('Lokale Shell') }]
+              : []),
             { value: 'hosts', label: t('Hosts') },
           ]}
         />
@@ -589,7 +650,7 @@ function Highlighting() {
           ))}
 
           <div className="highlight-custom">
-            <p className="setting-label">{t('Eigene Regeln')}</p>
+            <p className="text-body font-semibold">{t('Eigene Regeln')}</p>
             {highlight.custom.length === 0 && (
               <p className="setting-description">
                 {t(
@@ -602,17 +663,17 @@ function Highlighting() {
                 <li key={rule.id}>
                   <Swatch color={rule.color} />
                   <code style={{ color: HIGHLIGHT_HEX[rule.color] }}>{rule.pattern}</code>
-                  {rule.regex && <span className="rule-tag">Regex</span>}
+                  {rule.regex && <Tag>Regex</Tag>}
                   <span className="spacer" />
-                  <button
-                    className="icon-button"
+                  <IconButton
+                    size="sm"
+                    icon={ICONS.delete}
+                    className="text-stage-muted hover:text-stage-ink"
+                    label={t('Regel {pattern} löschen', { pattern: rule.pattern })}
                     onClick={() =>
                       set({ custom: highlight.custom.filter((r) => r.id !== rule.id) })
                     }
-                    aria-label={t('Regel {pattern} löschen', { pattern: rule.pattern })}
-                  >
-                    <Icon name="trash" size={15} />
-                  </button>
+                  />
                 </li>
               ))}
             </ul>
@@ -623,8 +684,8 @@ function Highlighting() {
                 add();
               }}
             >
-              <input
-                className="search"
+              <TextInput
+                className="h-10 flex-1"
                 value={pattern}
                 placeholder={regex ? t('Regex, z. B. INC-\\d+') : t('Wort, z. B. prod')}
                 spellCheck={false}
@@ -632,8 +693,8 @@ function Highlighting() {
                 onChange={(e) => setPattern(e.target.value)}
                 aria-label={t('Muster')}
               />
-              <select
-                className="select"
+              <Select
+                className="w-32 [&>select]:h-10"
                 value={color}
                 onChange={(e) => setColor(e.target.value as HighlightColor)}
                 aria-label={t('Farbe')}
@@ -643,7 +704,7 @@ function Highlighting() {
                     {t(COLOR_NAMES[c])}
                   </option>
                 ))}
-              </select>
+              </Select>
               <label className="check inline">
                 <input
                   type="checkbox"
@@ -652,9 +713,9 @@ function Highlighting() {
                 />
                 <span>Regex</span>
               </label>
-              <button type="submit" className="primary" disabled={!valid}>
+              <Button type="submit" variant="primary" icon={ICONS.add} disabled={!valid}>
                 {t('Hinzufügen')}
-              </button>
+              </Button>
             </form>
           </div>
 
@@ -662,7 +723,7 @@ function Highlighting() {
             <span>systemctl status nginx</span>
             {'\n'}● nginx.service – <span style={{ color: HIGHLIGHT_HEX.green }}>active</span> (
             <span style={{ color: HIGHLIGHT_HEX.green }}>running</span>) on{' '}
-            <span style={{ color: HIGHLIGHT_HEX.blue }}>10.0.0.12:443</span>
+            <span style={{ color: HIGHLIGHT_HEX.blue }}>192.0.2.12:443</span>
             {'\n'}
             <span style={{ color: HIGHLIGHT_HEX.yellow }}>warning</span>: certificate expires soon
             {'\n'}
@@ -740,9 +801,14 @@ function Vault({ onChanged }: { onChanged: () => void }) {
           {status ? text[status] : error ? error : t('Wird geprüft …')}
         </span>
         {status !== 'unlocked' && (
-          <button className="primary" onClick={() => setDialog({ kind: 'vault' })}>
+          <Button
+            size="sm"
+            variant="primary"
+            icon={status === 'absent' ? ICONS.vault : ICONS.unlocked}
+            onClick={() => setDialog({ kind: 'vault' })}
+          >
             {status === 'absent' ? t('Anlegen') : t('Entsperren')}
-          </button>
+          </Button>
         )}
       </Row>
       {status !== 'absent' && (
@@ -779,22 +845,27 @@ function Vault({ onChanged }: { onChanged: () => void }) {
                 )
           }
         >
-          <button onClick={() => void guard(lockVault)}>{t('Jetzt sperren')}</button>
+          <Button size="sm" icon={ICONS.locked} onClick={() => void guard(lockVault)}>
+            {t('Jetzt sperren')}
+          </Button>
         </Row>
       )}
 
       <div className="key-list">
         <div className="key-list-head">
-          <p className="setting-label">{t('SSH-Keys im Tresor')}</p>
+          <p className="text-body font-semibold">{t('SSH-Keys im Tresor')}</p>
           <span className="spacer" />
-          <button onClick={() => setDialog({ kind: 'import' })}>
-            <Icon name="import" size={15} />
+          <Button size="sm" icon={ICONS.import} onClick={() => setDialog({ kind: 'import' })}>
             {t('Importieren…')}
-          </button>
-          <button className="primary" onClick={() => setDialog({ kind: 'keygen' })}>
-            <Icon name="sparkles" size={15} />
+          </Button>
+          <Button
+            size="sm"
+            variant="primary"
+            icon={ICONS.generate}
+            onClick={() => setDialog({ kind: 'keygen' })}
+          >
             {t('Erzeugen…')}
-          </button>
+          </Button>
         </div>
         {keys.length === 0 ? (
           <p className="setting-description">
@@ -806,7 +877,7 @@ function Vault({ onChanged }: { onChanged: () => void }) {
           <ul>
             {keys.map((key) => (
               <li key={key.id}>
-                <Icon name="key" size={16} />
+                <Icon icon={ICONS.sshKey} className="text-pink-ink" />
                 <span className="key-list-text">
                   <b>{key.label}</b>
                   <small>
@@ -818,10 +889,10 @@ function Vault({ onChanged }: { onChanged: () => void }) {
                   </small>
                 </span>
                 <span className="spacer" />
-                <button
-                  className="icon-button"
-                  title={t('Public Key kopieren')}
-                  aria-label={t('Public Key von {label} kopieren', { label: key.label })}
+                <IconButton
+                  size="sm"
+                  icon={copied === key.id ? ICONS.done : ICONS.copy}
+                  label={t('Public Key von {label} kopieren', { label: key.label })}
                   onClick={() =>
                     void guard(async () => {
                       await navigator.clipboard.writeText(await keyPublicLine(key.id));
@@ -829,36 +900,32 @@ function Vault({ onChanged }: { onChanged: () => void }) {
                       window.setTimeout(() => setCopied(null), 1600);
                     })
                   }
-                >
-                  <Icon name={copied === key.id ? 'check' : 'copy'} size={15} />
-                </button>
-                <button
-                  className="icon-button"
-                  title={t('Als Datei exportieren')}
-                  aria-label={t('{label} exportieren', { label: key.label })}
+                />
+                <IconButton
+                  size="sm"
+                  icon={ICONS.export}
+                  label={t('{label} exportieren', { label: key.label })}
                   onClick={() =>
                     setDialog({ kind: 'export', key, format: 'openssh', passphrase: '' })
                   }
-                >
-                  <Icon name="export" size={15} />
-                </button>
-                <button
-                  className="icon-button"
-                  title={t('Umbenennen')}
-                  aria-label={t('{label} umbenennen', { label: key.label })}
+                />
+                <IconButton
+                  size="sm"
+                  icon={ICONS.edit}
+                  label={t('{label} umbenennen', { label: key.label })}
                   onClick={() => setDialog({ kind: 'rename', key, label: key.label })}
-                >
-                  <Icon name="pencil" size={15} />
-                </button>
-                <button
-                  className="icon-button"
-                  title={key.hosts > 0 ? t('Wird noch benutzt') : t('Löschen')}
-                  aria-label={t('{label} löschen', { label: key.label })}
+                />
+                <IconButton
+                  size="sm"
+                  icon={ICONS.delete}
+                  label={
+                    key.hosts > 0
+                      ? t('{label}: wird noch benutzt', { label: key.label })
+                      : t('{label} löschen', { label: key.label })
+                  }
                   disabled={key.hosts > 0}
                   onClick={() => void guard(() => deleteKey(key.id))}
-                >
-                  <Icon name="trash" size={15} />
-                </button>
+                />
               </li>
             ))}
           </ul>
@@ -891,12 +958,11 @@ function Vault({ onChanged }: { onChanged: () => void }) {
           onCancel={() => setDialog(null)}
           footer={
             <>
-              <span className="spacer" />
-              <button data-secondary onClick={() => setDialog(null)}>
+              <Button data-secondary onClick={() => setDialog(null)}>
                 {t('Abbrechen')}
-              </button>
-              <button
-                className="primary"
+              </Button>
+              <Button
+                variant="primary"
                 onClick={() => {
                   const { key, label } = dialog;
                   setDialog(null);
@@ -904,7 +970,7 @@ function Vault({ onChanged }: { onChanged: () => void }) {
                 }}
               >
                 {t('Speichern')}
-              </button>
+              </Button>
             </>
           }
         >
@@ -924,12 +990,11 @@ function Vault({ onChanged }: { onChanged: () => void }) {
           onCancel={() => setDialog(null)}
           footer={
             <>
-              <span className="spacer" />
-              <button data-secondary onClick={() => setDialog(null)}>
+              <Button data-secondary onClick={() => setDialog(null)}>
                 {t('Abbrechen')}
-              </button>
-              <button
-                className="primary"
+              </Button>
+              <Button
+                variant="primary"
                 onClick={() => {
                   const { key, format, passphrase } = dialog;
                   setDialog(null);
@@ -937,14 +1002,13 @@ function Vault({ onChanged }: { onChanged: () => void }) {
                 }}
               >
                 {t('Speichern unter…')}
-              </button>
+              </Button>
             </>
           }
         >
           <label className="field">
             <span>{t('Format')}</span>
-            <select
-              className="select"
+            <Select
               value={dialog.format}
               onChange={(e) => setDialog({ ...dialog, format: e.target.value as PrivateFormat })}
             >
@@ -953,7 +1017,7 @@ function Vault({ onChanged }: { onChanged: () => void }) {
                   {FORMAT_LABELS[value]}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
           <label className="field">
             <span>{t('Passphrase für die Datei (optional)')}</span>
@@ -986,10 +1050,9 @@ function Data({ onImport }: { onImport: () => void }) {
           'Alle Hosts mit Bereichen, Gruppen und Host-Keys in eine .uwussh-Datei – auf Wunsch mit Passwörtern und Keys, dann mit eigenem Passwort verschlüsselt.',
         )}
       >
-        <button onClick={() => setExporting(true)}>
-          <Icon name="export" size={15} />
+        <Button size="sm" icon={ICONS.export} onClick={() => setExporting(true)}>
           {t('Exportieren…')}
-        </button>
+        </Button>
       </Row>
       <Row
         label={t('Importieren')}
@@ -997,10 +1060,9 @@ function Data({ onImport }: { onImport: () => void }) {
           'Aus einer .uwussh-Datei, aus Termius, PuTTY, KiTTY oder ~/.ssh/config. Schon vorhandene Hosts werden übersprungen.',
         )}
       >
-        <button onClick={onImport}>
-          <Icon name="import" size={15} />
+        <Button size="sm" icon={ICONS.import} onClick={onImport}>
           {t('Importieren…')}
-        </button>
+        </Button>
       </Row>
       {exporting && <ExportDialog onClose={() => setExporting(false)} />}
     </>
@@ -1046,12 +1108,14 @@ function Updates({
         )}
       >
         {update ? (
-          <button className="primary" onClick={onInstallUpdate}>
+          <Button size="sm" variant="primary" icon={ICONS.download} onClick={onInstallUpdate}>
             {t('{version} installieren', { version: update.version })}
-          </button>
+          </Button>
         ) : (
-          <button
-            disabled={checking}
+          <Button
+            size="sm"
+            busy={checking}
+            icon={ICONS.refresh}
             onClick={async () => {
               setChecking(true);
               setResult(null);
@@ -1070,7 +1134,7 @@ function Updates({
             }}
           >
             {checking ? t('Sucht …') : t('Nach Updates suchen')}
-          </button>
+          </Button>
         )}
       </Row>
       {result && (
@@ -1087,10 +1151,8 @@ function About({ onRunM0 }: { onRunM0: () => void }) {
   const open = (page: ProjectPage) => void openProjectPage(page).catch(() => undefined);
   return (
     <div className="about">
-      <Nyu size={88} mood="happy" title="Nyu" />
-      <p className="about-name">
-        <span>UwU</span>SSH
-      </p>
+      <SuiteNyu shell="terminal" size={88} mood="happy" title="Nyu" />
+      <Wordmark product="SSH" className="mt-1.5 text-title" />
       <p className="about-version">{t('Version {version}', { version: pkg.version })}</p>
       <p className="about-text">
         {t(
@@ -1098,9 +1160,15 @@ function About({ onRunM0 }: { onRunM0: () => void }) {
         )}
       </p>
       <div className="about-actions">
-        <button onClick={() => open('source')}>{t('Quellcode auf GitHub')}</button>
-        <button onClick={() => open('releases')}>{t('Versionen')}</button>
-        <button onClick={() => open('license')}>{t('Lizenz')}</button>
+        <Button size="sm" icon={ICONS.openExternal} onClick={() => open('source')}>
+          {t('Quellcode auf GitHub')}
+        </Button>
+        <Button size="sm" icon={ICONS.openExternal} onClick={() => open('releases')}>
+          {t('Versionen')}
+        </Button>
+        <Button size="sm" icon={ICONS.openExternal} onClick={() => open('license')}>
+          {t('Lizenz')}
+        </Button>
       </div>
       <details className="about-diagnostics">
         <summary>{t('Diagnose')}</summary>
@@ -1109,7 +1177,9 @@ function About({ onRunM0 }: { onRunM0: () => void }) {
             'Misst in einem eigenen Tab, wie schnell das Terminal Ausgabe verarbeitet (Meilenstein M0).',
           )}
         </p>
-        <button onClick={onRunM0}>{t('Durchsatz messen')}</button>
+        <Button size="sm" onClick={onRunM0}>
+          {t('Durchsatz messen')}
+        </Button>
       </details>
     </div>
   );
@@ -1127,12 +1197,17 @@ export function SettingsDialog({
   onRestartOnboarding,
 }: Props) {
   useLanguage();
-  const [section, setSection] = useState<SettingsSection>(initial);
+  // The App Store build updates through the App Store: no Updates section.
+  const updates = updatesAvailableInApp();
+  const sections = SECTIONS.filter((s) => updates || s.id !== 'updates');
+  const [section, setSection] = useState<SettingsSection>(
+    initial === 'updates' && !updates ? 'about' : initial,
+  );
   return (
     <Modal title={t('Einstellungen')} size="wide" onCancel={onClose}>
       <div className="settings">
         <nav className="settings-nav" aria-label={t('Bereiche')}>
-          {SECTIONS.map(({ id, label }) => (
+          {sections.map(({ id, label }) => (
             <button
               key={id}
               type="button"
@@ -1151,7 +1226,7 @@ export function SettingsDialog({
           {section === 'assist' && <AssistSettings />}
           {section === 'sync' && <SyncSettings />}
           {section === 'data' && <Data onImport={onImport} />}
-          {section === 'updates' && (
+          {section === 'updates' && updates && (
             <Updates
               update={update}
               onUpdateFound={onUpdateFound}
@@ -1161,9 +1236,6 @@ export function SettingsDialog({
           {section === 'about' && <About onRunM0={onRunM0} />}
         </div>
       </div>
-      <button className="settings-close icon-button" onClick={onClose} aria-label={t('Schließen')}>
-        ×
-      </button>
     </Modal>
   );
 }

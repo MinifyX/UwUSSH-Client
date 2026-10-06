@@ -89,10 +89,10 @@
 
 .settings {
   display: grid;
-  grid-template-columns: 170px 1fr;
-  gap: 20px;
+  grid-template-columns: 170px minmax(0, 1fr);
+  gap: var(--uwu-space-5);
   min-height: 0;
-  height: 100%;
+  height: min(560px, calc(100svh - 160px));
 }
 
 .settings-nav {
@@ -101,49 +101,42 @@
   gap: 2px;
 }
 
+/* Its own look: the legacy button rules in base.css don't reach it. */
 .settings-nav button {
+  display: flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 var(--uwu-space-3);
   border: 0;
+  border-radius: var(--uwu-radius-pill);
   background: transparent;
-  text-align: left;
+  font-size: var(--uwu-text-meta);
+  font-weight: 500;
   color: var(--uwu-muted);
-  padding: 9px 12px;
+  text-align: left;
+  transition:
+    background-color var(--uwu-duration-fast),
+    color var(--uwu-duration-fast);
+}
+
+.settings-nav button:hover {
+  background: color-mix(in srgb, var(--uwu-pink-tint) 45%, transparent);
+  color: var(--uwu-ink);
 }
 
 .settings-nav button[aria-current='page'] {
   background: var(--uwu-pink-tint);
   color: var(--uwu-pink-ink);
+  font-weight: 600;
 }
 
 .settings-content {
   min-height: 0;
   overflow-y: auto;
-  padding-right: 4px;
+  padding-right: var(--uwu-space-1);
 }
 
-.settings-close {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  font-size: 18px;
-}
-
-.setting-row {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--uwu-hairline);
-}
-
-.setting-row:last-child {
-  border-bottom: 0;
-}
-
-.setting-text {
-  flex: 1;
-  min-width: 0;
-}
-
+/* A heading or explanation inside a settings page or the sync forms. */
 .setting-label {
   margin: 0;
   font-weight: 600;
@@ -152,18 +145,13 @@
 .setting-description {
   margin: 2px 0 0;
   font-size: 12.5px;
-  line-height: 1.45;
+  line-height: var(--uwu-leading);
   color: var(--uwu-muted);
 }
 
-.setting-control {
-  flex: none;
-  max-width: 55%;
-}
-
 .setting-result {
-  margin: 8px 0 0;
-  font-size: 13px;
+  margin: var(--uwu-space-2) 0 0;
+  font-size: var(--uwu-text-meta);
   color: var(--uwu-muted);
 }
 
@@ -171,44 +159,66 @@
   color: var(--uwu-warning-ink);
 }
 
+/* Used by HostForm, FileBrowser and the key generator too (not only here). */
 .select {
   font: inherit;
   padding: 7px 10px;
   border-radius: var(--uwu-radius-control);
-  border: 1px solid var(--uwu-border);
-  background: var(--uwu-canvas);
+  border: 1px solid var(--uwu-control);
+  background: var(--uwu-surface);
   color: var(--uwu-ink);
 }
 
-.toggle {
-  position: relative;
-  width: 40px;
-  height: 24px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--uwu-radius-pill);
-  background: var(--uwu-border);
+/* Settings → Darstellung → Schrift: every choice in its own font. */
+.font-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px;
 }
 
-.toggle[aria-checked='true'],
-.toggle[aria-checked='true']:hover:not(:disabled) {
-  background: var(--uwu-pink-solid);
+.font-picker button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: var(--uwu-space-2) var(--uwu-space-3);
+  border: 1px solid var(--uwu-border);
+  border-radius: var(--uwu-radius-control);
+  background: var(--uwu-surface);
+  color: var(--uwu-ink);
+  text-align: left;
+  transition:
+    border-color var(--uwu-duration-fast),
+    background-color var(--uwu-duration-fast);
 }
 
-.toggle-thumb {
-  position: absolute;
-  top: 4px;
-  left: 4px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 2px rgba(20, 16, 22, 0.25);
-  transition: transform 140ms ease;
+.font-picker button:hover {
+  border-color: var(--uwu-pink);
 }
 
-.toggle[aria-checked='true'] .toggle-thumb {
-  transform: translateX(16px);
+.font-picker button[aria-checked='true'] {
+  border-color: var(--uwu-pink);
+  background: var(--uwu-pink-tint);
+  color: var(--uwu-pink-ink);
+}
+
+[data-contrast='high'] .font-picker button[aria-checked='true'] {
+  outline: 2px solid var(--uwu-ink);
+  outline-offset: -2px;
+}
+
+.font-picker-name {
+  font-size: var(--uwu-text-body);
+  font-weight: 600;
+}
+
+.font-picker-sample {
+  font-size: var(--uwu-text-caption);
+  color: var(--uwu-muted);
+}
+
+.font-picker button[aria-checked='true'] .font-picker-sample {
+  color: inherit;
 }
 
 .vault-status {
@@ -216,6 +226,7 @@
   max-width: 260px;
   font-size: 12.5px;
   line-height: 1.45;
+  text-align: right;
 }
 
 .vault-status[data-status='unlocked'] {
@@ -255,17 +266,6 @@
   text-align: center;
 }
 
-.about-name {
-  margin: 6px 0 0;
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-
-.about-name span {
-  color: var(--uwu-pink-solid);
-}
-
 .about-version {
   margin: 0;
   font-family: var(--uwu-mono);
@@ -299,7 +299,7 @@
 }
 
 .about-diagnostics button {
-  margin-top: 8px;
+  margin-top: var(--uwu-space-2);
 }
 
 /* ── Update hint ─────────────────────────────────────────────────────────── */
@@ -313,10 +313,10 @@
   display: grid;
   gap: 10px;
   padding: 14px 16px;
-  border-radius: 20px;
+  border-radius: var(--uwu-radius-card);
   border: 1px solid var(--uwu-border);
   background: var(--uwu-surface);
-  box-shadow: 0 24px 60px -24px rgba(20, 16, 22, 0.45);
+  box-shadow: var(--uwu-shadow-float);
 }
 
 .update-hint-head {
@@ -359,6 +359,7 @@
   gap: 8px;
 }
 
+/* Used by the key generator too. */
 .link-button {
   padding: 0;
   border: 0;
@@ -371,11 +372,6 @@
 .link-button:hover:not(:disabled) {
   background: transparent;
   text-decoration: underline;
-}
-
-.modal[data-size='wide'] .modal-body {
-  min-height: 0;
-  overflow: hidden;
 }
 
 /* ── Settings extras ───────────────────────────────────── */
@@ -398,13 +394,7 @@
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  box-shadow: inset 0 0 0 1px rgba(20, 16, 22, 0.2);
-}
-
-.setting-control {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  box-shadow: inset 0 0 0 1px var(--uwu-stage-border);
 }
 
 .highlight-custom {
@@ -428,15 +418,8 @@
   gap: 8px;
   padding: 4px 4px 4px 10px;
   border-radius: var(--uwu-radius-control);
-  background: #141016;
-}
-
-.rule-tag {
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: var(--uwu-radius-pill);
-  background: var(--uwu-hairline);
-  color: var(--uwu-muted);
+  background: var(--uwu-stage);
+  color: var(--uwu-stage-ink);
 }
 
 .highlight-add {
@@ -445,16 +428,12 @@
   align-items: center;
 }
 
-.highlight-add .search {
-  flex: 1;
-}
-
 .highlight-preview {
   margin: 14px 0 4px;
   padding: 12px 14px;
   border-radius: var(--uwu-radius-card);
-  background: #141016;
-  color: #f0e7ee;
+  background: var(--uwu-stage);
+  color: var(--uwu-stage-ink);
   font-family: var(--uwu-mono);
   font-size: 12px;
   line-height: 1.55;
@@ -485,14 +464,10 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 6px 8px 12px;
-  border-radius: var(--uwu-radius-control);
+  padding: 6px 6px 6px 12px;
+  border-radius: var(--uwu-radius-card);
   border: 1px solid var(--uwu-hairline);
-  background: var(--uwu-elevated);
-}
-
-.key-list li > .icon {
-  color: var(--uwu-pink);
+  background: var(--uwu-surface);
 }
 
 .key-list-text {
@@ -510,10 +485,6 @@
 .key-list-text small {
   color: var(--uwu-muted);
   font-size: 11.5px;
-}
-
-.setting-row .vault-status {
-  margin-right: 6px;
 }
 
 /* ── Settings: hosts opened on start ───────────────────── */
@@ -566,16 +537,25 @@
 .sync-choice {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  padding: 12px 14px;
+  gap: var(--uwu-space-3);
+  padding: var(--uwu-space-3) 14px;
   text-align: left;
-  border-radius: var(--uwu-radius-control);
-  border: 1px solid var(--uwu-hairline);
-  background: var(--uwu-elevated);
+  border-radius: var(--uwu-radius-card);
+  border: 1px solid var(--uwu-border);
+  background: var(--uwu-surface);
+  color: var(--uwu-ink);
+  font: inherit;
+  transition: border-color var(--uwu-duration-fast);
 }
 
 .sync-choice:hover {
-  border-color: var(--uwu-pink-solid);
+  border-color: var(--uwu-pink);
+}
+
+.sync-choice > svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--uwu-pink-ink);
 }
 
 .sync-choice > span {
@@ -596,10 +576,16 @@
   padding: 8px 10px;
   resize: vertical;
   border-radius: var(--uwu-radius-control);
-  border: 1px solid var(--uwu-border);
-  background: var(--uwu-canvas);
+  border: 1px solid var(--uwu-control);
+  background: var(--uwu-surface);
   color: var(--uwu-ink);
   word-break: break-all;
+}
+
+.sync-code-input:focus {
+  border-color: var(--uwu-pink);
+  box-shadow: var(--uwu-focus);
+  outline: none;
 }
 
 .sync-actions {
@@ -608,14 +594,10 @@
   gap: 8px;
 }
 
+/* The recovery kit: a Card with a dashed pink edge, so it reads as "keep this". */
 .sync-kit-card {
-  display: grid;
   gap: 10px;
-  justify-items: start;
-  padding: 14px 16px;
-  border-radius: var(--uwu-radius-card);
-  border: 1px dashed var(--uwu-pink-solid);
-  background: var(--uwu-elevated);
+  border: 1px dashed var(--uwu-pink);
 }
 
 .sync-kit-card dl {
@@ -648,24 +630,6 @@
   word-break: break-all;
 }
 
-.sync-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  margin-right: 8px;
-  border-radius: 999px;
-  background: #3fb950;
-  vertical-align: 1px;
-}
-
-.sync-dot[data-state='paused'] {
-  background: var(--uwu-muted);
-}
-
-.sync-dot[data-state='error'] {
-  background: var(--uwu-warning-ink);
-}
-
 .sync-devices {
   display: grid;
   gap: 8px;
@@ -685,10 +649,11 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 10px;
-  border-radius: var(--uwu-radius-control);
+  min-height: 48px;
+  padding: 6px 6px 6px 12px;
+  border-radius: var(--uwu-radius-card);
   border: 1px solid var(--uwu-hairline);
-  background: var(--uwu-elevated);
+  background: var(--uwu-surface);
 }
 
 .sync-device-list li[data-revoked] {
@@ -712,15 +677,6 @@
   font-size: 11.5px;
 }
 
-.sync-offer {
-  display: grid;
-  gap: 4px;
-  padding: 12px 14px;
-  border-radius: var(--uwu-radius-card);
-  border: 1px solid var(--uwu-hairline);
-  background: var(--uwu-elevated);
-}
-
 /* ── Command assistant ───────────────────────────────────────────────────── */
 
 .assist {
@@ -738,19 +694,6 @@
   color: var(--uwu-muted);
 }
 
-.assist-target .select {
-  padding: 4px 8px;
-  font-size: 12.5px;
-}
-
-.assist-shell-name {
-  padding: 2px 8px;
-  border-radius: var(--uwu-radius-pill);
-  background: var(--uwu-elevated);
-  border: 1px solid var(--uwu-hairline);
-  font-size: 12px;
-}
-
 .assist-status {
   margin: 0;
   font-size: 13px;
@@ -761,7 +704,7 @@
   display: grid;
   gap: 8px;
   padding: 12px;
-  border-radius: var(--uwu-radius-control);
+  border-radius: var(--uwu-radius-card);
   border: 1px solid var(--uwu-border);
   background: var(--uwu-elevated);
 }
@@ -783,39 +726,24 @@
   font-size: 13px;
   padding: 8px 10px;
   border-radius: var(--uwu-radius-control);
-  border: 1px solid var(--uwu-border);
-  background: var(--uwu-canvas);
+  border: 1px solid var(--uwu-control);
+  background: var(--uwu-surface);
   color: var(--uwu-ink);
+}
+
+.assist-command:focus {
+  border-color: var(--uwu-pink);
+  box-shadow: var(--uwu-focus);
+  outline: none;
 }
 
 .assist-result[data-dangerous='true'] .assist-command {
   color: var(--uwu-danger-ink);
 }
 
-.assist-badge {
-  flex: none;
-  padding: 2px 8px;
-  border-radius: var(--uwu-radius-pill);
-  background: var(--uwu-pink-tint);
-  color: var(--uwu-pink-ink);
-  font-size: 11.5px;
-  font-weight: 600;
-}
-
 .assist-explanation {
   margin: 0;
   font-size: 13px;
-  line-height: 1.45;
-}
-
-.assist-danger {
-  margin: 0;
-  padding: 8px 10px;
-  border-radius: var(--uwu-radius-control);
-  background: var(--uwu-danger-tint);
-  color: var(--uwu-danger-ink);
-  font-size: 12.5px;
-  font-weight: 600;
   line-height: 1.45;
 }
 
@@ -844,17 +772,31 @@
   gap: 6px;
 }
 
-.assist-models button[aria-pressed='true'] {
+/* Model names to pick from: small chips, the chosen one pink. */
+.assist-model {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--uwu-border);
+  border-radius: var(--uwu-radius-pill);
+  background: var(--uwu-surface);
+  color: var(--uwu-ink);
+  font-family: var(--uwu-mono);
+  font-size: var(--uwu-text-caption);
+  transition: border-color var(--uwu-duration-fast);
+}
+
+.assist-model:hover {
   border-color: var(--uwu-pink);
+}
+
+.assist-model[aria-pressed='true'] {
+  border-color: var(--uwu-pink);
+  background: var(--uwu-pink-tint);
   color: var(--uwu-pink-ink);
 }
 
 .assist-cache-command {
   font-family: var(--uwu-mono);
-}
-
-.assist-cache-danger {
-  color: var(--uwu-danger-ink);
 }
 
 .assist-provider-row input {
@@ -864,22 +806,11 @@
 
 /* ── First-start setup ────────────────────────────────────────────────────── */
 
-/* Title and buttons stay put; only the page in between scrolls, so the
-   wizard works down to the smallest window (720 × 480). */
-.modal[data-size='wizard'] {
-  width: min(760px, 100%);
-  /* One height for every step, so the buttons stay where the pointer is. */
-  height: min(540px, 100%);
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  overflow: hidden;
-}
-
-.modal[data-size='wizard'] .modal-body {
-  align-content: start;
-  min-height: 0;
-  overflow-y: auto;
-  margin: 0 -22px;
-  padding: 0 22px;
+/* Title and buttons stay put (the package Dialog); only the page in between
+   scrolls, so the wizard works down to the smallest window (720 × 480). One
+   height for every step, so the buttons stay where the pointer is. */
+.onboarding-dialog {
+  height: min(580px, calc(100svh - 48px));
 }
 
 .onboarding {
@@ -964,7 +895,7 @@
   grid-template-columns: 170px minmax(0, 1fr);
   gap: 20px;
   align-items: start;
-  animation: onboarding-in 220ms ease-out;
+  animation: onboarding-in var(--uwu-duration-enter) ease-out;
 }
 
 @keyframes onboarding-in {
@@ -989,17 +920,11 @@
   align-content: start;
 }
 
-.onboarding-content .setting-row {
-  padding: 8px 0 0;
-  border-top: 1px solid var(--uwu-hairline);
-  border-bottom: 0;
-}
-
 .onboarding-choice[data-ok] {
-  border-color: var(--uwu-success-ink);
+  border-color: var(--uwu-success);
 }
 
-.onboarding-choice[data-ok] svg {
+.onboarding-choice[data-ok] > svg {
   color: var(--uwu-success-ink);
 }
 
@@ -1013,19 +938,29 @@
   display: grid;
   gap: 6px;
   justify-items: center;
-  padding: 8px;
-  border: 1px solid var(--uwu-hairline);
-  border-radius: var(--uwu-radius-control);
-  background: var(--uwu-elevated);
+  padding: var(--uwu-space-2);
+  border: 1px solid var(--uwu-border);
+  border-radius: var(--uwu-radius-card);
+  background: var(--uwu-surface);
+  color: var(--uwu-ink);
   font-size: 12.5px;
   font-weight: 600;
+}
+
+.theme-card:hover {
+  border-color: var(--uwu-pink);
 }
 
 .theme-card[aria-checked='true'] {
   border-color: var(--uwu-pink-solid);
   box-shadow: 0 0 0 1px var(--uwu-pink-solid);
+  background: var(--uwu-pink-tint);
+  color: var(--uwu-pink-ink);
 }
 
+/* Small pictures of each scheme. They must look light or dark whatever the
+   app shows right now, so they use the stage tokens, which are the same in
+   both themes: stage-ink is a light paper, stage the dark ground. */
 .theme-preview {
   display: grid;
   gap: 4px;
@@ -1033,40 +968,36 @@
   width: 100%;
   height: 46px;
   padding: 6px;
-  border-radius: 7px;
-  border: 1px solid #e9dde4;
-  background: #ffffff;
+  border-radius: var(--uwu-radius-small);
+  border: 1px solid var(--uwu-stage-muted);
+  background: var(--uwu-stage-ink);
 }
 
 .theme-preview[data-preview='dark'] {
-  border-color: #3a3040;
-  background: #1c171f;
+  border-color: var(--uwu-stage-border);
+  background: var(--uwu-stage);
 }
 
 /* System: half and half, light on the left. */
 .theme-preview[data-preview='system'] {
-  background: linear-gradient(105deg, #ffffff 50%, #1c171f 50%);
+  background: linear-gradient(105deg, var(--uwu-stage-ink) 50%, var(--uwu-stage) 50%);
 }
 
 .theme-preview-bar {
   height: 6px;
   width: 40%;
   border-radius: 3px;
-  background: #ff4d8d;
+  background: var(--uwu-pink);
 }
 
 .theme-preview-line {
   height: 4px;
   border-radius: 2px;
-  background: #e9dde4;
+  background: var(--uwu-stage-muted);
 }
 
 .theme-preview[data-preview='dark'] .theme-preview-line {
-  background: #3a3040;
-}
-
-.theme-preview[data-preview='system'] .theme-preview-line {
-  background: rgba(140, 128, 140, 0.45);
+  background: var(--uwu-stage-border);
 }
 
 .theme-preview-line.short {
@@ -1083,26 +1014,11 @@
   color: var(--uwu-muted);
 }
 
-.onboarding-chip {
-  padding: 2px 9px;
-  border-radius: var(--uwu-radius-pill);
-  background: var(--uwu-pink-tint);
-  color: var(--uwu-pink-ink);
-  font-size: 12px;
-  font-weight: 600;
-}
-
 .onboarding-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
-}
-
-.onboarding-actions button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
 }
 
 .onboarding-actions .setting-description {
@@ -1153,7 +1069,7 @@
 }
 
 .onboarding-summary li[data-ok] .onboarding-mark {
-  background: color-mix(in srgb, var(--uwu-success-ink) 18%, transparent);
+  background: var(--uwu-success-tint);
   color: var(--uwu-success-ink);
 }
 
@@ -1166,7 +1082,7 @@
   gap: 12px;
 }
 
-/* Narrow windows: the step names go, Nyu sits above the page. */
+/* Narrow windows: the step names go, Nyu gets less room. */
 @media (max-width: 760px) {
   .onboarding-step-label {
     display: none;
@@ -1185,5 +1101,26 @@
   .onboarding-page {
     grid-template-columns: 110px minmax(0, 1fr);
     gap: 14px;
+  }
+}
+
+/* Phones and narrow windows: the settings nav becomes a row of pills above. */
+@media (max-width: 699px) {
+  .settings {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: var(--uwu-space-3);
+  }
+
+  .settings-nav {
+    flex-direction: row;
+    overflow-x: auto;
+    gap: var(--uwu-space-1);
+    padding-bottom: 2px;
+  }
+
+  .settings-nav button {
+    flex: none;
+    white-space: nowrap;
   }
 }
