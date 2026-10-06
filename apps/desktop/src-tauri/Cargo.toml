@@ -16,7 +16,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 # and installs them, with a local shell beside the SSH tabs. Without it there
 # is no updater plugin, no update feed, no setup download and no code that
 # could start one (`updates.rs` is not compiled at all).
-default = ["self-update"]
+default = ["self-update", "local-shell"]
 self-update = [
   "dep:base64",
   "dep:minisign-verify",
@@ -24,6 +24,10 @@ self-update = [
   "dep:tauri-plugin-updater",
   "dep:tempfile",
 ]
+# A shell on this computer beside the SSH tabs (and the M0 PTY scenario). Off
+# in the Mac App Store build: there no code that starts a local program is
+# compiled in at all.
+local-shell = ["uwussh-core/local-processes"]
 # The Mac App Store build: `--no-default-features --features mas`. The store
 # updates the app, the sandbox decides what it may open, and the local shell
 # is not offered. Files and folders the person picked come back after a

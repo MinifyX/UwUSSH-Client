@@ -15,6 +15,7 @@ pub mod flow;
 pub mod home;
 pub mod metrics;
 pub mod os;
+#[cfg(feature = "local-processes")]
 pub mod pty;
 pub mod session;
 pub mod sftp;

@@ -26,6 +26,11 @@
 //!
 //! The macOS menu bar is the page's (`setMacMenu` in App.tsx).
 
+// The store build must not carry a local shell or an updater; `--features mas`
+// on top of the defaults would bring both.
+#[cfg(all(feature = "mas", any(feature = "local-shell", feature = "self-update")))]
+compile_error!("the `mas` feature goes with --no-default-features");
+
 mod assist;
 mod backup;
 mod device;

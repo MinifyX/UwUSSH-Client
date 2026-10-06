@@ -12,7 +12,7 @@ uwussh-keygen.workspace = true
 
 anyhow.workspace = true
 parking_lot.workspace = true
-portable-pty.workspace = true
+portable-pty = { workspace = true, optional = true }
 serde.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["fs", "io-util", "net"] }
@@ -21,6 +21,12 @@ uuid.workspace = true
 russh.workspace = true
 russh-sftp.workspace = true
 zeroize.workspace = true
+
+[features]
+# Programs on this computer: the local shell and the M0 PTY scenario. The
+# desktop's default build turns it on; the Mac App Store build leaves it off,
+# so no code that starts a process is in it at all.
+local-processes = ["dep:portable-pty"]
 
 [dev-dependencies]
 serde_json.workspace = true

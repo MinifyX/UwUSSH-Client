@@ -6,6 +6,7 @@
 //! same from here.
 
 use crate::metrics::MetricsSnapshot;
+#[cfg(feature = "local-processes")]
 use crate::pty::PtySession;
 use crate::sftp::{Elevation, SftpError};
 use crate::ssh::{FileSession, SshConnection, SshError, SshSession, SshTarget};
@@ -42,6 +43,7 @@ impl fmt::Display for SessionId {
 }
 
 enum Session {
+    #[cfg(feature = "local-processes")]
     Pty(PtySession),
     Ssh(SshSession),
     Synthetic(SyntheticSession),
@@ -82,11 +84,14 @@ impl SessionManager {
     }
 
     /// The user's default shell, flow-controlled.
+    #[cfg(feature = "local-processes")]
     pub fn spawn_shell<S: FrameSink>(&self, cols: u16, rows: u16, sink: S) -> Result<SessionId> {
         let session = PtySession::spawn_shell(cols, rows, sink)?;
         Ok(self.insert(Session::Pty(session), "shell"))
     }
 
+    /// A program on this computer in a PTY (the M0 PTY scenario).
+    #[cfg(feature = "local-processes")]
     pub fn spawn_command<S: FrameSink>(
         &self,
         program: &str,
@@ -260,6 +265,7 @@ impl SessionManager {
 
     pub fn write(&self, id: SessionId, data: &[u8]) -> Result<()> {
         match &*self.get(id)? {
+            #[cfg(feature = "local-processes")]
             Session::Pty(pty) => pty.write(data),
             Session::Ssh(ssh) => ssh.write(data),
             // Nothing is listening; typing into a benchmark is not an error.
@@ -269,6 +275,7 @@ impl SessionManager {
 
     pub fn resize(&self, id: SessionId, cols: u16, rows: u16) -> Result<()> {
         match &*self.get(id)? {
+            #[cfg(feature = "local-processes")]
             Session::Pty(pty) => pty.resize(cols, rows),
             Session::Ssh(ssh) => ssh.resize(cols, rows),
             Session::Synthetic(_) => Ok(()),
@@ -278,6 +285,7 @@ impl SessionManager {
     /// The renderer has processed `bytes` more bytes of this session's output.
     pub fn ack(&self, id: SessionId, bytes: u64) -> Result<()> {
         match &*self.get(id)? {
+            #[cfg(feature = "local-processes")]
             Session::Pty(pty) => pty.ack(bytes),
             Session::Ssh(ssh) => ssh.ack(bytes),
             Session::Synthetic(synthetic) => synthetic.ack(bytes),
@@ -287,6 +295,7 @@ impl SessionManager {
 
     pub fn metrics(&self, id: SessionId) -> Result<MetricsSnapshot> {
         Ok(match &*self.get(id)? {
+            #[cfg(feature = "local-processes")]
             Session::Pty(pty) => pty.metrics(),
             Session::Ssh(ssh) => ssh.metrics(),
             Session::Synthetic(synthetic) => synthetic.metrics(),
@@ -300,6 +309,7 @@ impl SessionManager {
             .remove(&id)
             .ok_or(CoreError::UnknownSession(id))?;
         match &*session {
+            #[cfg(feature = "local-processes")]
             Session::Pty(pty) => pty.close(),
             Session::Ssh(ssh) => ssh.close(),
             Session::Synthetic(synthetic) => synthetic.close(),
@@ -314,6 +324,7 @@ impl SessionManager {
         let sessions: Vec<_> = self.sessions.write().drain().collect();
         for (_, session) in &sessions {
             match &**session {
+                #[cfg(feature = "local-processes")]
                 Session::Pty(pty) => pty.close(),
                 Session::Ssh(ssh) => ssh.close(),
                 Session::Synthetic(synthetic) => synthetic.close(),
