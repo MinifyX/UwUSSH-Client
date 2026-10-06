@@ -52,7 +52,7 @@ pub(crate) fn add_place(path: &Path) {
 
 /// Takes a folder off the file browser's places, and gives up its bookmark —
 /// from the next start on, the app cannot reach it any more. A bookmark of a
-/// folder above it, or of `~/.ssh` inside it, stays.
+/// folder above it, or of `~/.ssh` or a key file inside it, stays.
 pub(crate) fn forget_place(path: &Path) {
     #[cfg(all(target_os = "macos", feature = "mas"))]
     scoped::forget_place(path);
@@ -94,6 +94,17 @@ mod store {
         pub path: PathBuf,
         /// The bookmark, hex-encoded so the file stays plain JSON.
         pub bookmark: String,
+        /// Whether it gives access in this run. One that did not resolve at
+        /// start-up (a disk not plugged in, a share not mounted) is kept for
+        /// the next start, but covers nothing now: picking the path again
+        /// makes a new one.
+        #[serde(skip)]
+        pub live: bool,
+        /// Made only for a folder of the file browser: taking the folder off
+        /// its places gives it up. Anything else the app needs (`~/.ssh`, a
+        /// key file) gets a bookmark of its own even inside such a folder.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        pub place_only: bool,
     }
 
     impl Bookmarks {
@@ -101,21 +112,66 @@ mod store {
             serde_json::from_str(text).unwrap_or_default()
         }
 
-        /// Whether `path` or a folder it is in already has a bookmark.
+        /// Whether `path` or a folder it is in has a bookmark that gives
+        /// access in this run and stays when a place is forgotten. A
+        /// place's own bookmark covers only the place itself (and is then
+        /// [`claim`](Self::claim)ed).
         pub fn covers(&self, path: &Path) -> bool {
-            self.entries
-                .iter()
-                .any(|entry| path.starts_with(&entry.path))
+            self.entries.iter().any(|entry| {
+                entry.live
+                    && path.starts_with(&entry.path)
+                    && (!entry.place_only || entry.path == path)
+            })
         }
 
-        /// Adds a bookmark for `path`, replacing one it had and every one
-        /// inside it, which the new one makes redundant.
+        /// Whether a file browser folder at `path` is reachable already.
+        pub fn covers_place(&self, path: &Path) -> bool {
+            self.entries
+                .iter()
+                .any(|entry| entry.live && path.starts_with(&entry.path))
+        }
+
+        /// Adds a lasting bookmark for `path`, replacing one it had. Those of
+        /// paths inside it stay: they may be needed on their own.
         pub fn add(&mut self, path: PathBuf, bookmark: &[u8]) {
-            self.entries.retain(|entry| !entry.path.starts_with(&path));
-            self.entries.push(Entry {
+            self.push(Entry {
                 path,
                 bookmark: hex(bookmark),
+                live: true,
+                place_only: false,
             });
+        }
+
+        /// Adds the bookmark of a file browser folder.
+        pub fn add_for_place(&mut self, path: PathBuf, bookmark: &[u8]) {
+            self.push(Entry {
+                path,
+                bookmark: hex(bookmark),
+                live: true,
+                place_only: true,
+            });
+        }
+
+        /// A place's own bookmark is needed for more than the place now.
+        pub fn claim(&mut self, path: &Path) {
+            for entry in &mut self.entries {
+                if entry.path == path {
+                    entry.place_only = false;
+                }
+            }
+        }
+
+        /// Keeps a bookmark that did not resolve this time, for the next start.
+        pub fn keep(&mut self, entry: Entry) {
+            self.push(Entry {
+                live: false,
+                ..entry
+            });
+        }
+
+        fn push(&mut self, entry: Entry) {
+            self.entries.retain(|kept| kept.path != entry.path);
+            self.entries.push(entry);
             let excess = self.entries.len().saturating_sub(LIMIT);
             self.entries.drain(..excess);
             self.drop_unreachable_places();
@@ -127,20 +183,27 @@ mod store {
             }
         }
 
-        /// Takes the place off the list, and its own bookmark with it. A
-        /// bookmark of a folder above it serves other paths too and stays.
+        /// Takes the place off the list, and its own bookmark with it unless
+        /// something else needs it. A bookmark of a folder above it serves
+        /// other paths too and stays.
         pub fn forget_place(&mut self, path: &Path) {
             self.places.retain(|place| place != path);
-            self.entries.retain(|entry| entry.path != path);
+            self.entries
+                .retain(|entry| !(entry.place_only && entry.path == path));
         }
 
-        /// A place whose bookmark is gone — dropped past the ceiling, or no
-        /// longer resolving — is a folder the app cannot open any more.
+        /// A place whose bookmark is gone — dropped past the ceiling — is a
+        /// folder the app cannot open any more. One whose bookmark only did
+        /// not resolve this time stays listed: its disk may be back next time.
         pub fn drop_unreachable_places(&mut self) {
             let places = std::mem::take(&mut self.places);
             self.places = places
                 .into_iter()
-                .filter(|place| self.covers(place))
+                .filter(|place| {
+                    self.entries
+                        .iter()
+                        .any(|entry| place.starts_with(&entry.path))
+                })
                 .collect();
         }
     }
@@ -193,15 +256,24 @@ mod scoped {
             match resolve(&bytes) {
                 // A stale bookmark still works this once; a fresh one is made
                 // now, while the access it gave is switched on.
-                Some((path, true)) => match create(&path) {
-                    Some(fresh) => restored.add(path, &fresh),
-                    None => restored.add(path, &bytes),
-                },
-                Some((path, false)) => restored.add(path, &bytes),
+                Some((path, stale)) => {
+                    let fresh = if stale { create(&path) } else { None };
+                    let bookmark = fresh.as_deref().unwrap_or(&bytes);
+                    if entry.place_only {
+                        restored.add_for_place(path, bookmark);
+                    } else {
+                        restored.add(path, bookmark);
+                    }
+                }
                 // Deleted, on a volume that is not mounted, or no longer ours
-                // to open: forgotten. A host that names a key file in there
-                // reports it unreadable, and the page offers to pick it again.
-                None => tracing::info!(path = %entry.path.display(), "bookmark no longer resolves"),
+                // to open: no access this run, but kept, so an external disk
+                // or a share is back on the next start with it. A host that
+                // names a key file in there reports it unreadable, and the
+                // page offers to pick it again (a new bookmark replaces it).
+                None => {
+                    tracing::info!(path = %entry.path.display(), "bookmark does not resolve now");
+                    restored.keep(entry);
+                }
             }
         }
         restored.places = stored.places;
@@ -220,12 +292,23 @@ mod scoped {
         let Some((file, bookmarks)) = state.as_mut() else {
             return;
         };
-        if !bookmarks.covers(path) {
+        let covered = if place {
+            bookmarks.covers_place(path)
+        } else {
+            bookmarks.covers(path)
+        };
+        if !covered {
             let Some(bookmark) = create(path) else {
                 tracing::debug!(path = %path.display(), "no bookmark for this path");
                 return;
             };
-            bookmarks.add(path.to_path_buf(), &bookmark);
+            if place {
+                bookmarks.add_for_place(path.to_path_buf(), &bookmark);
+            } else {
+                bookmarks.add(path.to_path_buf(), &bookmark);
+            }
+        } else if !place {
+            bookmarks.claim(path);
         }
         if place {
             bookmarks.add_place(path);
@@ -323,7 +406,7 @@ mod scoped {
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use super::store::{hex, unhex, Bookmarks, LIMIT};
+    use super::store::{hex, unhex, Bookmarks, Entry, LIMIT};
 
     #[test]
     fn a_file_inside_a_bookmarked_folder_needs_no_bookmark_of_its_own() {
@@ -336,19 +419,67 @@ mod tests {
     }
 
     #[test]
-    fn a_folder_replaces_the_bookmarks_inside_it() {
+    fn a_folder_keeps_the_bookmarks_inside_it() {
         let mut bookmarks = Bookmarks::default();
-        bookmarks.add(PathBuf::from("/Users/nyu/.ssh/id_ed25519"), b"a");
-        bookmarks.add(PathBuf::from("/Users/nyu/keys/nas.ppk"), b"b");
-        bookmarks.add(PathBuf::from("/Users/nyu/.ssh"), b"c");
-        let paths: Vec<_> = bookmarks.entries.iter().map(|e| e.path.clone()).collect();
-        assert_eq!(
-            paths,
-            [
-                PathBuf::from("/Users/nyu/keys/nas.ppk"),
-                PathBuf::from("/Users/nyu/.ssh")
-            ]
-        );
+        bookmarks.add(PathBuf::from("/Users/nyu/.ssh"), b"ssh");
+        bookmarks.add_for_place(PathBuf::from("/Users/nyu"), b"home");
+        bookmarks.add_place(Path::new("/Users/nyu"));
+        // The same path again replaces its bookmark.
+        bookmarks.add_for_place(PathBuf::from("/Users/nyu"), b"home2");
+        assert_eq!(bookmarks.entries.len(), 2);
+
+        // Taking the home folder off the places must not cost ~/.ssh.
+        bookmarks.forget_place(Path::new("/Users/nyu"));
+        assert!(bookmarks.covers(Path::new("/Users/nyu/.ssh/config")));
+        assert!(!bookmarks.covers(Path::new("/Users/nyu/Documents")));
+    }
+
+    #[test]
+    fn what_is_needed_inside_a_place_gets_its_own_bookmark() {
+        let mut bookmarks = Bookmarks::default();
+        bookmarks.add_for_place(PathBuf::from("/Users/nyu"), b"home");
+        bookmarks.add_place(Path::new("/Users/nyu"));
+        // Reachable through the place, but that one may go: ~/.ssh needs its own.
+        assert!(bookmarks.covers_place(Path::new("/Users/nyu/.ssh")));
+        assert!(!bookmarks.covers(Path::new("/Users/nyu/.ssh")));
+        bookmarks.add(PathBuf::from("/Users/nyu/.ssh"), b"ssh");
+        bookmarks.forget_place(Path::new("/Users/nyu"));
+        assert!(bookmarks.covers(Path::new("/Users/nyu/.ssh/id_ed25519")));
+        assert_eq!(bookmarks.entries.len(), 1);
+    }
+
+    #[test]
+    fn a_place_needed_for_more_keeps_its_bookmark() {
+        let mut bookmarks = Bookmarks::default();
+        bookmarks.add_for_place(PathBuf::from("/Users/nyu/.ssh"), b"ssh");
+        bookmarks.add_place(Path::new("/Users/nyu/.ssh"));
+        // The import then asks for the very same folder.
+        assert!(bookmarks.covers(Path::new("/Users/nyu/.ssh")));
+        bookmarks.claim(Path::new("/Users/nyu/.ssh"));
+        bookmarks.forget_place(Path::new("/Users/nyu/.ssh"));
+        assert!(bookmarks.places.is_empty());
+        assert!(bookmarks.covers(Path::new("/Users/nyu/.ssh/config")));
+    }
+
+    #[test]
+    fn a_bookmark_that_does_not_resolve_is_kept_but_covers_nothing() {
+        let mut bookmarks = Bookmarks::default();
+        bookmarks.keep(Entry {
+            path: PathBuf::from("/Volumes/Backup"),
+            bookmark: hex(b"disk"),
+            live: true,
+            place_only: true,
+        });
+        bookmarks.add_place(Path::new("/Volumes/Backup"));
+        bookmarks.drop_unreachable_places();
+        // Still listed and still in the file for the next start ...
+        assert_eq!(bookmarks.places, [PathBuf::from("/Volumes/Backup")]);
+        assert_eq!(bookmarks.entries.len(), 1);
+        // ... but no access now, so picking a file there makes a new bookmark.
+        assert!(!bookmarks.covers_place(Path::new("/Volumes/Backup/key")));
+        bookmarks.add_for_place(PathBuf::from("/Volumes/Backup"), b"again");
+        assert!(bookmarks.covers_place(Path::new("/Volumes/Backup/key")));
+        assert_eq!(bookmarks.entries.len(), 1);
     }
 
     #[test]
@@ -364,7 +495,7 @@ mod tests {
     #[test]
     fn a_place_lives_as_long_as_its_bookmark() {
         let mut bookmarks = Bookmarks::default();
-        bookmarks.add(PathBuf::from("/Users/nyu/Projects"), b"p");
+        bookmarks.add_for_place(PathBuf::from("/Users/nyu/Projects"), b"p");
         bookmarks.add_place(Path::new("/Users/nyu/Projects"));
         bookmarks.add_place(Path::new("/Users/nyu/Projects"));
         assert_eq!(bookmarks.places, [PathBuf::from("/Users/nyu/Projects")]);
@@ -379,7 +510,7 @@ mod tests {
     #[test]
     fn forgetting_a_place_keeps_what_others_need() {
         let mut bookmarks = Bookmarks::default();
-        bookmarks.add(PathBuf::from("/Users/nyu"), b"home");
+        bookmarks.add_for_place(PathBuf::from("/Users/nyu"), b"home");
         bookmarks.add_place(Path::new("/Users/nyu"));
         bookmarks.add_place(Path::new("/Users/nyu/Projects"));
         bookmarks.forget_place(Path::new("/Users/nyu/Projects"));
@@ -398,7 +529,15 @@ mod tests {
         bookmarks.add_place(Path::new("/Users/nyu/.ssh"));
         let text = serde_json::to_string(&bookmarks).unwrap();
         let back = Bookmarks::parse(&text);
-        assert_eq!(back.entries, bookmarks.entries);
+        let saved = |list: &Bookmarks| -> Vec<(PathBuf, String)> {
+            list.entries
+                .iter()
+                .map(|entry| (entry.path.clone(), entry.bookmark.clone()))
+                .collect()
+        };
+        assert_eq!(saved(&back), saved(&bookmarks));
+        // Read back, nothing gives access until it is resolved again.
+        assert!(!back.covers(Path::new("/Users/nyu/.ssh")));
         assert_eq!(back.places, bookmarks.places);
         assert_eq!(
             unhex(&back.entries[0].bookmark).unwrap(),
