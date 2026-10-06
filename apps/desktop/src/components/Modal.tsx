@@ -1,5 +1,5 @@
 import { Dialog } from '@uwusuite/design';
-import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 type ModalProps = {
@@ -40,6 +40,11 @@ const WIDTH = { small: 'sm', default: 'md', wide: 'lg', wizard: 'lg' } as const;
  *   the background: in the end-to-end test that was the host row, and it
  *   started a second connection.
  * - Focus goes back where it was on close.
+ * - It stays open until the app closes it. Chromium (WebView2) lets a page
+ *   hold Escape only so often without a click or key in between; after that
+ *   it closes the <dialog> itself, even while a form asks "Wirklich
+ *   schließen?". A dialog still wanted is shown again as soon as no other
+ *   dialog is open over it.
  *
  * Rendered straight into <body>: a dialog opened from inside another one (the
  * export from Settings) must not depend on the box it was opened from.
@@ -60,6 +65,9 @@ export function Modal({
   // opened: a form that asks before closing only knows once something changed.
   const cancelRef = useRef(onCancel);
   cancelRef.current = onCancel;
+  // What had focus before: read while rendering, before the package's dialog
+  // opens and moves focus to its own × button.
+  const [previous] = useState(() => document.activeElement as HTMLElement | null);
 
   useEffect(() => {
     const body = bodyRef.current;
@@ -74,7 +82,6 @@ export function Modal({
     } else {
       dialog.setAttribute('aria-label', title);
     }
-    const previous = document.activeElement as HTMLElement | null;
     const first =
       dialog.querySelector<HTMLElement>('[data-autofocus]') ??
       body.querySelector<HTMLElement>('input, button:not([data-secondary]), textarea, select') ??
@@ -85,7 +92,20 @@ export function Modal({
       dialog.tabIndex = -1;
       dialog.focus();
     }
+    // Closed by the browser, not by the app: back once nothing covers it
+    // (another dialog closed or went away, see above).
+    const reopen = () => {
+      if (dialog.open || !dialog.isConnected) return;
+      if (document.querySelector('dialog[open]')) return;
+      dialog.showModal();
+    };
+    // `close` doesn't bubble, but a capturing listener on the document sees it.
+    document.addEventListener('close', reopen, true);
+    const watcher = new MutationObserver(reopen);
+    watcher.observe(document.body, { childList: true });
     return () => {
+      document.removeEventListener('close', reopen, true);
+      watcher.disconnect();
       if (previous?.isConnected) previous.focus();
     };
   }, []);
