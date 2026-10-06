@@ -103,9 +103,13 @@ nothing team-specific is committed.
 
 ### CI
 
-`.github/workflows/mas.yml` runs on tags (beside `installers.yml`, not inside
-it), by hand, and on pull requests that touch the store build. `build` makes
-the unsigned app and package. `sign` runs only when these repository secrets
+`.github/workflows/mas.yml` runs on tags, by hand, and on pull requests that
+touch the store build. On a pull request it runs `check` alone:
+`build-mas.mjs --check`, a debug build for Apple silicon with the same bundle
+checks, starting from the cache `installers.yml`'s macOS check saves on main
+(same `--check` build there), so it takes minutes. On tags and by hand,
+`build` makes the universal release app and the unsigned package, without any
+cache. `sign` runs only when these repository secrets
 exist, on a fresh runner that has built nothing:
 
 | Secret                            | Content                                                                              |

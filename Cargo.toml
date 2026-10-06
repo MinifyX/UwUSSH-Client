@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/*", "apps/desktop/src-tauri", "apps/keygen/src-tauri", "apps/setup/src-tauri"]
 
 [workspace.package]
-version = "0.3.0-beta.2"
+version = "0.3.0-beta.3"
 edition = "2021"
 license = "GPL-3.0-only"
 repository = "https://github.com/MinifyX/UwUSSH-Client"
@@ -85,8 +85,17 @@ opt-level = 3
 debug = false
 
 [profile.release]
-codegen-units = 1
-lto = true
+# Thin LTO with the default 16 codegen units: fat LTO on one unit is what took
+# most of an installer job in CI (two or three release binaries per job), for
+# a few percent of size.
+lto = "thin"
 opt-level = "s"
 panic = "abort"
 strip = true
+
+# The setup's build script packs the apps into it with zstd at level 19, and
+# build scripts' dependencies are built without optimisation in release
+# (build-override's opt-level 0): at -O0 that took three to four times as long.
+# Same bytes out, only faster.
+[profile.release.package.zstd-sys]
+opt-level = 3

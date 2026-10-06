@@ -1055,10 +1055,12 @@ doesn't update. The setup AppImage is still built for x64, as the updater-only
 `~/.local/share/uwussh`.
 
 `.github/workflows/ci.yml` checks every push to main on Windows and Linux.
-`.github/workflows/installers.yml` checks the workspace on macOS and
-Linux and builds the Windows setups for x64 and ARM, the universal macOS disk
-image and the Linux packages for x64 and arm64 when a tag is pushed, installing
-the `.deb` once as a check. It holds no key: `pnpm release` downloads what it built and signs it
+`.github/workflows/installers.yml` checks the workspace on macOS and builds
+the Windows setups for x64 and ARM, the universal macOS disk image and the
+Linux packages for x64 and arm64 on every push to main (and `ci/**`), installing
+the `.deb` once as a check. A release takes that run of the tagged commit; the
+tag itself starts no build except the Mac App Store one, so the setups come
+from warm main caches instead of a cold build per tag. It holds no key: `pnpm release` downloads what it built and signs it
 here. `.github/workflows/aur.yml` pushes the AUR package `uwussh-bin` once a
 release is published, with the AUR key and nothing else.
 
@@ -1119,19 +1121,19 @@ the vault key sealed with DPAPI when the vault is remembered on this device (see
   under a new clock, a record from another vault. Plus the two properties
   underneath: nothing readable in what the server holds, and a field a newer
   build wrote surviving an edit by an older one.
-- **SSH integration tests** in `crates/uwussh-core/tests/ssh.rs` run a real SSH
+- **SSH integration tests** in `crates/uwussh-core/tests/integration/ssh.rs` run a real SSH
   server in-process — russh's server half — and check on every commit what
   matters most: no login attempt against an untrusted or changed key, the
   password asked for only after the key checked out and sent over that same
   connection, keystroke order, resize, remote exit, an 8 MiB flood that
   arrives complete under a deliberately slow renderer, two tabs logging in to
   the same server side by side, and a reloaded page closing what the old one
-  left open. Its tunnels part (`tests/ssh/tunnels.rs`, in the same binary)
+  left open. Its tunnels part (`tests/integration/ssh/tunnels.rs`)
   forwards locally and remotely to an echo server, checks that a stopped
   tunnel's port is free when `stop` returns, that a port already taken is
   said so, that a terminal's connection ending fails its tunnel, and that
   tunnels without a terminal share one login — waiting for events, never for
-  time. `tests/files.rs` does the same for files: browsing, upload,
+  time. `tests/integration/files.rs` does the same for files: browsing, upload,
   download, rename, delete and cancel against an in-process SFTP server, root
   through a toy `sudo` with no, a wrong and the right password on one login, and
   the system probe.
@@ -1172,8 +1174,9 @@ the vault key sealed with DPAPI when the vault is remembered on this device (see
   Prettier and the locale check, the type check and the front-end builds, then
   formatting, clippy and the whole test suite on Windows and Linux. The
   end-to-end run needs a desktop session and stays on the release machine.
-- **macOS and Linux** are checked by CI on every tag and on `ci/**` branches:
-  formatting, clippy and the whole test suite on both, then the setups built.
+- **macOS** is checked by `installers.yml` on every push to main and on `ci/**`
+  branches: formatting, clippy, the whole test suite and a debug Mac App Store
+  build, then every setup built. Only main saves the build caches.
 
 The end-to-end run earned its place on its first outing. It found four bugs no
 other test could see: the password asked for before a changed host key was
