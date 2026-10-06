@@ -1,7 +1,7 @@
+import { Icon, IconButton, ICONS } from '@uwusuite/design';
 import { t, useLanguage } from '../lib/i18n';
 import { keysFor, keysForTab } from '../lib/shortcuts';
 import type { Tab } from '../lib/tabs';
-import { Icon } from './Icon';
 import { OsIcon } from './OsIcon';
 
 type Props = {
@@ -9,7 +9,8 @@ type Props = {
   activeId: string | null;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
-  onNewShell: () => void;
+  /** No local shell in the Mac App Store build: then there is no "+" either. */
+  onNewShell?: () => void;
   /** Opens the command assistant over the shown terminal. */
   onAssist: () => void;
   /** The shown tab is a live terminal the assistant can type into. */
@@ -68,11 +69,11 @@ export function TabBar({
               >
                 <span className="tab-icon" aria-hidden>
                   {tab.kind === 'files' ? (
-                    <Icon name="files" size={15} />
+                    <Icon icon={ICONS.files} size="sm" />
                   ) : tab.kind === 'ssh' ? (
                     <OsIcon os={tab.host.os} size={16} title="" />
                   ) : (
-                    <Icon name="terminal" size={15} />
+                    <Icon icon={ICONS.terminal} size="sm" />
                   )}
                   <i className="dot" data-state={stateOf(tab)} />
                 </span>
@@ -85,33 +86,33 @@ export function TabBar({
                 title={t('Tab schließen ({keys})', { keys: keysFor('close-tab') })}
                 aria-label={t('{name} schließen', { name: tab.title })}
               >
-                ×
+                <Icon icon={ICONS.close} size="xs" />
               </button>
             </div>
           );
         })}
       </div>
-      <button
-        className="icon-button tab-assist"
+      <IconButton
+        size="sm"
+        className="tab-assist"
+        icon={ICONS.ai}
         onClick={onAssist}
         disabled={!canAssist}
-        title={
+        label={
           canAssist
             ? t('Befehl aus Worten ({shortcut})', { shortcut: keysFor('assist') })
             : t('Befehl aus Worten: erst ein Terminal öffnen')
         }
-        aria-label={t('Befehl aus Worten')}
-      >
-        <Icon name="sparkles" size={15} />
-      </button>
-      <button
-        className="icon-button tab-new"
-        onClick={onNewShell}
-        title={t('Neue lokale Shell ({keys})', { keys: keysFor('new-shell') })}
-        aria-label={t('Neue lokale Shell')}
-      >
-        +
-      </button>
+      />
+      {onNewShell && (
+        <IconButton
+          size="sm"
+          className="tab-new"
+          icon={ICONS.add}
+          onClick={onNewShell}
+          label={t('Neue lokale Shell ({keys})', { keys: keysFor('new-shell') })}
+        />
+      )}
     </div>
   );
 }

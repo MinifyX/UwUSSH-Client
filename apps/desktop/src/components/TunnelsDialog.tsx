@@ -1,3 +1,4 @@
+import { Button, IconButton, ICONS, Segmented, Tag } from '@uwusuite/design';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { N_, t, useLanguage } from '../lib/i18n';
 import type { HostRecord } from '../lib/session';
@@ -14,7 +15,6 @@ import {
   type TunnelRecord,
   type TunnelStatus,
 } from '../lib/tunnels';
-import { Icon } from './Icon';
 import { Modal } from './Modal';
 
 type Props = {
@@ -260,12 +260,12 @@ export function TunnelsDialog({ hosts, host, onStart, onClose }: Props) {
         footer={
           <>
             <span className="spacer" />
-            <button data-secondary onClick={() => setForm(null)}>
+            <Button data-secondary onClick={() => setForm(null)}>
               {t('Abbrechen')}
-            </button>
-            <button className="primary" onClick={() => void submit()}>
+            </Button>
+            <Button variant="primary" onClick={() => void submit()}>
               {t('Speichern')}
-            </button>
+            </Button>
           </>
         }
       >
@@ -275,7 +275,11 @@ export function TunnelsDialog({ hosts, host, onStart, onClose }: Props) {
           ) : (
             <label className="field">
               <span>{t('Über den Host')}</span>
-              <select value={form.hostId} onChange={(e) => edit('hostId')(e.target.value)}>
+              <select
+                className="select"
+                value={form.hostId}
+                onChange={(e) => edit('hostId')(e.target.value)}
+              >
                 {hosts.map((h) => (
                   <option key={h.id} value={h.id}>
                     {h.name}
@@ -287,24 +291,15 @@ export function TunnelsDialog({ hosts, host, onStart, onClose }: Props) {
 
           <fieldset className="field">
             <span>{t('Richtung')}</span>
-            <div className="segmented" role="radiogroup" aria-label={t('Richtung')}>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={local}
-                onClick={() => edit('kind')('local')}
-              >
-                {t('Lokal (-L)')}
-              </button>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={!local}
-                onClick={() => edit('kind')('remote')}
-              >
-                {t('Remote (-R)')}
-              </button>
-            </div>
+            <Segmented
+              label={t('Richtung')}
+              value={form.kind}
+              onChange={edit('kind')}
+              options={[
+                { value: 'local', label: t('Lokal (-L)') },
+                { value: 'remote', label: t('Remote (-R)') },
+              ]}
+            />
             <em className="field-hint">
               {local
                 ? t(
@@ -425,18 +420,22 @@ export function TunnelsDialog({ hosts, host, onStart, onClose }: Props) {
       footer={
         <>
           {only && (
-            <button data-secondary onClick={() => setOnly(null)}>
+            <Button data-secondary onClick={() => setOnly(null)}>
               {t('Alle Hosts')}
-            </button>
+            </Button>
           )}
           <span className="spacer" />
-          <button data-secondary onClick={onClose}>
+          <Button data-secondary onClick={onClose}>
             {t('Schließen')}
-          </button>
-          <button className="primary" onClick={newForm} disabled={hosts.length === 0}>
-            <Icon name="plus" size={15} />
+          </Button>
+          <Button
+            variant="primary"
+            icon={ICONS.add}
+            onClick={newForm}
+            disabled={hosts.length === 0}
+          >
             {t('Tunnel hinzufügen')}
-          </button>
+          </Button>
         </>
       }
     >
@@ -474,16 +473,14 @@ export function TunnelsDialog({ hosts, host, onStart, onClose }: Props) {
                       <div className="tunnel-text">
                         <span className="tunnel-name">
                           <b>{tunnel.name}</b>
-                          <span className="tunnel-tag">
+                          <Tag>
                             {tunnel.kind === 'local'
                               ? t('Lokal')
                               : tunnel.kind === 'remote'
                                 ? t('Remote')
                                 : tunnel.kind}
-                          </span>
-                          {tunnel.autostart && (
-                            <span className="tunnel-tag">{t('mit Terminal')}</span>
-                          )}
+                          </Tag>
+                          {tunnel.autostart && <Tag>{t('mit Terminal')}</Tag>}
                         </span>
                         <span className="meta">{describeRoute(tunnel)}</span>
                         <span className="tunnel-status" role="status">
@@ -499,50 +496,55 @@ export function TunnelsDialog({ hosts, host, onStart, onClose }: Props) {
                       <span className="tunnel-actions">
                         {known &&
                           (running ? (
-                            <button
-                              className="quiet"
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              icon={ICONS.stop}
                               onClick={() => void stop(tunnel)}
                               disabled={working}
                             >
-                              <Icon name="stop" size={14} />
                               {t('Stoppen')}
-                            </button>
+                            </Button>
                           ) : (
-                            <button
-                              className="quiet"
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              icon={ICONS.start}
                               onClick={() => void start(tunnel)}
                               disabled={working}
                             >
-                              <Icon name="play" size={14} />
                               {t('Starten')}
-                            </button>
+                            </Button>
                           ))}
                         {known && (
-                          <button
-                            className="icon-button"
+                          <IconButton
+                            size="sm"
+                            icon={ICONS.edit}
+                            label={t('{name} bearbeiten', { name: tunnel.name })}
                             onClick={() => {
                               setErrors({});
                               setForm(formOf(tunnel));
                             }}
-                            title={t('Bearbeiten')}
-                            aria-label={t('{name} bearbeiten', { name: tunnel.name })}
-                          >
-                            <Icon name="pencil" size={15} />
-                          </button>
+                          />
                         )}
-                        <button
-                          className={confirmDelete === tunnel.id ? 'danger' : 'icon-button'}
-                          onClick={() => void remove(tunnel)}
-                          onBlur={() => setConfirmDelete(null)}
-                          title={t('Löschen')}
-                          aria-label={t('{name} löschen', { name: tunnel.name })}
-                        >
-                          {confirmDelete === tunnel.id ? (
-                            t('Wirklich löschen')
-                          ) : (
-                            <Icon name="trash" size={15} />
-                          )}
-                        </button>
+                        {confirmDelete === tunnel.id ? (
+                          <Button
+                            variant="danger"
+                            size="sm"
+                            autoFocus
+                            onClick={() => void remove(tunnel)}
+                            onBlur={() => setConfirmDelete(null)}
+                          >
+                            {t('Wirklich löschen')}
+                          </Button>
+                        ) : (
+                          <IconButton
+                            size="sm"
+                            icon={ICONS.delete}
+                            label={t('{name} löschen', { name: tunnel.name })}
+                            onClick={() => void remove(tunnel)}
+                          />
+                        )}
                       </span>
                     </li>
                   );

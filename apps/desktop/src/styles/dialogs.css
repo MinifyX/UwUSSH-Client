@@ -1,0 +1,344 @@
+/*
+ * Host form, host keys, import, vault, export and tunnels dialogs.
+ */
+
+/* ── Host keys ─────────────────────────────────────────── */
+
+.key-facts {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.randomart {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--uwu-radius-control);
+  background: var(--uwu-canvas);
+  border: 1px solid var(--uwu-hairline);
+  font-family: var(--uwu-mono);
+  font-size: 11px;
+  line-height: 1.25;
+  color: var(--uwu-ink);
+  flex: none;
+  width: max-content;
+}
+
+.key-facts dl,
+.key-compare {
+  margin: 0;
+  display: grid;
+  gap: 4px 12px;
+  min-width: 0;
+}
+
+.key-facts dl {
+  grid-template-columns: 1fr;
+}
+
+/* Label above value: a SHA-256 fingerprint needs the full width to stay on one line. */
+.key-compare {
+  grid-template-columns: 1fr;
+}
+
+dt {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--uwu-muted);
+}
+
+dd {
+  margin: 0 0 6px;
+  min-width: 0;
+}
+
+.fingerprint {
+  word-break: break-all;
+  font-size: 12px;
+}
+
+/* ── Import & vault ──────────────────────────────────────────────────────── */
+
+.import-note {
+  margin: 0 0 4px;
+  color: var(--uwu-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.import-preview {
+  display: grid;
+  gap: 12px;
+}
+
+.import-counts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.import-counts li {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: var(--uwu-radius-card);
+  border: 1px solid var(--uwu-hairline);
+  background: var(--uwu-elevated);
+}
+
+.import-counts b {
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  color: var(--uwu-pink-ink);
+}
+
+.import-counts span {
+  font-size: 11px;
+  color: var(--uwu-muted);
+}
+
+.import-skipped {
+  font-size: 12px;
+}
+
+.import-skipped summary {
+  cursor: pointer;
+  color: var(--uwu-muted);
+}
+
+.import-skipped ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+  color: var(--uwu-muted);
+}
+
+.import-sources {
+  display: grid;
+  gap: 8px;
+}
+
+/* One row per source to import from: a card-like choice, not a pill. */
+.import-source {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid var(--uwu-border);
+  border-radius: var(--uwu-radius-card);
+  background: var(--uwu-surface);
+  color: var(--uwu-ink);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 150ms ease,
+    border-color 150ms ease;
+}
+
+.import-source:hover:not(:disabled) {
+  background: var(--uwu-elevated);
+  border-color: color-mix(in srgb, var(--uwu-faint) 50%, transparent);
+}
+
+.import-source:focus-visible {
+  outline: none;
+  box-shadow: var(--uwu-focus);
+}
+
+.import-source:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* ── Host form ─────────────────────────────────────────── */
+
+.key-choice {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border-radius: var(--uwu-radius-card);
+  border: 1px solid var(--uwu-hairline);
+  background: var(--uwu-elevated);
+}
+
+.key-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.stored-secret {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 4px 12px;
+  border-radius: var(--uwu-radius-control);
+  border: 1px solid color-mix(in srgb, var(--uwu-success) 40%, transparent);
+  background: var(--uwu-success-tint);
+  font-size: var(--uwu-text-meta);
+}
+
+.stored-secret > .uwu-icon {
+  color: var(--uwu-success-ink);
+}
+
+.stored-secret[data-forgotten] {
+  border-color: color-mix(in srgb, var(--uwu-warning) 40%, transparent);
+  background: var(--uwu-warning-tint);
+}
+
+.stored-secret[data-forgotten] > .uwu-icon {
+  color: var(--uwu-warning-ink);
+}
+
+.input-with-button {
+  position: relative;
+  display: block;
+}
+
+.input-with-button input {
+  padding-right: 40px;
+}
+
+.input-with-button > button {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  translate: 0 -50%;
+}
+
+.field select.select {
+  width: 100%;
+}
+
+/* ── Export: the file password ─────────────────────────── */
+
+.export-password {
+  display: grid;
+  gap: 10px;
+}
+
+.export-password > p {
+  margin: -4px 0 0;
+  min-height: 1.45em;
+}
+
+/* ── Tunnels ──────────────────────────────────────────────────────────────── */
+
+/* The list scrolls inside the dialog; a small window would cut it off. */
+.tunnels-body {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.tunnel-group h3 {
+  margin: 14px 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--uwu-muted);
+}
+
+.tunnel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tunnel-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 8px 8px 12px;
+  border: 1px solid var(--uwu-hairline);
+  border-radius: var(--uwu-radius-card);
+  background: var(--uwu-elevated);
+}
+
+.tunnel-row .dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--uwu-offline);
+}
+
+.tunnel-row .dot[data-state='running'] {
+  background: var(--uwu-success);
+}
+
+.tunnel-row .dot[data-state='starting'],
+.tunnel-row .dot[data-state='connecting'] {
+  background: var(--uwu-pink);
+  animation: uwu-pulse 1s ease-in-out infinite;
+}
+
+.tunnel-row .dot[data-state='failed'] {
+  background: var(--uwu-warning);
+}
+
+.tunnel-text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.tunnel-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tunnel-name b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tunnel-text .meta {
+  font-family: var(--uwu-mono);
+  font-size: 11px;
+  color: var(--uwu-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tunnel-status {
+  font-size: 12px;
+  color: var(--uwu-muted);
+}
+
+.tunnel-row[data-state='running'] .tunnel-status {
+  color: var(--uwu-success-ink);
+}
+
+.tunnel-row[data-state='failed'] .tunnel-status {
+  color: var(--uwu-warning-ink);
+}
+
+.tunnel-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}

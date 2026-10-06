@@ -1,15 +1,13 @@
-/* UwUKeygen: the panel the app's dialog and the standalone window share. */
+/*
+ * UwUKeygen: the panel the app's dialog and the standalone window share.
+ * Buttons and the choices are the package's (Button, Segmented); this is the
+ * layout around them and the key text.
+ */
 
 .keygen {
   display: grid;
-  gap: 14px;
+  gap: 16px;
   align-content: start;
-}
-
-.keygen-dialog {
-  min-height: 0;
-  overflow-y: auto;
-  padding-right: 4px;
 }
 
 .keygen-intro,
@@ -28,15 +26,11 @@
   flex: none;
 }
 
-.keygen-tabs {
-  justify-self: start;
-}
-
 .keygen-advanced {
   display: grid;
   gap: 12px;
   padding: 12px;
-  border-radius: var(--uwu-radius-control);
+  border-radius: var(--uwu-radius-card);
   border: 1px solid var(--uwu-hairline);
   background: var(--uwu-elevated);
   animation: keygen-open 180ms ease both;
@@ -47,6 +41,10 @@
     opacity: 0;
     transform: translateY(-4px);
   }
+}
+
+:root[data-motion='reduced'] .keygen-advanced {
+  animation: none;
 }
 
 .keygen-actions,
@@ -61,23 +59,22 @@
 .keygen-store {
   align-items: flex-end;
   padding: 12px;
-  border-radius: var(--uwu-radius-control);
+  border-radius: var(--uwu-radius-card);
   border: 1px solid var(--uwu-pink-tint-strong);
   background: var(--uwu-pink-tint);
 }
 
 .keygen-summary {
-  padding: 3px 10px;
+  padding: 4px 12px;
   border-radius: var(--uwu-radius-pill);
   background: var(--uwu-pink-tint);
   color: var(--uwu-pink-ink);
   font-weight: 700;
-  font-size: 12.5px;
+  font-size: var(--uwu-text-caption);
 }
 
 .keygen-skip {
-  font-size: 12.5px;
-  margin-right: 6px;
+  margin-right: 4px;
 }
 
 .keygen-title {
@@ -87,7 +84,24 @@
 }
 
 .keygen-title span {
-  color: var(--uwu-pink-solid);
+  color: var(--uwu-pink-ink);
+}
+
+.keygen-format {
+  height: 32px;
+  padding: 0 8px;
+  border-radius: var(--uwu-radius-control);
+  border: 1px solid var(--uwu-border);
+  background: var(--uwu-surface);
+  color: var(--uwu-ink);
+  font: inherit;
+  font-size: var(--uwu-text-meta);
+}
+
+.keygen-format:focus-visible {
+  outline: none;
+  border-color: var(--uwu-pink);
+  box-shadow: var(--uwu-focus);
 }
 
 .key-text {
@@ -95,7 +109,7 @@
   font-size: 11.5px;
   line-height: 1.45;
   width: 100%;
-  padding: 8px 10px;
+  padding: 8px 12px;
   border-radius: var(--uwu-radius-control);
   border: 1px solid var(--uwu-border);
   background: var(--uwu-canvas);
@@ -113,15 +127,6 @@
   flex-wrap: wrap;
 }
 
-.modal[data-size='wide']:has(.keygen-dialog) {
-  height: auto;
-  max-height: 100%;
-}
-
-.modal-body:has(> .keygen-dialog) {
-  grid-template-rows: minmax(0, 1fr);
-}
-
 .field-hint[data-tone='warning'] {
-  color: var(--uwu-alarm);
+  color: var(--uwu-warning-ink);
 }

@@ -478,7 +478,16 @@ pub(crate) fn sync_status(
 }
 
 /// This computer's name, the way the other devices will see it listed.
+///
+/// Asked once and kept: `scutil` and NSHost can take a moment, and the sync
+/// status asks often. `lib.rs` warms it on a thread at start, so no command on
+/// the main thread waits for it.
 pub(crate) fn device_name() -> String {
+    static NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    NAME.get_or_init(look_up_device_name).clone()
+}
+
+fn look_up_device_name() -> String {
     let from_env = ["COMPUTERNAME", "HOSTNAME"]
         .iter()
         .find_map(|name| std::env::var(name).ok())
@@ -490,7 +499,19 @@ pub(crate) fn device_name() -> String {
             .filter(|name| !name.is_empty())
     };
     // Apps started from the Dock or a menu get no HOSTNAME. macOS keeps the
-    // name people gave their Mac apart from the network one.
+    // name people gave their Mac apart from the network one. The Mac App
+    // Store build runs no programs, so it asks Foundation for that name.
+    #[cfg(all(target_os = "macos", feature = "mas"))]
+    let from_command = || {
+        // NSHost is deprecated for resolving names; `localizedName` is the
+        // name from System Settings → General → About, all this asks for.
+        #[allow(deprecated)]
+        let host = objc2_foundation::NSHost::currentHost();
+        host.localizedName()
+            .map(|name| name.to_string().trim().to_string())
+            .filter(|name| !name.is_empty())
+    };
+    #[cfg(not(all(target_os = "macos", feature = "mas")))]
     let from_command = || {
         let (program, args): (&str, &[&str]) = if cfg!(target_os = "macos") {
             ("/usr/sbin/scutil", &["--get", "ComputerName"])
@@ -997,19 +1018,23 @@ mod tests {
         let spoken = format!("K7M4Q-{words}");
         assert!(target_of(&spoken, None, None).is_none());
         assert!(target_of(&spoken, Some("  "), None).is_none());
-        let target =
-            target_of(&spoken, Some("https://nas.lan:8443"), Some(" SHA256:abc ")).unwrap();
+        let target = target_of(
+            &spoken,
+            Some("https://nas.example:8443"),
+            Some(" SHA256:abc "),
+        )
+        .unwrap();
         assert_eq!(target.id, "K7M4Q");
         assert_eq!(target.words, words);
         assert_eq!(target.tls_fingerprint.as_deref(), Some("SHA256:abc"));
-        assert!(target_of("K7M4Q-not-our-words", Some("https://nas.lan"), None).is_none());
+        assert!(target_of("K7M4Q-not-our-words", Some("https://nas.example"), None).is_none());
     }
 
     #[test]
     fn a_pasted_code_brings_its_own_server() {
-        let offer = pairing::offer("K7M4Q", &pairing::words(), "https://nas.lan:8443", None);
+        let offer = pairing::offer("K7M4Q", &pairing::words(), "https://nas.example:8443", None);
         let target = target_of(&offer.pasteable, None, None).unwrap();
-        assert_eq!(target.server_url, "https://nas.lan:8443");
+        assert_eq!(target.server_url, "https://nas.example:8443");
     }
 
     #[test]

@@ -1,5 +1,7 @@
+import { Button, Icon, IconButton, ICONS } from '@uwusuite/design';
 import { useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { beginDrag, edgeByHalf, type DropTarget } from '../lib/dnd';
+import { localShellAvailable } from '../lib/flavor';
 import { t } from '../lib/i18n';
 import {
   createGroup,
@@ -18,7 +20,6 @@ import {
   workspaceName,
 } from '../lib/settings';
 import { ContextMenu, type MenuItem } from './ContextMenu';
-import { Icon } from './Icon';
 import { Nyu } from './nyu/Nyu';
 import { OsIcon } from './OsIcon';
 import { Tooltip } from './Tooltip';
@@ -218,25 +219,25 @@ export function HostList(props: Props) {
           ? [
               {
                 label: t('Zum offenen Tab'),
-                icon: 'terminal' as const,
+                icon: ICONS.terminal,
                 onSelect: () => props.onConnect(host),
               },
               {
                 label: t('Weiteren Tab öffnen'),
-                icon: 'plus' as const,
+                icon: ICONS.add,
                 onSelect: () => props.onConnectAnother(host),
               },
             ]
           : [
               {
                 label: t('Verbinden'),
-                icon: 'terminal' as const,
+                icon: ICONS.terminal,
                 onSelect: () => props.onConnect(host),
               },
             ]),
-        { label: t('Dateien öffnen'), icon: 'files', onSelect: () => props.onOpenFiles(host) },
-        { label: t('Tunnel…'), icon: 'tunnel', onSelect: () => props.onTunnels(host) },
-        { label: t('Bearbeiten'), icon: 'pencil', onSelect: () => props.onEdit(host) },
+        { label: t('Dateien öffnen'), icon: ICONS.files, onSelect: () => props.onOpenFiles(host) },
+        { label: t('Tunnel…'), icon: ICONS.tunnel, onSelect: () => props.onTunnels(host) },
+        { label: t('Bearbeiten'), icon: ICONS.edit, onSelect: () => props.onEdit(host) },
         'separator',
         ...(settings.workspaces
           ? [
@@ -244,7 +245,7 @@ export function HostList(props: Props) {
                 label: t('Nach {workspace} verschieben', {
                   workspace: workspaceName(other, settings),
                 }),
-                icon: other === 'private' ? ('house' as const) : ('briefcase' as const),
+                icon: other === 'private' ? ICONS.home : ICONS.work,
                 onSelect: () => run(() => moveHost(host.id, other, host.groupPath, null)),
               },
             ]
@@ -253,7 +254,7 @@ export function HostList(props: Props) {
           ? [
               {
                 label: t('Aus der Gruppe nehmen'),
-                icon: 'up' as const,
+                icon: ICONS.parentFolder,
                 onSelect: () => run(() => moveHost(host.id, host.workspace, null, null)),
               },
             ]
@@ -267,14 +268,14 @@ export function HostList(props: Props) {
       y,
       items: props.shellOpen
         ? [
-            { label: t('Zum offenen Tab'), icon: 'terminal', onSelect: props.onLocalShell },
+            { label: t('Zum offenen Tab'), icon: ICONS.terminal, onSelect: props.onLocalShell },
             {
               label: t('Weitere lokale Shell öffnen'),
-              icon: 'plus',
+              icon: ICONS.add,
               onSelect: props.onAnotherShell,
             },
           ]
-        : [{ label: t('Lokale Shell öffnen'), icon: 'terminal', onSelect: props.onLocalShell }],
+        : [{ label: t('Lokale Shell öffnen'), icon: ICONS.terminal, onSelect: props.onLocalShell }],
     });
 
   const groupMenu = (x: number, y: number, name: string) =>
@@ -284,12 +285,12 @@ export function HostList(props: Props) {
       items: [
         {
           label: t('Host hier hinzufügen'),
-          icon: 'plus',
+          icon: ICONS.add,
           onSelect: () => props.onAdd(workspace, name),
         },
         {
           label: t('Umbenennen'),
-          icon: 'pencil',
+          icon: ICONS.edit,
           onSelect: () => setEditing({ from: name, value: name }),
         },
         ...(settings.workspaces
@@ -298,7 +299,7 @@ export function HostList(props: Props) {
                 label: t('Nach {workspace} verschieben', {
                   workspace: workspaceName(other, settings),
                 }),
-                icon: other === 'private' ? ('house' as const) : ('briefcase' as const),
+                icon: other === 'private' ? ICONS.home : ICONS.work,
                 onSelect: () => run(() => moveGroup(workspace, name, other, null)),
               },
             ]
@@ -306,7 +307,7 @@ export function HostList(props: Props) {
         'separator',
         {
           label: t('Gruppe auflösen (Hosts bleiben)'),
-          icon: 'trash',
+          icon: ICONS.delete,
           danger: true,
           onSelect: () => run(() => deleteGroup(workspace, name)),
         },
@@ -396,7 +397,7 @@ export function HostList(props: Props) {
                   role="img"
                   aria-label={t('Ein Tunnel läuft')}
                 >
-                  <Icon name="tunnel" size={12} />
+                  <Icon icon={ICONS.tunnel} size="xs" />
                 </span>
               )}
               {password && (
@@ -406,7 +407,7 @@ export function HostList(props: Props) {
                     role="img"
                     aria-label={t('Meldet sich mit Passwort statt mit einem SSH-Key an')}
                   >
-                    <Icon name="warning" size={12} />
+                    <Icon icon={ICONS.warning} size="xs" />
                   </span>
                 </Tooltip>
               )}
@@ -421,22 +422,18 @@ export function HostList(props: Props) {
           </span>
         </button>
         <span className="host-actions">
-          <button
-            className="icon-button"
+          <IconButton
+            size="sm"
+            icon={ICONS.files}
+            label={t('Dateien auf {name}', { name: host.name })}
             onClick={() => props.onOpenFiles(host)}
-            title={t('Dateien auf {name}', { name: host.name })}
-            aria-label={t('Dateien auf {name}', { name: host.name })}
-          >
-            <Icon name="files" size={15} />
-          </button>
-          <button
-            className="icon-button"
+          />
+          <IconButton
+            size="sm"
+            icon={ICONS.edit}
+            label={t('{name} bearbeiten', { name: host.name })}
             onClick={() => props.onEdit(host)}
-            title={t('{name} bearbeiten', { name: host.name })}
-            aria-label={t('{name} bearbeiten', { name: host.name })}
-          >
-            <Icon name="pencil" size={15} />
-          </button>
+          />
         </span>
       </li>
     );
@@ -449,39 +446,33 @@ export function HostList(props: Props) {
       <div className="sidebar-head">
         <h2>{t('Hosts')}</h2>
         <span className="spacer" />
-        <button
-          className="icon-button"
+        {/* Green while a tunnel runs: the list shows which host, this shows that one does. */}
+        <IconButton
+          size="sm"
+          icon={ICONS.tunnel}
+          label={t('Tunnel')}
           onClick={() => props.onTunnels(null)}
-          title={t('Tunnel')}
-          aria-label={t('Tunnel')}
           data-active={props.tunnelIds.size > 0 || undefined}
-        >
-          <Icon name="tunnel" />
-        </button>
-        <button
-          className="icon-button"
+          className={props.tunnelIds.size > 0 ? 'text-success-ink!' : undefined}
+        />
+        <IconButton
+          size="sm"
+          icon={ICONS.import}
+          label={t('Importieren')}
           onClick={props.onImport}
-          title={t('Importieren')}
-          aria-label={t('Importieren')}
-        >
-          <Icon name="import" />
-        </button>
-        <button
-          className="icon-button"
+        />
+        <IconButton
+          size="sm"
+          icon={ICONS.newFolder}
+          label={t('Neue Gruppe')}
           onClick={() => setEditing({ from: null, value: '' })}
-          title={t('Neue Gruppe')}
-          aria-label={t('Neue Gruppe')}
-        >
-          <Icon name="folderPlus" />
-        </button>
-        <button
-          className="icon-button"
+        />
+        <IconButton
+          size="sm"
+          icon={ICONS.add}
+          label={t('Host hinzufügen')}
           onClick={() => props.onAdd(workspace, null)}
-          title={t('Host hinzufügen')}
-          aria-label={t('Host hinzufügen')}
-        >
-          <Icon name="plus" />
-        </button>
+        />
       </div>
 
       {settings.workspaces && (
@@ -499,7 +490,7 @@ export function HostList(props: Props) {
                 workspace: workspaceName(id, settings),
               })}
             >
-              <Icon name={id === 'private' ? 'house' : 'briefcase'} size={15} />
+              <Icon icon={id === 'private' ? ICONS.home : ICONS.work} />
               <span className="workspace-name">{workspaceName(id, settings)}</span>
               {counts[id] > 0 && <span className="workspace-count">{counts[id]}</span>}
             </button>
@@ -519,30 +510,33 @@ export function HostList(props: Props) {
       )}
 
       <div className="host-scroll">
-        <ul className="host-list">
-          <li>
-            <button
-              className="host"
-              aria-current={activeId === 'shell'}
-              onClick={props.onLocalShell}
-              onContextMenu={(event) => {
-                event.preventDefault();
-                shellMenu(event.clientX, event.clientY);
-              }}
-              onKeyDown={(event) => menuKey(event, shellMenu)}
-              title={
-                props.shellOpen
-                  ? t('Zeigt die offene lokale Shell, Rechtsklick für eine weitere')
-                  : t('Öffnet eine lokale Shell')
-              }
-            >
-              <span className="host-icon host-glyph" aria-hidden>
-                <Icon name="terminal" size={17} />
-              </span>
-              <span className="host-name">{t('Lokale Shell')}</span>
-            </button>
-          </li>
-        </ul>
+        {/* The Mac App Store build has no local shell (lib/flavor.ts). */}
+        {localShellAvailable() && (
+          <ul className="host-list">
+            <li>
+              <button
+                className="host"
+                aria-current={activeId === 'shell'}
+                onClick={props.onLocalShell}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  shellMenu(event.clientX, event.clientY);
+                }}
+                onKeyDown={(event) => menuKey(event, shellMenu)}
+                title={
+                  props.shellOpen
+                    ? t('Zeigt die offene lokale Shell, Rechtsklick für eine weitere')
+                    : t('Öffnet eine lokale Shell')
+                }
+              >
+                <span className="host-icon host-glyph" aria-hidden>
+                  <Icon icon={ICONS.terminal} size="md" />
+                </span>
+                <span className="host-name">{t('Lokale Shell')}</span>
+              </button>
+            </li>
+          </ul>
+        )}
 
         {query.trim() ? (
           <>
@@ -635,21 +629,21 @@ export function HostList(props: Props) {
                           'Klicken zum Auf-/Zuklappen, doppelklicken zum Umbenennen, ziehen zum Sortieren',
                         )}
                       >
-                        <Icon name="chevron" size={12} className="group-chevron" />
+                        <Icon icon={ICONS.expand} size="xs" className="group-chevron" />
                         <h3>{name}</h3>
                         <span className="group-count">{section.hosts.length}</span>
                       </button>
                     )}
-                    <button
-                      className="icon-button group-more"
+                    <IconButton
+                      size="sm"
+                      icon={ICONS.more}
+                      label={t('Menü für {name}', { name })}
+                      className="group-more size-6!"
                       onClick={(event) => {
                         const rect = event.currentTarget.getBoundingClientRect();
                         groupMenu(rect.left, rect.bottom, name);
                       }}
-                      aria-label={t('Menü für {name}', { name })}
-                    >
-                      <Icon name="more" size={15} />
-                    </button>
+                    />
                   </div>
                   {!isCollapsed && (
                     <ul className="host-list">
@@ -675,14 +669,21 @@ export function HostList(props: Props) {
                     workspace: workspaceName(workspace, settings),
                   })}
             </p>
-            <button className="primary" onClick={() => props.onAdd(workspace, null)}>
+            <Button variant="primary" icon={ICONS.add} onClick={() => props.onAdd(workspace, null)}>
               {t('Host hinzufügen')}
-            </button>
-            <button className="quiet" onClick={props.onImport}>
+            </Button>
+            {/* A sentence, not a label: it wraps inside the narrow sidebar. */}
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={hosts.length === 0 ? ICONS.import : undefined}
+              className="h-auto! min-h-8 py-1.5 whitespace-normal! text-muted!"
+              onClick={props.onImport}
+            >
               {hosts.length === 0
                 ? t('Aus Termius, PuTTY, KiTTY, ssh_config oder einer UwUSSH-Datei importieren')
                 : t('Hosts aus dem anderen Bereich hierher ziehen')}
-            </button>
+            </Button>
           </div>
         )}
       </div>
@@ -703,19 +704,19 @@ export function HostList(props: Props) {
 /** Why a password login gets a warning sign, and how to get rid of it. */
 function PasswordWarning() {
   return (
-    <div className="password-warning">
-      <b>{t('Anmeldung mit Passwort')}</b>
-      <p>
+    <div className="grid gap-1.5">
+      <b className="font-semibold">{t('Anmeldung mit Passwort')}</b>
+      <p className="m-0">
         {t(
           'Passwörter lassen sich erraten, durchprobieren oder abphishen. Ein SSH-Key ist viel stärker: Er verlässt nie deinen Computer, und ohne ihn kommt niemand rein.',
         )}
       </p>
-      <p>
+      <p className="m-0">
         {t(
           'So wechselst du: Host bearbeiten, bei Anmeldung „SSH-Key“ wählen und mit „Neuen Key erzeugen…“ (UwUKeygen) einen Key anlegen. Dann „Public Key kopieren“ und auf dem Server in ~/.ssh/authorized_keys eintragen.',
         )}
       </p>
-      <p className="meta">{t('Ausschalten unter Einstellungen → Darstellung.')}</p>
+      <p className="m-0 opacity-75">{t('Ausschalten unter Einstellungen → Darstellung.')}</p>
     </div>
   );
 }

@@ -37,18 +37,18 @@ await shot('01-start');
 // ── Add a host ──────────────────────────────────────────────────────────────
 await page.click('.sidebar-empty button', 'Host hinzufügen');
 await page.waitFor(
-  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Neuer Host'`,
+  `[...document.querySelectorAll('.uwu-modal h2')].pop()?.textContent === 'Neuer Host'`,
   {
     what: 'host form',
   },
 );
 check(
   'address field has focus when the form opens',
-  await page.eval(`document.activeElement === document.querySelectorAll('.modal input')[0]`),
+  await page.eval(`document.activeElement === document.querySelectorAll('.uwu-modal input')[0]`),
 );
 
 // Saving an empty form must name the missing field instead of failing silently.
-await page.click('.modal-footer button', 'Speichern');
+await page.click('.uwu-modal footer button', 'Speichern');
 await page.waitFor(`document.querySelector('.field-error')`, { what: 'validation error' });
 check(
   'empty address is reported next to the field',
@@ -56,7 +56,7 @@ check(
   await page.text('.field-error'),
 );
 
-const inputs = `.modal input`;
+const inputs = `.uwu-modal input`;
 await page.fill(`${inputs}:nth-of-type(1)`, '127.0.0.1');
 await page.eval(`document.querySelectorAll('${inputs}')[1].focus()`);
 await page.key('a', 2);
@@ -66,17 +66,17 @@ await page.eval(`document.querySelectorAll('${inputs}')[2].focus()`);
 await page.type('uwu');
 await page.eval(`document.querySelectorAll('${inputs}')[3].focus()`);
 await page.type('dev-sshd');
-await page.eval(`document.querySelector('.modal input[list]').focus()`);
+await page.eval(`document.querySelector('.uwu-modal input[list]').focus()`);
 await page.type('lokal');
 check(
   'the password stays empty, so it is asked on connect',
-  await page.eval(`document.querySelector('.modal input[type=password]').value === ''`),
+  await page.eval(`document.querySelector('.uwu-modal input[type=password]').value === ''`),
 );
 await shot('02-form');
 
-await page.click('.modal-footer button', 'Speichern');
+await page.click('.uwu-modal footer button', 'Speichern');
 await page.waitFor(
-  `!document.querySelector('.modal') && [...document.querySelectorAll('.host-name')].some(e => e.textContent === 'dev-sshd')`,
+  `!document.querySelector('.uwu-modal') && [...document.querySelectorAll('.host-name')].some(e => e.textContent === 'dev-sshd')`,
   { what: 'host in list' },
 );
 check('saved host appears in its group', (await page.text('.host-group h3')).includes('lokal'));
@@ -84,7 +84,7 @@ check('saved host appears in its group', (await page.text('.host-group h3')).inc
 // ── First contact: unknown host key ─────────────────────────────────────────
 await page.click('.host .host-name', 'dev-sshd');
 await page.waitFor(
-  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Unbekannter Host-Key'`,
+  `[...document.querySelectorAll('.uwu-modal h2')].pop()?.textContent === 'Unbekannter Host-Key'`,
   { what: 'trust dialog' },
 );
 await sleep(300);
@@ -103,15 +103,15 @@ await sleep(300);
 check(
   'Enter alone does not trust the key',
   await page.eval(
-    `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Unbekannter Host-Key'`,
+    `[...document.querySelectorAll('.uwu-modal h2')].pop()?.textContent === 'Unbekannter Host-Key'`,
   ),
 );
 
-await page.click('.modal-footer button', 'Vertrauen und verbinden');
+await page.click('.uwu-modal footer button', 'Vertrauen und verbinden');
 
 // ── Password: wrong, then right ─────────────────────────────────────────────
 await page.waitFor(
-  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Passwort'`,
+  `[...document.querySelectorAll('.uwu-modal h2')].pop()?.textContent === 'Passwort'`,
   {
     what: 'password prompt',
   },
@@ -133,10 +133,10 @@ check(
 await shot('05-rejected');
 check(
   'the password prompt offers to keep it in the vault',
-  await page.eval(`document.querySelector('.modal .check input')?.checked === true`),
+  await page.eval(`document.querySelector('.uwu-modal .check input')?.checked === true`),
 );
 // Not this time: the vault comes later, on purpose.
-await page.click('.modal .check input');
+await page.click('.uwu-modal .check input');
 await page.type('nyu');
 await page.key('Enter');
 
@@ -215,19 +215,21 @@ await page.waitFor(`document.querySelector('.notice')?.textContent.includes('wur
 });
 check(
   'session end shows a banner, not a modal',
-  await page.eval(`!document.querySelector('.modal')`),
+  await page.eval(`!document.querySelector('.uwu-modal')`),
 );
 await shot('09-ended');
 
 // ── Reconnect: key already trusted, so straight to the password ─────────────
 await page.click('.notice button', 'Neu verbinden');
-await page.waitFor(`[...document.querySelectorAll('.modal-title')].pop()`, { what: 'next dialog' });
+await page.waitFor(`[...document.querySelectorAll('.uwu-modal h2')].pop()`, {
+  what: 'next dialog',
+});
 check(
   'a trusted host skips the key dialog',
-  (await page.text('.modal-title')) === 'Passwort',
-  await page.text('.modal-title'),
+  (await page.text('.uwu-modal h2')) === 'Passwort',
+  await page.text('.uwu-modal h2'),
 );
-await page.click('.modal .check input');
+await page.click('.uwu-modal .check input');
 await page.type('nyu');
 await page.key('Enter');
 await page.waitFor(
@@ -279,7 +281,7 @@ check(
 await shot('10a-host-menu');
 await page.click('.context-menu [role=menuitem]', 'Weiteren Tab öffnen');
 await page.waitFor(
-  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Passwort'`,
+  `[...document.querySelectorAll('.uwu-modal h2')].pop()?.textContent === 'Passwort'`,
   {
     what: 'password prompt for the second tab',
     timeout: 15_000,
@@ -291,7 +293,7 @@ check(
   (await page.text('.tab[data-active="true"] .tab-ordinal')) === '2',
   await page.text('.tab[data-active="true"]'),
 );
-await page.click('.modal .check input');
+await page.click('.uwu-modal .check input');
 await page.type('nyu');
 await page.key('Enter');
 await page.waitFor(terminalHas('toy shell'), { what: 'banner in the second tab', timeout: 15_000 });
@@ -342,50 +344,50 @@ check('the other connection keeps working after a tab closed', true);
 
 // ── Window controls ─────────────────────────────────────────────────────────
 const controls = await page.eval(
-  `[...document.querySelectorAll('.window-control')].map(b => b.getAttribute('aria-label')).join(',')`,
+  `[...document.querySelectorAll('.uwu-window-control')].map(b => b.getAttribute('aria-label')).join(',')`,
 );
 check(
   'the title bar has minimize, maximize and close',
   controls === 'Minimieren,Maximieren,Schließen',
   controls,
 );
-await page.click('.window-control[aria-label="Maximieren"]');
-await page.waitFor(`document.querySelector('.window-control[aria-label="Verkleinern"]')`, {
+await page.click('.uwu-window-control[aria-label="Maximieren"]');
+await page.waitFor(`document.querySelector('.uwu-window-control[aria-label="Verkleinern"]')`, {
   what: 'maximized window',
 });
 check('maximize works and offers to restore', true);
-await page.click('.window-control[aria-label="Verkleinern"]');
-await page.waitFor(`document.querySelector('.window-control[aria-label="Maximieren"]')`, {
+await page.click('.uwu-window-control[aria-label="Verkleinern"]');
+await page.waitFor(`document.querySelector('.uwu-window-control[aria-label="Maximieren"]')`, {
   what: 'restored window',
 });
-await page.click('.window-control[aria-label="Schließen"]');
+await page.click('.uwu-window-control[aria-label="Schließen"]');
 await page.waitFor(
-  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'UwUSSH schließen?'`,
+  `[...document.querySelectorAll('.uwu-modal h2')].pop()?.textContent === 'UwUSSH schließen?'`,
   {
     what: 'close confirmation',
   },
 );
 check('closing with an open connection asks first', true);
 await shot('10c-close');
-await page.click('.modal-footer button', 'Abbrechen');
-await page.waitFor(`!document.querySelector('.modal')`, { what: 'confirmation dismissed' });
+await page.click('.uwu-modal footer button', 'Abbrechen');
+await page.waitFor(`!document.querySelector('.uwu-modal')`, { what: 'confirmation dismissed' });
 
 // ── Settings ────────────────────────────────────────────────────────────────
-await page.click('.titlebar-action[aria-label="Einstellungen"]');
+await page.click('.uwu-titlebar-action[aria-label^="Einstellungen"]');
 await page.waitFor(
-  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Einstellungen'`,
+  `[...document.querySelectorAll('.uwu-modal h2')].pop()?.textContent === 'Einstellungen'`,
   {
     what: 'settings',
   },
 );
 await page.click('.settings-nav button', 'Terminal');
-await page.click('.segmented button', 'Strich');
+await page.click('.settings-content [role=radio]', 'Strich');
 await sleep(200);
 check(
   'a terminal setting reaches the open terminals right away',
   (await page.eval(`window.__uwusshDriver.term.options.cursorStyle`)) === 'bar',
 );
-await page.click('.segmented button', 'Block');
+await page.click('.settings-content [role=radio]', 'Block');
 await page.click('.settings-nav button', 'Updates');
 // A beta build starts on the beta channel, a release on the stable one.
 const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
@@ -393,15 +395,15 @@ const channel = version.includes('-') ? 'Beta' : 'Stabil';
 check(
   `a ${version.includes('-') ? 'beta build' : 'release'} is on the ${channel} channel`,
   await page.eval(
-    `[...document.querySelectorAll('.segmented button')].find(b => b.textContent === '${channel}')?.getAttribute('aria-checked') === 'true'`,
+    `[...document.querySelectorAll('.settings-content [role=radio]')].find(b => b.textContent === '${channel}')?.getAttribute('aria-checked') === 'true'`,
   ),
 );
 await shot('10d-settings');
 
 // ── English: the whole app switches at once, and back ─────────────────────
-const topTitle = `[...document.querySelectorAll('.modal-title')].pop()?.textContent`;
+const topTitle = `[...document.querySelectorAll('.uwu-modal h2')].pop()?.textContent`;
 await page.click('.settings-nav button', 'Darstellung');
-await page.click('.segmented button', 'English');
+await page.click('.settings-content [role=radio]', 'English');
 await page.waitFor(`${topTitle} === 'Settings'`, { what: 'settings in English' });
 check(
   'switching to English translates the open dialog right away',
@@ -411,11 +413,11 @@ check(
 );
 await shot('10e-english-settings');
 await page.key('Escape');
-await page.waitFor(`!document.querySelector('.modal')`, { what: 'English settings closed' });
+await page.waitFor(`!document.querySelector('.uwu-modal')`, { what: 'English settings closed' });
 check(
   'the window behind it speaks English too',
   await page.eval(
-    `!!document.querySelector('.titlebar-action[aria-label="Settings"]') && !!document.querySelector('.sidebar-head [aria-label="Add host"]')`,
+    `!!document.querySelector('.uwu-titlebar-action[aria-label^="Settings"]') && !!document.querySelector('.sidebar-head [aria-label="Add host"]')`,
   ),
 );
 await shot('10f-english-main');
@@ -424,15 +426,15 @@ await page.waitFor(`${topTitle} === 'New host'`, { what: 'host form in English' 
 check('the host form is in English', true);
 await shot('10g-english-form');
 await page.key('Escape');
-await page.waitFor(`!document.querySelector('.modal')`, { what: 'English host form closed' });
-await page.click('.titlebar-action[aria-label="Settings"]');
+await page.waitFor(`!document.querySelector('.uwu-modal')`, { what: 'English host form closed' });
+await page.click('.uwu-titlebar-action[aria-label^="Settings"]');
 await page.waitFor(`${topTitle} === 'Settings'`, { what: 'settings again' });
 await page.click('.settings-nav button', 'Appearance');
-await page.click('.segmented button', 'Deutsch');
+await page.click('.settings-content [role=radio]', 'Deutsch');
 await page.waitFor(`${topTitle} === 'Einstellungen'`, { what: 'settings back in German' });
 check('and back to German', await page.eval(`document.documentElement.lang === 'de'`));
 await page.key('Escape');
-await page.waitFor(`!document.querySelector('.modal')`, { what: 'settings closed' });
+await page.waitFor(`!document.querySelector('.uwu-modal')`, { what: 'settings closed' });
 
 // ── The system the server runs ─────────────────────────────────────────────
 const invoke = (command, args = {}) =>
@@ -454,7 +456,7 @@ check(
 
 // ── Keyword highlighting ────────────────────────────────────────────────────
 await page.eval(`window.__uwusshDriver.term.focus()`);
-await page.type('error 10.0.0.12 active');
+await page.type('error 192.0.2.12 active');
 await page.key('Enter');
 await page.waitFor(terminalHas('command not found'), { what: 'unknown command output' });
 await page.waitFor(`window.__uwusshDriver.highlighter.entries.size > 0`, {
@@ -563,16 +565,16 @@ await page.eval(
   `[...document.querySelectorAll('.host-row')].find(r => r.textContent.includes('dev-sshd')).querySelector('.host-actions button[aria-label$="bearbeiten"]').click()`,
 );
 await page.waitFor(
-  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'dev-sshd bearbeiten'`,
+  `[...document.querySelectorAll('.uwu-modal h2')].pop()?.textContent === 'dev-sshd bearbeiten'`,
   {
     what: 'edit form',
   },
 );
-await page.click('.modal input[type=password]');
+await page.click('.uwu-modal input[type=password]');
 await page.type('nyu');
-await page.click('.modal-footer button', 'Speichern');
+await page.click('.uwu-modal footer button', 'Speichern');
 await page.waitFor(
-  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Tresor anlegen'`,
+  `[...document.querySelectorAll('.uwu-modal h2')].pop()?.textContent === 'Tresor anlegen'`,
   {
     what: 'vault creation for the password',
   },
@@ -584,12 +586,12 @@ await page.waitFor(`document.activeElement?.type === 'password'`, {
 check('the master password field has the cursor', true);
 await page.type('e2e-master');
 await page.eval(
-  `[...document.querySelectorAll('.modal')].pop().querySelectorAll('input[type=password]')[1].focus()`,
+  `[...document.querySelectorAll('.uwu-modal')].pop().querySelectorAll('input[type=password]')[1].focus()`,
 );
 await page.type('e2e-master');
 await shot('14-vault');
 await page.key('Enter');
-await page.waitFor(`!document.querySelector('.modal')`, {
+await page.waitFor(`!document.querySelector('.uwu-modal')`, {
   what: 'form saved after the vault',
   timeout: 20_000,
 });
@@ -614,7 +616,7 @@ await page.waitFor(terminalHas('toy shell'), {
 });
 check(
   'a host with a stored password connects without asking',
-  await page.eval(`!document.querySelector('.modal')`),
+  await page.eval(`!document.querySelector('.uwu-modal')`),
 );
 
 // ── Workspaces and groups: drag a host into Business ───────────────────────
@@ -622,7 +624,7 @@ await invoke('save_host', {
   draft: {
     id: null,
     name: 'nas',
-    address: '10.99.0.5',
+    address: '198.51.100.5',
     port: 22,
     username: 'root',
     auth: 'password',
@@ -681,7 +683,7 @@ const order = await page.eval(
 check('dragging a host between hosts reorders the group', order.startsWith('nas,dev-sshd'), order);
 check(
   'a drag does not open a connection',
-  (await tabCount()) === 0 && (await page.eval(`!document.querySelector('.modal')`)),
+  (await tabCount()) === 0 && (await page.eval(`!document.querySelector('.uwu-modal')`)),
 );
 // Into the other workspace.
 await drag('.host', 'nas', '.workspace-switch button', 'Business');
@@ -773,13 +775,13 @@ await drag(
   60,
 );
 await page.waitFor(
-  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Ersetzen?'`,
+  `[...document.querySelectorAll('.uwu-modal h2')].pop()?.textContent === 'Ersetzen?'`,
   { what: 'replace question', timeout: 15_000 },
 );
 check('an upload onto a taken name asks first', readFileSync(serverWelcome, 'utf8') === original);
 await shot('16b-replace');
-await page.click('.modal-footer button', 'Ersetzen');
-await page.waitFor(`!document.querySelector('.modal')`, { what: 'replace question closed' });
+await page.click('.uwu-modal footer button', 'Ersetzen');
+await page.waitFor(`!document.querySelector('.uwu-modal')`, { what: 'replace question closed' });
 await page.waitFor(
   `[...document.querySelectorAll('.transfers li')].every(l => l.dataset.state !== 'running')`,
   { what: 'replacing upload done', timeout: 15_000 },
@@ -791,9 +793,9 @@ check(
 );
 
 // ── Export: everything, with secrets, into a file ───────────────────────────
-await page.click('.titlebar-action[aria-label="Einstellungen"]');
+await page.click('.uwu-titlebar-action[aria-label^="Einstellungen"]');
 await page.waitFor(
-  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Einstellungen'`,
+  `[...document.querySelectorAll('.uwu-modal h2')].pop()?.textContent === 'Einstellungen'`,
   {
     what: 'settings for export',
   },
@@ -801,20 +803,20 @@ await page.waitFor(
 await page.click('.settings-nav button', 'Import & Export');
 await page.click('.settings-content button', 'Exportieren');
 await page.waitFor(
-  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Exportieren'`,
+  `[...document.querySelectorAll('.uwu-modal h2')].pop()?.textContent === 'Exportieren'`,
   {
     what: 'export dialog',
   },
 );
-await page.click('.modal input[type=password]');
+await page.click('.uwu-modal input[type=password]');
 await page.type('export-pw-123');
 await page.eval(
-  `[...document.querySelectorAll('.modal')].pop().querySelectorAll('input[type=password]')[1].focus()`,
+  `[...document.querySelectorAll('.uwu-modal')].pop().querySelectorAll('input[type=password]')[1].focus()`,
 );
 await page.type('export-pw-123');
-await page.click('.modal-footer button', 'Speichern unter');
+await page.click('.uwu-modal footer button', 'Speichern unter');
 await page.waitFor(
-  `[...document.querySelectorAll('.modal-title')].pop()?.textContent.startsWith('Export gespeichert')`,
+  `[...document.querySelectorAll('.uwu-modal h2')].pop()?.textContent.startsWith('Export gespeichert')`,
   {
     what: 'export saved',
     timeout: 20_000,
@@ -828,14 +830,16 @@ check(
   !exportText.includes('dev-sshd') && !exportText.includes('"nyu"'),
 );
 await shot('17-export');
-await page.click('.modal-footer button', 'Fertig');
+await page.click('.uwu-modal footer button', 'Fertig');
 await page.key('Escape');
-await page.waitFor(`!document.querySelector('.modal')`, { what: 'settings closed after export' });
+await page.waitFor(`!document.querySelector('.uwu-modal')`, {
+  what: 'settings closed after export',
+});
 
 // ── Import: preview first, and the vault is asked before anything is written ─
 await page.click('.sidebar-head [aria-label="Importieren"]');
 await page.waitFor(
-  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Importieren'`,
+  `[...document.querySelectorAll('.uwu-modal h2')].pop()?.textContent === 'Importieren'`,
   {
     what: 'import dialog',
   },
@@ -849,7 +853,7 @@ check(
 );
 await shot('18-import');
 await page.key('Escape');
-await page.waitFor(`!document.querySelector('.modal')`, { what: 'import dialog closed' });
+await page.waitFor(`!document.querySelector('.uwu-modal')`, { what: 'import dialog closed' });
 check('the import dialog closes without touching the host list', true);
 
 page.close();

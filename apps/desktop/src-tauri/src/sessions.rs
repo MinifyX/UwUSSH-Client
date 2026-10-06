@@ -1,10 +1,23 @@
 //! Terminal I/O, the same for every kind of session.
 
-use crate::{err, AppState, ChannelSink, CommandResult};
+#[cfg(feature = "local-shell")]
+use crate::ChannelSink;
+use crate::{err, AppState, CommandResult};
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::State;
 use uwussh_core::{MetricsSnapshot, SessionId};
 
+/// Why the Mac App Store build starts no program on this computer.
+#[cfg(not(feature = "local-shell"))]
+pub(crate) const NO_LOCAL_PROCESSES: &str =
+    "the App Store version of UwUSSH runs no programs on this Mac, only SSH connections";
+
+/// A local shell. Not in the Mac App Store build (no `local-shell` feature):
+/// a shell started from a sandboxed app inherits its sandbox and sees little
+/// more than the app's own container, which is no use as a terminal. The page
+/// offers no local tab there (`localShellAvailable()`), and the stand-in below
+/// refuses in case it asks anyway.
+#[cfg(feature = "local-shell")]
 #[tauri::command]
 pub(crate) async fn spawn_shell_session(
     state: State<'_, AppState>,
@@ -16,6 +29,18 @@ pub(crate) async fn spawn_shell_session(
         .sessions
         .spawn_shell(cols, rows, ChannelSink { channel: on_data })
         .map_err(err)
+}
+
+/// The command without a shell behind it, for builds without `local-shell`.
+#[cfg(not(feature = "local-shell"))]
+#[tauri::command]
+pub(crate) async fn spawn_shell_session(
+    cols: u16,
+    rows: u16,
+    on_data: Channel<InvokeResponseBody>,
+) -> CommandResult<SessionId> {
+    let _ = (cols, rows, on_data);
+    Err(NO_LOCAL_PROCESSES.into())
 }
 
 /// Deliberately not `async`. Async commands run concurrently on the runtime,

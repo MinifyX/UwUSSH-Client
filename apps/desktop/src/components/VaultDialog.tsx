@@ -1,3 +1,4 @@
+import { Button, Hint } from '@uwusuite/design';
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { t, useLanguage } from '../lib/i18n';
 import { systemName } from '../lib/platform';
@@ -112,14 +113,15 @@ export function VaultDialog({ reason, cancelLabel = t('Abbrechen'), onDone, onCa
               ? t('Tresor entsperren')
               : t('Tresor')
       }
-      onCancel={onCancel}
+      // Not while it works: the × would leave it running unseen.
+      onCancel={() => !busy && onCancel()}
       footer={
         <>
           <span className="spacer" />
-          <button data-secondary onClick={onCancel} disabled={busy}>
+          <Button data-secondary onClick={onCancel} disabled={busy}>
             {cancelLabel}
-          </button>
-          <button className="primary" onClick={() => void submit()} disabled={!ready}>
+          </Button>
+          <Button variant="primary" onClick={() => void submit()} disabled={!ready}>
             {busy
               ? mode === 'create'
                 ? t('Lege an…')
@@ -131,7 +133,7 @@ export function VaultDialog({ reason, cancelLabel = t('Abbrechen'), onDone, onCa
                 : mode === 'repair'
                   ? t('Speichern')
                   : t('Entsperren')}
-          </button>
+          </Button>
         </>
       }
     >
@@ -220,11 +222,11 @@ export function VaultDialog({ reason, cancelLabel = t('Abbrechen'), onDone, onCa
             </p>
           )}
           {mode === 'create' && (
-            <p className="import-warning">
+            <Hint tone="warning">
               {t(
                 'Es gibt noch keine Wiederherstellung: Vergisst du das Master-Passwort, kommst du auf einem neuen Gerät nicht mehr an die gespeicherten Passwörter.',
               )}
-            </p>
+            </Hint>
           )}
           <button type="submit" hidden disabled={!ready} />
         </form>

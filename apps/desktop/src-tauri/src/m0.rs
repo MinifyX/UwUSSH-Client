@@ -2,7 +2,9 @@
 
 use crate::{err, AppState, ChannelSink, CommandResult};
 use serde::Deserialize;
-use std::path::{Path, PathBuf};
+#[cfg(feature = "local-shell")]
+use std::path::Path;
+use std::path::PathBuf;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, State};
 use uwussh_core::SessionId;
@@ -47,6 +49,14 @@ pub(crate) async fn spawn_m0_session(
         M0Kind::Synthetic => Ok(state
             .sessions
             .spawn_synthetic(bytes, scenario.flow_control, sink)),
+        // A program on this computer, which a build without `local-shell`
+        // (the Mac App Store one) starts none of (see `spawn_shell_session`).
+        #[cfg(not(feature = "local-shell"))]
+        M0Kind::Pty => {
+            let _ = (cols, rows);
+            Err(crate::sessions::NO_LOCAL_PROCESSES.into())
+        }
+        #[cfg(feature = "local-shell")]
         M0Kind::Pty => {
             let path = flood_file(bytes).map_err(err)?;
             let (program, args) = flood_command(&path);
@@ -59,6 +69,7 @@ pub(crate) async fn spawn_m0_session(
 }
 
 /// The log file for the PTY scenario, written once and reused.
+#[cfg(feature = "local-shell")]
 fn flood_file(bytes: usize) -> std::io::Result<PathBuf> {
     let path =
         std::env::temp_dir().join(format!("uwussh-m0-flood-{}mib.log", bytes / (1024 * 1024)));
@@ -71,6 +82,7 @@ fn flood_file(bytes: usize) -> std::io::Result<PathBuf> {
     Ok(path)
 }
 
+#[cfg(feature = "local-shell")]
 fn flood_command(path: &Path) -> (String, Vec<String>) {
     let path = path.to_string_lossy().into_owned();
     if cfg!(windows) {

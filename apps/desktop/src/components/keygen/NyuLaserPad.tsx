@@ -268,7 +268,7 @@ const TRACKING_EYES = (
   <g className="nyu-laser-glance">
     {[102, 154].map((cx) => (
       <g key={cx} data-part="eye" data-cx={cx} transform={`translate(${cx} 148)`}>
-        <ellipse rx="8" ry="10" fill={NYU.outline} />
+        <ellipse rx="8" ry="10" fill={NYU.ink} />
         <circle cx="3" cy="-4" r="3" fill={NYU.paper} />
       </g>
     ))}
@@ -283,7 +283,7 @@ const TAIL = (
       className="nyu-laser-tail-line"
       d={TAIL_PATH}
       fill="none"
-      stroke={NYU.outline}
+      stroke={NYU.ink}
       strokeWidth={21}
     />
     <path className="no-edge" d={TAIL_PATH} fill="none" stroke={NYU.body} strokeWidth={12} />
@@ -428,7 +428,7 @@ function PawPrints({ progress }: { progress: number }) {
                 opacity={amount >= 1 ? 1 : round(0.25 + amount * 0.5)}
               >
                 <Sticker edge={4.5}>
-                  <g fill={NYU.body} stroke={NYU.outline} strokeWidth={1.6}>
+                  <g fill={NYU.body} stroke={NYU.ink} strokeWidth={1.6}>
                     <PawPrint />
                   </g>
                 </Sticker>
@@ -1203,7 +1203,7 @@ export function NyuLaserPad({
   const look = LOOKS[pose];
   const pct = Math.round(clamp(progress, 0, 1) * 100);
   const style = {
-    '--nyu-laser-core': NYU.blush,
+    '--nyu-laser-core': NYU.blushSolid,
     '--nyu-laser-hot': NYU.paper,
     '--nyu-laser-spark': NYU.star,
   } as CSSProperties;
@@ -1232,7 +1232,7 @@ export function NyuLaserPad({
         >
           <PawPrints progress={progress} />
           <g ref={catRef} transform={`translate(${HOME.x} ${HOME.y})`}>
-            <ellipse ref={shadowRef} rx="54" ry="6" fill={NYU.outline} opacity="0.14" />
+            <ellipse ref={shadowRef} rx="54" ry="6" fill={NYU.ink} opacity="0.14" />
             <g ref={liftRef}>
               <g ref={bodyRef}>
                 <g className="nyu-laser-breathe">
@@ -1255,10 +1255,10 @@ export function NyuLaserPad({
                       <path
                         d="M-7 -5 q0 -9 9 -9 q9 0 9 8 q0 6 -8 9 v4"
                         fill="none"
-                        stroke={NYU.outline}
+                        stroke={NYU.ink}
                         strokeWidth={5}
                       />
-                      <circle cx="3" cy="15" r="3.2" fill={NYU.outline} />
+                      <circle cx="3" cy="15" r="3.2" fill={NYU.ink} />
                     </Sticker>
                   </g>
                 </g>
@@ -1270,7 +1270,7 @@ export function NyuLaserPad({
                       <path
                         d="M0 -10 h9 l-9 10 h9"
                         fill="none"
-                        stroke={NYU.outline}
+                        stroke={NYU.ink}
                         strokeWidth={3.5}
                       />
                     </Sticker>
@@ -1280,7 +1280,7 @@ export function NyuLaserPad({
                       <path
                         d="M14 -30 h12 l-12 13 h12"
                         fill="none"
-                        stroke={NYU.outline}
+                        stroke={NYU.ink}
                         strokeWidth={4}
                       />
                     </Sticker>
@@ -1330,7 +1330,7 @@ export function NyuLaserPad({
                         rx="2"
                         transform={`rotate(${rotate})`}
                         fill={fill}
-                        stroke={NYU.outline}
+                        stroke={NYU.ink}
                         strokeWidth={3}
                       />
                     </Sticker>

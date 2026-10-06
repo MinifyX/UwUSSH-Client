@@ -1,7 +1,8 @@
+import { Button, Hint, Nyu } from '@uwusuite/design';
 import { useState } from 'react';
+import { updatesAvailableInApp } from '../lib/flavor';
 import { language, t, useLanguage } from '../lib/i18n';
 import type { UpdateInfo } from '../lib/session';
-import { Nyu } from './nyu/Nyu';
 
 /** Release notes are JSON with `de` and `en` when written for UwUSSH, otherwise plain text. */
 export function notesFor(notes: string | null | undefined): string {
@@ -24,8 +25,16 @@ type Props = {
   onRestart: () => Promise<void>;
 };
 
-/** Nyu's quiet note that a new version is downloaded and ready. */
-export function UpdateHint({ update, openConnections, onLater, onRestart }: Props) {
+/**
+ * Nyu's quiet note that a new version is downloaded and ready. Nothing in a
+ * build that doesn't update itself (the Mac App Store's).
+ */
+export function UpdateHint(props: Props) {
+  if (!updatesAvailableInApp()) return null;
+  return <ReadyNote {...props} />;
+}
+
+function ReadyNote({ update, openConnections, onLater, onRestart }: Props) {
   useLanguage();
   const [showNotes, setShowNotes] = useState(false);
   const [restarting, setRestarting] = useState(false);
@@ -35,7 +44,7 @@ export function UpdateHint({ update, openConnections, onLater, onRestart }: Prop
   return (
     <aside className="update-hint" aria-live="polite">
       <div className="update-hint-head">
-        <Nyu size={40} mood="sparkle" title="Nyu" />
+        <Nyu shell="terminal" size={40} mood="sparkle" title="Nyu" />
         <div>
           <p className="update-hint-title">{t('Ein Update ist bereit ✧')}</p>
           <p className="update-hint-meta">
@@ -65,18 +74,15 @@ export function UpdateHint({ update, openConnections, onLater, onRestart }: Prop
               })}
         </p>
       )}
-      {error && (
-        <p className="update-hint-warning" role="alert">
-          {error}
-        </p>
-      )}
+      {error && <Hint tone="danger">{error}</Hint>}
       <div className="update-hint-actions">
-        <button className="quiet" onClick={onLater}>
+        <Button size="sm" variant="ghost" onClick={onLater}>
           {t('Später')}
-        </button>
-        <button
-          className="primary"
-          disabled={restarting}
+        </Button>
+        <Button
+          size="sm"
+          variant="primary"
+          busy={restarting}
           onClick={async () => {
             setRestarting(true);
             setError(null);
@@ -89,7 +95,7 @@ export function UpdateHint({ update, openConnections, onLater, onRestart }: Prop
           }}
         >
           {restarting ? t('Startet neu …') : t('Jetzt neu starten')}
-        </button>
+        </Button>
       </div>
     </aside>
   );

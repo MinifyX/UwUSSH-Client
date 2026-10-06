@@ -1,0 +1,20 @@
+/*
+ * UwUKeygen's stylesheets, in cascade order: Tailwind and @uwusuite/design
+ * first (tokens, UwU Sans, the base layer, Nyu, the title bar) plus the font
+ * picker's fonts, then the pieces of UwUSSH's sheets the key generator uses,
+ * in the `components` layer like in the app. The app's styles/index.css can't
+ * be imported here: it would pull Tailwind in a second time.
+ */
+@import 'tailwindcss';
+@import '@uwusuite/design/tailwind.css';
+@import '@uwusuite/design/font-picker.css';
+
+/* Class names come from this app and from UwUSSH's components it shows. */
+@source './';
+@source '../../desktop/src';
+
+/* Forms, the dialog body, the close question (CloseGuard). */
+@import '../../desktop/src/styles/base.css' layer(components);
+/* Randomart and fingerprints. */
+@import '../../desktop/src/styles/dialogs.css' layer(components);
+@import './keygen-app.css' layer(components);

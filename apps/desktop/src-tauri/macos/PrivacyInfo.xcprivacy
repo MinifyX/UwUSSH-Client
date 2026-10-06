@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  UwUSSH's privacy manifest, copied to Contents/Resources by the Mac App Store
+  build (tauri.mas.conf.json).
+
+  No tracking, no tracking domains, no data collected in Apple's sense: hosts,
+  keys and passwords stay on the Mac (secrets sealed in the vault). What
+  leaves it goes where the person sent it, never to MinifyX — SSH to their
+  servers, the end-to-end encrypted sync to a UwUSync or UwULock server they
+  run, and, only if they set it up with their own key, a request typed into
+  the command assistant to the AI provider they chose.
+
+  The required-reason APIs it uses, and why:
+  - File timestamps: the file browser shows when local files changed, for
+    files and folders the person picked (3B52.1); the database, its journal
+    and the bookmarks live in the app's container (C617.1).
+  - System boot time: Rust's `Instant` is mach_absolute_time, used for
+    timeouts, keep-alives and transfer speeds (35F9.1).
+  - User defaults: AppKit and WebKit keep the app's own defaults (window and
+    web view state) (CA92.1).
+  - Disk space: SQLite (the bundled one, rusqlite) calls statfs on Apple
+    systems to choose how to lock the database file. Declared as E174.1 —
+    the closest listed reason, as nothing reads the free space itself; see
+    docs/app-store.md.
+  Nothing asks for active keyboards.
+-->
+<plist version="1.0">
+<dict>
+  <key>NSPrivacyTracking</key>
+  <false/>
+  <key>NSPrivacyTrackingDomains</key>
+  <array/>
+  <key>NSPrivacyCollectedDataTypes</key>
+  <array/>
+  <key>NSPrivacyAccessedAPITypes</key>
+  <array>
+    <dict>
+      <key>NSPrivacyAccessedAPIType</key>
+      <string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
+      <key>NSPrivacyAccessedAPITypeReasons</key>
+      <array>
+        <string>3B52.1</string>
+        <string>C617.1</string>
+      </array>
+    </dict>
+    <dict>
+      <key>NSPrivacyAccessedAPIType</key>
+      <string>NSPrivacyAccessedAPICategorySystemBootTime</string>
+      <key>NSPrivacyAccessedAPITypeReasons</key>
+      <array>
+        <string>35F9.1</string>
+      </array>
+    </dict>
+    <dict>
+      <key>NSPrivacyAccessedAPIType</key>
+      <string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+      <key>NSPrivacyAccessedAPITypeReasons</key>
+      <array>
+        <string>CA92.1</string>
+      </array>
+    </dict>
+    <dict>
+      <key>NSPrivacyAccessedAPIType</key>
+      <string>NSPrivacyAccessedAPICategoryDiskSpace</string>
+      <key>NSPrivacyAccessedAPITypeReasons</key>
+      <array>
+        <string>E174.1</string>
+      </array>
+    </dict>
+  </array>
+</dict>
+</plist>

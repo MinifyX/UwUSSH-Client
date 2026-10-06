@@ -101,9 +101,21 @@ pub(crate) async fn export_hosts(
 
 /// Write next to the target and rename over it, so a crash never leaves half
 /// an export where a good one was.
+///
+/// Inside the Mac App Store sandbox the save panel opens the one file the
+/// person named and nothing beside it, so the temporary file is refused;
+/// there the export is written straight into the file instead — not
+/// crash-safe, but written. Every other build reports the error as before.
 fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let temporary = path.with_extension(format!("uwussh-{}.tmp", Uuid::now_v7().simple()));
-    std::fs::write(&temporary, bytes)?;
+    match std::fs::write(&temporary, bytes) {
+        Err(error)
+            if cfg!(feature = "mas") && error.kind() == std::io::ErrorKind::PermissionDenied =>
+        {
+            return std::fs::write(path, bytes);
+        }
+        other => other?,
+    }
     std::fs::rename(&temporary, path).inspect_err(|_| {
         let _ = std::fs::remove_file(&temporary);
     })
@@ -124,7 +136,7 @@ pub(crate) async fn pick_export_file(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Option<Picked>, BackupFailure> {
-    let Some(path) = dialogs::open(&app, "UwUSSH-Export öffnen", FILTER).await else {
+    let Some(path) = dialogs::open(&app, "UwUSSH-Export öffnen", FILTER, None).await else {
         return Ok(None);
     };
     let size = std::fs::metadata(&path).map_err(failure)?.len();

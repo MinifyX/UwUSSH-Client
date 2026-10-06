@@ -613,7 +613,7 @@ mod tests {
     #[test]
     fn a_secret_only_travels_over_tls_or_to_this_machine() {
         for address in [
-            "https://nas.lan:8443",
+            "https://nas.example:8443",
             "https://uwussh.example.com",
             "http://localhost:8443",
             "http://127.0.0.1:8443",
@@ -623,18 +623,18 @@ mod tests {
             assert!(Server::connect(address, None).is_ok(), "{address}");
         }
         for address in [
-            "http://nas.lan:8443",
-            "http://10.0.0.5:8443",
+            "http://nas.example:8443",
+            "http://192.0.2.5:8443",
             "http://uwussh.example.com",
-            "nas.lan:8443",
-            "ftp://nas.lan",
+            "nas.example:8443",
+            "ftp://nas.example",
             "",
             // The user-name trick: the request would go to evil.example.
             "http://localhost:1@evil.example",
             "http://localhost@evil.example/",
-            "https://user:pass@nas.lan",
+            "https://user:pass@nas.example",
             "http://localhost.evil.example",
-            "http://127.0.0.1.nip.io",
+            "http://127.0.0.1.example",
         ] {
             assert!(!safe_address(address), "{address}");
             assert!(
@@ -649,13 +649,13 @@ mod tests {
 
     #[test]
     fn a_trailing_slash_is_not_part_of_the_address() {
-        let server = Server::connect("https://nas.lan:8443/", None).unwrap();
-        assert_eq!(server.url("/healthz"), "https://nas.lan:8443/healthz");
+        let server = Server::connect("https://nas.example:8443/", None).unwrap();
+        assert_eq!(server.url("/healthz"), "https://nas.example:8443/healthz");
     }
 
     #[test]
     fn a_device_that_has_not_signed_in_does_not_send_a_request_without_a_token() {
-        let server = Server::connect("https://nas.lan:8443", None).unwrap();
+        let server = Server::connect("https://nas.example:8443", None).unwrap();
         // Nothing is sent: it fails before the socket is touched.
         assert!(matches!(
             server.devices(),
@@ -665,7 +665,7 @@ mod tests {
 
     #[test]
     fn signing_in_needs_a_device_identity() {
-        let server = Server::connect("https://nas.lan:8443", None).unwrap();
+        let server = Server::connect("https://nas.example:8443", None).unwrap();
         assert!(matches!(
             server.sign_in(),
             Err(TransportError::Refused(reason)) if reason.contains("not enrolled")

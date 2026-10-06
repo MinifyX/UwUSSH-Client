@@ -143,7 +143,7 @@ mod tests {
                 hosts: vec![
                     HostInput {
                         name: "pw-host".into(),
-                        address: "10.0.0.1".into(),
+                        address: "192.0.2.1".into(),
                         port: 22,
                         group_path: None,
                         identity: Some(0),
@@ -152,7 +152,7 @@ mod tests {
                     },
                     HostInput {
                         name: "key-host".into(),
-                        address: "10.0.0.2".into(),
+                        address: "192.0.2.2".into(),
                         port: 22,
                         group_path: None,
                         identity: Some(1),
@@ -179,7 +179,7 @@ mod tests {
     #[test]
     fn a_file_key_host_reports_its_path() {
         let store = Store::open_in_memory().unwrap();
-        let mut draft = crate::hosts::tests::draft("nas", "nas.lan");
+        let mut draft = crate::hosts::tests::draft("nas", "nas.example");
         draft.auth = crate::AuthMethod::Key;
         draft.key_path = Some("~/.ssh/id_ed25519".into());
         let saved = store.save_host(draft).unwrap();
@@ -195,7 +195,7 @@ mod tests {
     fn a_manual_password_host_is_asked_every_time() {
         let store = Store::open_in_memory().unwrap();
         let saved = store
-            .save_host(crate::hosts::tests::draft("web", "10.0.0.9"))
+            .save_host(crate::hosts::tests::draft("web", "192.0.2.9"))
             .unwrap();
         assert_eq!(
             store.host_credential_source(saved.id).unwrap(),

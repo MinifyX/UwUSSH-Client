@@ -284,7 +284,7 @@ mod tests {
     #[test]
     fn a_field_an_older_build_does_not_know_survives_a_round_trip() {
         // What a newer build wrote: a host with tags.
-        let written = r#"{"name":"prox-1","address":"10.0.0.12","port":22,
+        let written = r#"{"name":"prox-1","address":"192.0.2.12","port":22,
             "workspace":"private","position":0,"group_id":null,"identity_id":null,
             "tags":["homelab"]}"#;
 

@@ -1,0 +1,410 @@
+/*
+ * The window: title bar, body, tabs, toolbar, notices, the terminal panes and what lies over them.
+ */
+
+/* ── Shell ─────────────────────────────────────────────── */
+
+.shell {
+  height: 100%;
+}
+
+/* Title bar (none on macOS, where the system draws it) and body; made inert while a dialog is open. */
+.background {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.body {
+  display: grid;
+  grid-template-columns: 268px 1fr;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ── Main ──────────────────────────────────────────────── */
+
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ── Tabs ──────────────────────────────────────────────── */
+
+.tabbar {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  min-height: 40px;
+  padding: 6px 10px 0;
+  background: var(--uwu-surface);
+  border-bottom: 1px solid var(--uwu-hairline);
+}
+
+.tabs {
+  display: flex;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  flex: none;
+  min-width: 0;
+  max-width: 220px;
+  border-radius: var(--uwu-radius-control) var(--uwu-radius-control) 0 0;
+  color: var(--uwu-muted);
+}
+
+.tab:hover {
+  background: var(--uwu-elevated);
+}
+
+.tab[data-active='true'] {
+  background: var(--uwu-canvas);
+  color: var(--uwu-ink);
+  box-shadow: inset 0 2px 0 var(--uwu-pink);
+}
+
+.tab-select {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 4px 8px 12px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+}
+
+.tab-select:hover:not(:disabled) {
+  background: transparent;
+}
+
+.tab .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--uwu-offline);
+  flex: none;
+}
+
+.tab .dot[data-state='online'] {
+  background: var(--uwu-success-ink);
+}
+
+.tab .dot[data-state='connecting'] {
+  background: var(--uwu-pink);
+  animation: tab-pulse 1s ease-in-out infinite;
+}
+
+@keyframes tab-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-ordinal {
+  flex: none;
+  min-width: 17px;
+  padding: 0 5px;
+  border-radius: var(--uwu-radius-pill);
+  background: var(--uwu-pink-tint);
+  color: var(--uwu-pink-ink);
+  font-size: 10.5px;
+  line-height: 17px;
+  text-align: center;
+}
+
+.tab-close {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin-right: 6px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--uwu-muted);
+  font-size: 15px;
+  line-height: 1;
+  opacity: 0;
+}
+
+.tab:hover .tab-close,
+.tab[data-active='true'] .tab-close,
+.tab-close:focus-visible {
+  opacity: 1;
+}
+
+.tab-close:hover:not(:disabled) {
+  background: var(--uwu-pink-tint);
+  color: var(--uwu-pink-ink);
+}
+
+.tab-assist {
+  flex: none;
+  align-self: center;
+  margin-bottom: 3px;
+}
+
+.tab-assist:disabled {
+  opacity: 0.4;
+}
+
+.tab-new {
+  flex: none;
+  align-self: center;
+  margin-bottom: 3px;
+  font-size: 18px;
+}
+
+.no-tabs {
+  height: 100%;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  text-align: center;
+  color: var(--uwu-muted);
+}
+
+.no-tabs-scene {
+  width: 240px;
+  margin-bottom: 8px;
+}
+
+.no-tabs-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--uwu-ink);
+}
+
+.no-tabs-text {
+  max-width: 340px;
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--uwu-hairline);
+  background: var(--uwu-surface);
+  min-height: 46px;
+  flex-wrap: wrap;
+}
+
+.session-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.session-title .meta {
+  font-family: var(--uwu-mono);
+  font-size: 11.5px;
+  color: var(--uwu-muted);
+}
+
+/* Reconnect is a banner, never a modal: a modal over a terminal is a UX bug. */
+.notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 14px 0;
+  padding: 8px 8px 8px 14px;
+  border-radius: var(--uwu-radius-control);
+  border: 1px solid var(--uwu-border);
+  background: var(--uwu-surface);
+  font-size: 13px;
+}
+
+.notice[data-tone='error'] {
+  border-color: color-mix(in srgb, var(--uwu-warning-ink) 50%, transparent);
+  color: var(--uwu-warning-ink);
+}
+
+/*
+ * The terminal must never be able to widen the layout. xterm.js sizes its
+ * canvas from the container, and the container is a grid item whose minimum
+ * width would otherwise follow that canvas: one column too many (for example
+ * from a scrollbar width xterm measured differently) makes the container
+ * grow, the resize observer fits again, and the terminal runs away — this
+ * reached 5000 columns once. min-width: 0 and overflow: hidden break that loop.
+ */
+.terminal-wrap {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: 10px 14px 14px;
+  background: var(--uwu-canvas);
+}
+
+/* Every tab keeps its terminal; only the active one is shown. */
+.terminal-pane {
+  height: 100%;
+  min-width: 0;
+}
+
+.terminal-pane[hidden] {
+  display: none;
+}
+
+.terminal-host {
+  min-width: 0;
+  height: 100%;
+  border-radius: var(--uwu-radius-card);
+  overflow: hidden;
+  background: var(--uwu-stage);
+  padding: 10px;
+}
+
+/* The terminal is the stage: dark whatever the app theme. */
+.terminal-host ::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--uwu-stage-muted) 35%, transparent) padding-box;
+}
+
+.terminal-host ::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--uwu-pink) 70%, transparent) padding-box;
+}
+
+/* What the terminal opens in: no padding of its own, so it measures true. */
+.terminal-screen {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+}
+
+/* ── Tabs and toolbar ──────────────────────────────────── */
+
+.tab-icon {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  flex: none;
+  color: var(--uwu-muted);
+}
+
+.tab-icon .dot {
+  position: absolute;
+  right: -3px;
+  bottom: -2px;
+  width: 6px;
+  height: 6px;
+  border: 1.5px solid var(--uwu-surface);
+  box-sizing: content-box;
+}
+
+.tab[data-active='true'] .tab-icon .dot {
+  border-color: var(--uwu-canvas);
+}
+
+.toolbar-button {
+  color: var(--uwu-muted);
+}
+
+.toolbar-button:hover:not(:disabled) {
+  color: var(--uwu-ink);
+}
+
+/* ── Terminal pane overlays ────────────────────────────── */
+
+.terminal-pane {
+  position: relative;
+}
+
+.pane-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  border-radius: var(--uwu-radius-card);
+  background: var(--uwu-stage-overlay);
+  color: var(--uwu-stage-ink);
+  text-align: center;
+  animation: overlay-in 220ms ease both;
+  z-index: 3;
+}
+
+.pane-overlay p {
+  margin: 0;
+  font-weight: 600;
+}
+
+.pane-scene {
+  width: 220px;
+}
+
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.password-helper {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  translate: -50% 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100% - 40px);
+  padding: 8px 8px 8px 14px;
+  border-radius: var(--uwu-radius-pill);
+  border: 1px solid var(--uwu-pink);
+  background: var(--uwu-surface);
+  box-shadow: var(--uwu-shadow-float);
+  font-size: 13px;
+  animation: helper-in 260ms cubic-bezier(0.2, 0.9, 0.3, 1.3) both;
+}
+
+.password-helper > svg {
+  flex: none;
+  color: var(--uwu-pink-solid);
+}
+
+.password-helper span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.password-helper kbd {
+  font-family: var(--uwu-mono);
+  font-size: 10.5px;
+  color: var(--uwu-muted);
+  white-space: nowrap;
+}
+
+@keyframes helper-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.96);
+  }
+}

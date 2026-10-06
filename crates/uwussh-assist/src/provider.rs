@@ -1181,7 +1181,7 @@ mod tests {
             Err(AssistError::Address("refused-ip"))
         );
         assert_eq!(
-            check_base_url(OpenaiCompatible, "ftp://192.168.1.2"),
+            check_base_url(OpenaiCompatible, "ftp://192.0.2.2"),
             Err(AssistError::Address("scheme"))
         );
         assert_eq!(

@@ -1,4 +1,5 @@
 import { getCurrentWebview } from '@tauri-apps/api/webview';
+import { Button, Icon, IconButton, ICONS } from '@uwusuite/design';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { beginDrag } from '../lib/dnd';
 import {
@@ -32,11 +33,12 @@ import {
   type Place,
   type TransferEvent,
 } from '../lib/files';
+import { forgetLocalFolder, pickLocalFolder } from '../lib/flavor';
 import { locale, t, useLanguage } from '../lib/i18n';
 import { hasPrimaryModifier } from '../lib/keymap';
 import { platform } from '../lib/platform';
 import type { HostRecord } from '../lib/session';
-import { Icon } from './Icon';
+import { desktop, withKeys } from '../lib/shortcuts';
 import { Modal } from './Modal';
 import { NyuScene } from './nyu/scenes';
 
@@ -189,6 +191,28 @@ export function FileBrowser({ host, open, onLive }: Props) {
       })
       .catch((e) => setLocal((pane) => ({ ...pane, error: String(e) })));
   }, [list]);
+
+  /**
+   * A folder from a panel. In the store build that is the only way to reach
+   * one, and it stays among the places; elsewhere it just opens.
+   */
+  const pickFolder = () =>
+    void pickLocalFolder()
+      .then(async (picked) => {
+        if (!picked) return;
+        setPlaces(await localPlaces());
+        void list('local', picked.path);
+      })
+      .catch((e) => setNotice(describeFilesFailure(asFilesFailure(e))));
+
+  /** Takes a picked folder off the places again. */
+  const forgetFolder = (place: Place) =>
+    void forgetLocalFolder(place.path)
+      .then(() => localPlaces())
+      .then(setPlaces)
+      .catch((e) => setNotice(describeFilesFailure(asFilesFailure(e))));
+
+  const pickedHere = places.find((p) => p.kind === 'picked' && p.path === local.path);
 
   // ── The server side ───────────────────────────────────────────────────────
 
@@ -465,13 +489,13 @@ export function FileBrowser({ host, open, onLive }: Props) {
         <div className="notice" data-tone="error" role="alert">
           <span>{notice}</span>
           <span className="spacer" />
-          <button
-            className="icon-button"
+          <IconButton
+            icon={ICONS.close}
+            size="sm"
+            className="p-0"
+            label={t('Hinweis schließen')}
             onClick={() => setNotice(null)}
-            aria-label={t('Hinweis schließen')}
-          >
-            ×
-          </button>
+          />
         </div>
       )}
 
@@ -483,19 +507,34 @@ export function FileBrowser({ host, open, onLive }: Props) {
           pane={local}
           dropping={dropSide === 'local'}
           toolbar={
-            <select
-              className="select places"
-              value=""
-              onChange={(event) => event.target.value && void list('local', event.target.value)}
-              aria-label={t('Ort wählen')}
-            >
-              <option value="">{t('Orte…')}</option>
-              {places.map((place) => (
-                <option key={place.path} value={place.path}>
-                  {place.kind === 'drive' ? place.label : placeLabel(place)}
-                </option>
-              ))}
-            </select>
+            <>
+              <select
+                className="places"
+                value=""
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (value === PICK_FOLDER) pickFolder();
+                  else if (value) void list('local', value);
+                }}
+                aria-label={t('Ort wählen')}
+              >
+                <option value="">{t('Orte…')}</option>
+                {places.map((place) => (
+                  <option key={place.path} value={place.path}>
+                    {place.kind === 'drive' ? place.label : placeLabel(place)}
+                  </option>
+                ))}
+                <option value={PICK_FOLDER}>{t('Ordner wählen…')}</option>
+              </select>
+              {pickedHere && (
+                <IconButton
+                  icon={ICONS.close}
+                  size="sm"
+                  label={t('Aus den Orten entfernen')}
+                  onClick={() => forgetFolder(pickedHere)}
+                />
+              )}
+            </>
           }
           onNavigate={(path) => void list('local', path)}
           onUp={() => void up('local')}
@@ -516,7 +555,7 @@ export function FileBrowser({ host, open, onLive }: Props) {
         <FilePane
           side="remote"
           title={remoteTitle}
-          icon={remote?.kind === 'sftp' && remote.root ? 'crown' : 'network'}
+          icon={remote?.kind === 'sftp' && remote.root ? 'admin' : 'server'}
           root={remote?.kind === 'sftp' && remote.root}
           pane={remotePane}
           dropping={dropSide === 'remote'}
@@ -524,18 +563,17 @@ export function FileBrowser({ host, open, onLive }: Props) {
           toolbar={
             <>
               {remote?.kind === 'sftp' && (
-                <button
-                  className="icon-button"
+                <IconButton
+                  icon={ICONS.home}
+                  size="sm"
+                  label={remote.root ? t('Zum Wurzelverzeichnis /') : t('Zum Home-Verzeichnis')}
                   onClick={() => void list('remote', remote.root ? '/' : remote.home)}
-                  title={remote.root ? t('Zum Wurzelverzeichnis /') : t('Zum Home-Verzeichnis')}
-                  aria-label={t('Start')}
-                >
-                  <Icon name="home" size={15} />
-                </button>
+                />
               )}
               {remote?.kind === 'sftp' && (
                 <button
-                  className="icon-button"
+                  type="button"
+                  className="file-root-button"
                   onClick={() => void list('remote', '/')}
                   title={t('Dateisystem-Wurzel /')}
                   aria-label={t('Wurzelverzeichnis')}
@@ -543,18 +581,25 @@ export function FileBrowser({ host, open, onLive }: Props) {
                   /
                 </button>
               )}
-              <button
-                className="root-toggle"
+              <Button
+                size="sm"
+                icon={ICONS.admin}
+                className={
+                  remote?.kind === 'sftp' && remote.root
+                    ? 'root-toggle border-warning-ink! bg-warning-tint! text-warning-ink!'
+                    : 'root-toggle'
+                }
                 data-on={remote?.kind === 'sftp' && remote.root}
                 disabled={opening}
                 onClick={() => void connect(!(remote?.kind === 'sftp' && remote.root))}
                 title={t('Die Dateien des Servers als root öffnen, über sudo')}
               >
-                <Icon name="crown" size={14} />
                 {remote?.kind === 'sftp' && remote.root ? 'root' : t('Als root')}
-              </button>
-              <button
-                className="quiet smb-button"
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="smb-button"
                 disabled={opening}
                 onClick={() =>
                   remote?.kind === 'smb'
@@ -568,7 +613,7 @@ export function FileBrowser({ host, open, onLive }: Props) {
                 }
               >
                 {remote?.kind === 'smb' ? 'SFTP' : 'SMB'}
-              </button>
+              </Button>
             </>
           }
           onNavigate={(path) => void list('remote', path)}
@@ -603,9 +648,9 @@ export function FileBrowser({ host, open, onLive }: Props) {
               <div className="file-pane-empty">
                 <NyuScene name="puzzled" className="file-scene" />
                 <p>{t('Nicht verbunden.')}</p>
-                <button className="primary" onClick={() => void connect(false)}>
+                <Button variant="primary" icon={ICONS.connect} onClick={() => void connect(false)}>
                   {t('Verbinden')}
-                </button>
+                </Button>
               </div>
             ) : null
           }
@@ -619,14 +664,15 @@ export function FileBrowser({ host, open, onLive }: Props) {
             {transfers.map((job) => (
               <li key={job.id} data-state={job.state}>
                 <Icon
-                  name={
+                  icon={
                     job.direction === 'upload'
-                      ? 'upload'
+                      ? ICONS.upload
                       : job.direction === 'download'
-                        ? 'download'
-                        : 'copy'
+                        ? ICONS.download
+                        : ICONS.copy
                   }
-                  size={15}
+                  size="sm"
+                  className="transfer-icon"
                 />
                 <span className="transfer-name" title={job.item}>
                   {job.label}
@@ -648,21 +694,19 @@ export function FileBrowser({ host, open, onLive }: Props) {
                         : `${formatSize(job.done)} / ${formatSize(job.total)}`}
                 </span>
                 {job.state === 'running' ? (
-                  <button
-                    className="icon-button"
+                  <IconButton
+                    icon={ICONS.stop}
+                    size="sm"
+                    label={t('{label} abbrechen', { label: job.label })}
                     onClick={() => void cancelTransfer(job.id)}
-                    aria-label={t('{label} abbrechen', { label: job.label })}
-                  >
-                    <Icon name="stop" size={14} />
-                  </button>
+                  />
                 ) : (
-                  <button
-                    className="icon-button"
+                  <IconButton
+                    icon={ICONS.close}
+                    size="sm"
+                    label={t('Ausblenden')}
                     onClick={() => setTransfers((list) => list.filter((x) => x.id !== job.id))}
-                    aria-label={t('Ausblenden')}
-                  >
-                    ×
-                  </button>
+                  />
                 )}
               </li>
             ))}
@@ -691,12 +735,12 @@ export function FileBrowser({ host, open, onLive }: Props) {
           onCancel={() => setAsk(null)}
           footer={
             <>
-              <span className="spacer" />
-              <button data-secondary onClick={() => setAsk(null)}>
+              <Button data-secondary onClick={() => setAsk(null)}>
                 {t('Abbrechen')}
-              </button>
-              <button
-                className={ask.kind === 'delete' || ask.kind === 'overwrite' ? 'danger' : 'primary'}
+              </Button>
+              <Button
+                variant={ask.kind === 'delete' || ask.kind === 'overwrite' ? 'danger' : 'primary'}
+                icon={ask.kind === 'delete' ? ICONS.delete : undefined}
                 data-secondary={ask.kind === 'delete' || ask.kind === 'overwrite' || undefined}
                 onClick={submitAsk}
               >
@@ -709,7 +753,7 @@ export function FileBrowser({ host, open, onLive }: Props) {
                     : ask.kind === 'overwrite'
                       ? t('Ersetzen')
                       : 'OK'}
-              </button>
+              </Button>
             </>
           }
         >
@@ -809,6 +853,9 @@ export function FileBrowser({ host, open, onLive }: Props) {
   );
 }
 
+/** The places menu's last entry: a folder panel instead of a path. */
+const PICK_FOLDER = ':pick';
+
 function placeLabel(place: Place) {
   return (
     {
@@ -825,7 +872,7 @@ function placeLabel(place: Place) {
 type PaneProps = {
   side: Side;
   title: string;
-  icon: 'drive' | 'network' | 'crown';
+  icon: 'drive' | 'server' | 'admin';
   root?: boolean;
   pane: PaneState;
   disabled?: boolean;
@@ -914,7 +961,7 @@ function FilePane(props: PaneProps) {
       aria-label={props.title}
     >
       <header className="file-pane-head">
-        <Icon name={props.icon} size={16} />
+        <Icon icon={ICONS[props.icon]} size="sm" className="file-pane-icon" />
         <b className="file-pane-title" title={props.title}>
           {props.title}
         </b>
@@ -924,15 +971,13 @@ function FilePane(props: PaneProps) {
       </header>
 
       <div className="file-pathbar">
-        <button
-          className="icon-button"
+        <IconButton
+          icon={ICONS.parentFolder}
+          size="sm"
+          label={t('Ein Verzeichnis nach oben')}
           onClick={props.onUp}
           disabled={props.disabled}
-          title={t('Ein Verzeichnis nach oben')}
-          aria-label={t('Nach oben')}
-        >
-          <Icon name="up" size={15} />
-        </button>
+        />
         {pathInput === null ? (
           <button
             className="file-path"
@@ -960,24 +1005,20 @@ function FilePane(props: PaneProps) {
             aria-label={t('Pfad')}
           />
         )}
-        <button
-          className="icon-button"
+        <IconButton
+          icon={ICONS.refresh}
+          size="sm"
+          label={t('Neu laden')}
           onClick={props.onRefresh}
           disabled={props.disabled}
-          title={t('Neu laden')}
-          aria-label={t('Neu laden')}
-        >
-          <Icon name="refresh" size={15} />
-        </button>
-        <button
-          className="icon-button"
+        />
+        <IconButton
+          icon={ICONS.newFolder}
+          size="sm"
+          label={t('Neuer Ordner')}
           onClick={props.onMkdir}
           disabled={props.disabled}
-          title={t('Neuer Ordner')}
-          aria-label={t('Neuer Ordner')}
-        >
-          <Icon name="folderPlus" size={15} />
-        </button>
+        />
       </div>
 
       {props.placeholder ?? (
@@ -1036,7 +1077,11 @@ function FilePane(props: PaneProps) {
               }}
             >
               <span className="file-name" role="gridcell">
-                <Icon name={entry.kind === 'dir' ? 'folder' : 'file'} size={15} />
+                <Icon
+                  icon={entry.kind === 'dir' ? ICONS.folder : ICONS.file}
+                  size="sm"
+                  className="file-icon"
+                />
                 <span>{entry.name}</span>
                 {entry.link && (
                   <i className="file-link" title={t('Symbolischer Link')} aria-label={t('Link')}>
@@ -1072,45 +1117,41 @@ function FilePane(props: PaneProps) {
               : t('{n} Einträge', { n: pane.entries.length })}
         </span>
         <span className="spacer" />
-        <button
-          className="icon-button"
+        <IconButton
+          icon={ICONS.edit}
+          size="sm"
+          label={withKeys(t('Umbenennen'), 'F2')}
           disabled={selectedEntries.length !== 1}
           onClick={() => props.onRename(selectedEntries[0]!)}
-          title={t('Umbenennen (F2)')}
-          aria-label={t('Umbenennen')}
-        >
-          <Icon name="pencil" size={15} />
-        </button>
+        />
         {props.onChmod && (
-          <button
-            className="icon-button"
-            disabled={selectedEntries.length !== 1 || selectedEntries[0]!.link}
-            onClick={() => props.onChmod?.(selectedEntries[0]!)}
-            title={
+          <IconButton
+            icon={ICONS.permissions}
+            size="sm"
+            label={
               selectedEntries[0]?.link ? t('Ein Link hat keine eigenen Rechte') : t('Rechte ändern')
             }
-            aria-label={t('Rechte ändern')}
-          >
-            <Icon name="shield" size={15} />
-          </button>
+            disabled={selectedEntries.length !== 1 || selectedEntries[0]!.link}
+            onClick={() => props.onChmod?.(selectedEntries[0]!)}
+          />
         )}
-        <button
-          className="icon-button"
+        <IconButton
+          icon={ICONS.delete}
+          size="sm"
+          label={desktop === 'mac' ? withKeys(t('Löschen'), 'Cmd+Backspace') : t('Löschen (Entf)')}
           disabled={selectedEntries.length === 0}
           onClick={() => props.onDelete(selectedEntries)}
-          title={t('Löschen (Entf)')}
-          aria-label={t('Löschen')}
-        >
-          <Icon name="trash" size={15} />
-        </button>
-        <button
-          className="primary transfer-button"
+        />
+        <Button
+          variant="primary"
+          size="sm"
+          icon={props.transferIcon === 'upload' ? ICONS.upload : ICONS.download}
+          className="transfer-button"
           disabled={!props.canTransfer || selectedEntries.length === 0}
           onClick={props.onTransfer}
         >
-          <Icon name={props.transferIcon} size={15} />
           {props.transferLabel}
-        </button>
+        </Button>
       </footer>
     </section>
   );

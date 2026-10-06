@@ -209,11 +209,11 @@ mod tests {
     #[test]
     fn the_same_host_from_two_sources_lands_once() {
         let a = ImportResult {
-            hosts: vec![host("prox", "10.0.0.12", 22)],
+            hosts: vec![host("prox", "192.0.2.12", 22)],
             skipped: vec![],
         };
         let b = ImportResult {
-            hosts: vec![host("proxmox", "10.0.0.12", 22)],
+            hosts: vec![host("proxmox", "192.0.2.12", 22)],
             skipped: vec![],
         };
 
@@ -225,11 +225,11 @@ mod tests {
     #[test]
     fn a_different_port_is_a_different_host() {
         let a = ImportResult {
-            hosts: vec![host("web", "10.0.0.5", 22)],
+            hosts: vec![host("web", "192.0.2.5", 22)],
             skipped: vec![],
         };
         let b = ImportResult {
-            hosts: vec![host("web-alt", "10.0.0.5", 2222)],
+            hosts: vec![host("web-alt", "192.0.2.5", 2222)],
             skipped: vec![],
         };
         assert_eq!(deduplicate(vec![a, b]).hosts.len(), 2);
@@ -238,8 +238,8 @@ mod tests {
     #[test]
     fn dedupe_ignores_hostname_case() {
         assert_eq!(
-            host("a", "Prox-1.lan", 22).dedupe_key(),
-            host("b", "prox-1.lan", 22).dedupe_key()
+            host("a", "Prox-1.example", 22).dedupe_key(),
+            host("b", "prox-1.example", 22).dedupe_key()
         );
     }
 }

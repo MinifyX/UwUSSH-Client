@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Merged by Tauri into the Info.plist of every macOS build, the setup's copy
+  and the Mac App Store's alike: a file named Info.plist next to
+  tauri.conf.json is picked up without being named in any config.
+
+  What Tauri writes itself and is therefore not here: CFBundleIdentifier
+  (app.uwussh.desktop), the versions, LSApplicationCategoryType (from
+  bundle.category, DeveloperTool → public.app-category.developer-tools),
+  LSMinimumSystemVersion, and CFBundleURLTypes for uwussh:// links (from
+  plugins.deep-link).
+
+  ITSAppUsesNonExemptEncryption is true, on purpose. UwUSSH implements SSH
+  itself (russh on ring: ChaCha20-Poly1305, AES-GCM/CTR, Curve25519, ECDH,
+  Ed25519, RSA), speaks TLS through rustls, and seals its vault with
+  ChaCha20-Poly1305 under an Argon2 key — standard algorithms, but not the
+  encryption macOS provides, and not limited to authentication. That is
+  "non-exempt" in App Store Connect's terms; it fits the US mass-market rules
+  (ECCN 5D992.c, EAR 740.17(b)(1), no report since 2021) and needs Apple's
+  French encryption declaration if the app is offered in France. With the
+  flag set, App Store Connect asks once per build until the approved
+  documentation's code is added here as ITSEncryptionExportComplianceCode.
+  docs/app-store.md → Export compliance has the answers and what is open.
+
+  NSLocalNetworkUsageDescription: macOS 15 asks before an app reaches the
+  local network, which is where most SSH hosts (a NAS, a Raspberry Pi, a
+  home server) are. Without a purpose string the question explains nothing,
+  and App Review asks for one. English, like UwURDP's.
+-->
+<plist version="1.0">
+<dict>
+  <key>ITSAppUsesNonExemptEncryption</key>
+  <true/>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>UwUSSH connects to the SSH servers you add, which are often on your local network.</string>
+</dict>
+</plist>

@@ -5,7 +5,7 @@
 //!
 //! * Keys are **case-insensitive** (`HostName`, `hostname` and `HOSTNAME` are
 //!   the same option), values are not.
-//! * A `Host` line with wildcards (`Host *`, `Host *.lan`) is a rule, not a
+//! * A `Host` line with wildcards (`Host *`, `Host *.example`) is a rule, not a
 //!   machine. Importing those produces hosts nobody can connect to, so they
 //!   are skipped and reported rather than silently turned into junk entries.
 
@@ -229,8 +229,37 @@ fn expand_home(path: &str) -> PathBuf {
     }
 }
 
+/// `HOME`, except inside the macOS App Sandbox (the Mac App Store build),
+/// where `HOME` is the app's container, `~/Library/Containers/<id>/Data`: the
+/// config to import and the keys it names are in the real home. The same rule
+/// as `uwussh_core::home_dir`, which this crate does not depend on.
 fn home_dir() -> Option<PathBuf> {
-    std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from)
+    let home = PathBuf::from(std::env::var_os(if cfg!(windows) {
+        "USERPROFILE"
+    } else {
+        "HOME"
+    })?);
+    if cfg!(target_os = "macos") {
+        if let Some(real) = outside_container(&home) {
+            return Some(real);
+        }
+    }
+    Some(home)
+}
+
+fn outside_container(home: &Path) -> Option<PathBuf> {
+    let names: Vec<_> = home.components().rev().take(4).collect();
+    let [data, _bundle_id, containers, library] = names.as_slice() else {
+        return None;
+    };
+    let is = |part: &std::path::Component, name: &str| part.as_os_str() == name;
+    if !(is(data, "Data") && is(containers, "Containers") && is(library, "Library")) {
+        return None;
+    }
+    home.ancestors()
+        .nth(4)
+        .filter(|real| real.parent().is_some())
+        .map(Path::to_path_buf)
 }
 
 impl Importer for SshConfigImporter {
@@ -335,21 +364,38 @@ fn strip_quotes(value: &str) -> String {
 mod tests {
     use super::*;
 
+    /// Inside the Mac App Store sandbox `HOME` is the container; `~` in a
+    /// config means the real home.
+    #[test]
+    fn inside_the_sandbox_the_home_is_the_real_one() {
+        assert_eq!(
+            outside_container(Path::new(
+                "/Users/nyu/Library/Containers/app.uwussh.desktop/Data"
+            )),
+            Some(PathBuf::from("/Users/nyu"))
+        );
+        assert_eq!(outside_container(Path::new("/Users/nyu")), None);
+        assert_eq!(
+            outside_container(Path::new("/Library/Containers/x/Data")),
+            None
+        );
+    }
+
     const SAMPLE: &str = r#"
 # homelab
 Host prox-1
-    HostName 10.0.0.12
+    HostName 192.0.2.12
     User root
     Port 22
     IdentityFile ~/.ssh/id_ed25519
 
 Host db-01
-    HostName db-01.internal
+    HostName db-01.example
     User lorin
     ProxyJump edge-bastion
     Port 2222
 
-Host *.lan
+Host *.example
     User admin
 
 Host edge-bastion
@@ -372,7 +418,7 @@ Host edge-bastion
     fn wildcards_are_skipped_and_reported() {
         let result = imported();
         assert!(result.hosts.iter().all(|h| !h.name.contains('*')));
-        assert!(result.skipped.iter().any(|(name, _)| name == "*.lan"));
+        assert!(result.skipped.iter().any(|(name, _)| name == "*.example"));
     }
 
     #[test]
@@ -448,7 +494,7 @@ Host edge-bastion
 
         std::fs::write(
             dir.join("config"),
-            "Host top\n  HostName 10.0.0.1\n\nInclude config.d/*.conf\n",
+            "Host top\n  HostName 192.0.2.1\n\nInclude config.d/*.conf\n",
         )
         .unwrap();
         std::fs::write(
@@ -458,7 +504,7 @@ Host edge-bastion
         .unwrap();
         std::fs::write(
             confd.join("20-home.conf"),
-            "Host nas\n  HostName 10.0.0.9\n",
+            "Host nas\n  HostName 192.0.2.9\n",
         )
         .unwrap();
         // Not matched by *.conf, so it must not be imported.

@@ -182,7 +182,8 @@ export function cancelTransfer(id: string): Promise<void> {
 export type Place = {
   label: string;
   path: string;
-  kind: 'home' | 'desktop' | 'documents' | 'downloads' | 'drive';
+  /** `picked`: a folder the person added (Mac App Store build). */
+  kind: 'home' | 'desktop' | 'documents' | 'downloads' | 'drive' | 'picked';
 };
 
 export function localPlaces(): Promise<Place[]> {

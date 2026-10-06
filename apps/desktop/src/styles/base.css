@@ -1,0 +1,160 @@
+/*
+ * Shared pieces of the window: buttons, forms, checkboxes, dialogs, icons, tooltips. Built from @uwusuite/design tokens.
+ */
+
+.spacer {
+  flex: 1;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ── Modal ─────────────────────────────────────────────── */
+
+/* The body of a dialog (components/Modal.tsx); the <dialog> itself is the package's. */
+.modal-body {
+  display: grid;
+  gap: 12px;
+}
+
+.dialog-lead {
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* ── Forms ─────────────────────────────────────────────── */
+
+.form {
+  display: grid;
+  gap: 12px;
+}
+
+.form-row {
+  display: flex;
+  gap: 10px;
+}
+
+.field {
+  display: grid;
+  /* Without this a taller neighbour (one with an error line) stretches the
+     rows and pushes this input down. */
+  align-content: start;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.field.grow {
+  flex: 1;
+}
+
+.field.port {
+  width: 88px;
+}
+
+.field > span:not(.input-with-button) {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--uwu-muted);
+  line-height: 1.45;
+}
+
+.field input {
+  font: inherit;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--uwu-radius-control);
+  border: 1px solid var(--uwu-border);
+  background: var(--uwu-canvas);
+  color: var(--uwu-ink);
+}
+
+.field input[aria-invalid='true'] {
+  border-color: var(--uwu-warning-ink);
+}
+
+.field-error,
+.field-hint {
+  font-style: normal;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.field-error {
+  color: var(--uwu-warning-ink);
+}
+
+.field-hint {
+  margin: 0;
+  color: var(--uwu-muted);
+}
+
+/* Commands in hints must not break at their hyphens. */
+.field-hint code {
+  white-space: nowrap;
+}
+
+.form-error {
+  margin: 0;
+  color: var(--uwu-warning-ink);
+  font-size: 13px;
+}
+
+/* ── Checkboxes with an explanation ────────────────────── */
+
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--uwu-radius-control);
+  border: 1px solid var(--uwu-hairline);
+  background: var(--uwu-elevated);
+  cursor: pointer;
+}
+
+.check input {
+  margin: 2px 0 0;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--uwu-pink-solid);
+  flex: none;
+}
+
+.check span {
+  display: grid;
+  gap: 2px;
+}
+
+.check small {
+  color: var(--uwu-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.check.inline {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.check.inline input {
+  margin: 0;
+}
+
+.dialog-scene {
+  width: 180px;
+  justify-self: center;
+  margin: -4px 0 -6px;
+}

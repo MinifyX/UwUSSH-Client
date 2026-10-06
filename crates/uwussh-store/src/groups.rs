@@ -390,7 +390,7 @@ mod tests {
     }
 
     fn add(store: &Store, name: &str, workspace: Workspace, group: Option<&str>) -> HostRecord {
-        let mut host = draft(name, &format!("{name}.lan"));
+        let mut host = draft(name, &format!("{name}.example"));
         host.workspace = Some(workspace);
         host.group_path = group.map(str::to_string);
         store.save_host(host).unwrap()

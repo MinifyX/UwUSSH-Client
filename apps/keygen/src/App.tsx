@@ -1,9 +1,20 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import {
+  Icon,
+  ICONS,
+  TitleBar,
+  TitleBarAction,
+  Wordmark,
+  type WindowControls,
+} from '@uwusuite/design';
+import { setMacMenu, useTauriWindow } from '@uwusuite/design/tauri';
 import { KeygenPanel, type Step } from '@desktop/components/keygen/KeygenPanel';
-import { updateSettings, useSettings } from '@desktop/lib/settings';
 import { useCloseGuard } from '@desktop/components/CloseGuard';
-import { N_, t } from '@desktop/lib/i18n';
-import { useState } from 'react';
+import { useAppAppearance } from '@desktop/lib/appearance';
+import { language, N_, t } from '@desktop/lib/i18n';
+import { updateSettings, useSettings } from '@desktop/lib/settings';
+import { desktop } from '@desktop/lib/shortcuts';
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 
 const TITLES: Record<Step, string> = {
   settings: N_('Neuer SSH-Schlüssel'),
@@ -13,74 +24,114 @@ const TITLES: Record<Step, string> = {
 };
 
 /**
+ * Tauri maximises on a double-click of a drag region by itself, and the
+ * package's title bar does it again in React; the two would cancel out. Same
+ * guard as UwUSSH's title bar (apps/desktop/src/components/TitleBar.tsx).
+ */
+function leaveDoubleClickToTauri(event: MouseEvent) {
+  if ((event.target as HTMLElement).hasAttribute('data-tauri-drag-region')) {
+    event.stopPropagation();
+  }
+}
+
+/**
  * UwUKeygen on its own: the key generator from UwUSSH, for people who only
  * want a key — PuTTYgen, but with Nyu. No vault here; keys leave as files or
  * through the clipboard.
+ *
+ * Windows and Linux get the suite's title bar; macOS keeps its own title bar
+ * (tauri.macos.conf.json) and a minimal menu bar, so ⌘C, ⌘V and ⌘Q work.
  */
 export function App() {
   const settings = useSettings();
+  const appearance = useAppAppearance(settings);
   const [step, setStep] = useState<Step>('settings');
-  const window = () => getCurrentWindow();
-  const dark = settings.theme === 'dark';
+  const lang = language(settings);
+
+  // Every way to close asks first while something would be lost: the title
+  // bar's X, and on macOS the red light and ⌘W, which reach the page as a
+  // close request. Once the person said yes, the request goes through.
+  const confirmed = useRef(false);
   const guard = useCloseGuard(
     step !== 'settings',
-    () => void window().close(),
+    () => {
+      confirmed.current = true;
+      void getCurrentWindow().close();
+    },
     step === 'done'
       ? t('Der neue Schlüssel ist noch nicht gespeichert und geht dabei verloren.')
       : t('Der gesammelte Zufall geht dabei verloren.'),
   );
+  const request = useRef(guard.request);
+  request.current = guard.request;
+  const unsaved = useRef(false);
+  unsaved.current = step !== 'settings';
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let stopped = false;
+    void getCurrentWindow()
+      .onCloseRequested((event) => {
+        if (confirmed.current || !unsaved.current) return;
+        event.preventDefault();
+        request.current();
+      })
+      .then((stop) => {
+        if (stopped) stop();
+        else unlisten = stop;
+      })
+      .catch(() => undefined);
+    return () => {
+      stopped = true;
+      unlisten?.();
+    };
+  }, []);
+
+  const dark = appearance.theme === 'dark';
+  const themeLabel = dark ? t('Helles Farbschema') : t('Dunkles Farbschema');
+  const toggleTheme = () => updateSettings({ theme: dark ? 'light' : 'dark' });
+  const toggleRef = useRef(toggleTheme);
+  toggleRef.current = toggleTheme;
+
+  // macOS: the standard menus (⌘C, ⌘V, ⌘W, ⌘Q work through them), and the
+  // theme switch from the title bar under Darstellung.
+  useEffect(() => {
+    void setMacMenu(
+      {
+        appName: 'UwUKeygen',
+        lang,
+        view: [{ text: themeLabel, action: () => toggleRef.current() }],
+      },
+      desktop,
+    ).catch(() => undefined);
+  }, [lang, themeLabel]);
+
+  const window = useTauriWindow();
+  const controls = useMemo<WindowControls>(
+    () => ({ ...window, close: () => request.current() }),
+    [window],
+  );
 
   return (
     <div className="keygen-app">
-      <header className="titlebar" data-tauri-drag-region>
-        <span className="titlebar-brand" data-tauri-drag-region>
-          <img src="/icon.svg" width={22} height={22} alt="" data-tauri-drag-region />
-          <span className="wordmark" data-tauri-drag-region>
-            <span>UwU</span>Keygen
-          </span>
-        </span>
-        <span className="spacer" data-tauri-drag-region />
-        <button
-          className="titlebar-action"
-          onClick={() => updateSettings({ theme: dark ? 'light' : 'dark' })}
-          title={dark ? t('Helles Farbschema') : t('Dunkles Farbschema')}
-          aria-label={dark ? t('Helles Farbschema') : t('Dunkles Farbschema')}
-        >
-          <svg viewBox="0 0 24 24" aria-hidden>
-            {dark ? (
-              <path d="M12 4v2 M12 18v2 M4 12h2 M18 12h2 M6.3 6.3l1.4 1.4 M16.3 16.3l1.4 1.4 M6.3 17.7l1.4-1.4 M16.3 7.7l1.4-1.4 M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
-            ) : (
-              <path d="M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10Z" />
-            )}
-          </svg>
-        </button>
-        <div className="window-controls">
-          <button
-            className="window-control"
-            onClick={() => void window().minimize()}
-            title={t('Minimieren')}
-            aria-label={t('Minimieren')}
-          >
-            <svg viewBox="0 0 10 10" aria-hidden>
-              <path d="M0 5.5h10" />
-            </svg>
-          </button>
-          <button
-            className="window-control close"
-            onClick={guard.request}
-            title={t('Schließen')}
-            aria-label={t('Schließen')}
-          >
-            <svg viewBox="0 0 10 10" aria-hidden>
-              <path d="M.5.5l9 9 M9.5.5l-9 9" />
-            </svg>
-          </button>
+      {desktop !== 'mac' && (
+        <div onDoubleClickCapture={leaveDoubleClickToTauri}>
+          <TitleBar
+            platform={desktop}
+            controls={controls}
+            brand={<Wordmark product="Keygen" shell="terminal" className="text-body" />}
+            actions={
+              <TitleBarAction label={themeLabel} onClick={toggleTheme}>
+                <Icon icon={dark ? ICONS.lightTheme : ICONS.darkTheme} size="md" />
+              </TitleBarAction>
+            }
+          />
         </div>
-      </header>
+      )}
 
       <main className="keygen-app-main">
         <section className="keygen-card" aria-labelledby="keygen-title">
-          <h1 id="keygen-title" className="modal-title">
+          <h1 id="keygen-title" className="keygen-card-title">
             {t(TITLES[step])}
           </h1>
           <KeygenPanel onStep={setStep} />

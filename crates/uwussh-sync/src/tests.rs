@@ -67,7 +67,7 @@ fn what_one_device_adds_shows_up_on_the_other() {
     let a = first_device();
     let b = joined_device(&a);
 
-    let mut host = draft("prox-1", "10.0.0.12");
+    let mut host = draft("prox-1", "192.0.2.12");
     host.group_path = Some("Homelab".into());
     host.password = PasswordChange::Set {
         value: SecretText::new("hunter2"),
@@ -90,7 +90,7 @@ fn what_one_device_adds_shows_up_on_the_other() {
     let hosts = b.list_hosts().unwrap();
     assert_eq!(hosts.len(), 1);
     assert_eq!(hosts[0].id, saved.id, "the id travels with the record");
-    assert_eq!(hosts[0].address, "10.0.0.12");
+    assert_eq!(hosts[0].address, "192.0.2.12");
     assert_eq!(hosts[0].username, "uwu");
     assert_eq!(
         hosts[0].group_path.as_deref(),
@@ -111,7 +111,7 @@ fn a_host_i_removed_stays_removed_on_the_other_device() {
     let server = MemoryServer::new();
     let a = first_device();
     let b = joined_device(&a);
-    let host = a.save_host(draft("nas", "10.0.0.9")).unwrap();
+    let host = a.save_host(draft("nas", "192.0.2.9")).unwrap();
     sync_once(&a, &server).unwrap();
     sync_once(&b, &server).unwrap();
     assert_eq!(names(&b), vec!["nas"]);
@@ -198,7 +198,7 @@ fn the_later_of_two_edits_wins_on_both_devices() {
     let server = MemoryServer::new();
     let a = first_device();
     let b = joined_device(&a);
-    let host = a.save_host(draft("web", "10.0.0.20")).unwrap();
+    let host = a.save_host(draft("web", "192.0.2.20")).unwrap();
     sync_once(&a, &server).unwrap();
     sync_once(&b, &server).unwrap();
 
@@ -206,11 +206,11 @@ fn the_later_of_two_edits_wins_on_both_devices() {
     // edit really is the later one: within one millisecond the clocks tie and
     // the winner comes down to which device id sorts higher, which is a coin
     // flip and not what this test is about.
-    let mut on_a = draft("web-a", "10.0.0.20");
+    let mut on_a = draft("web-a", "192.0.2.20");
     on_a.id = Some(host.id);
     a.save_host(on_a).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(3));
-    let mut on_b = draft("web-b", "10.0.0.20");
+    let mut on_b = draft("web-b", "192.0.2.20");
     on_b.id = Some(host.id);
     b.save_host(on_b).unwrap();
 
@@ -231,7 +231,7 @@ fn the_later_of_two_edits_wins_on_both_devices() {
 fn syncing_again_finds_nothing_to_do() {
     let server = MemoryServer::new();
     let a = first_device();
-    a.save_host(draft("one", "10.0.0.1")).unwrap();
+    a.save_host(draft("one", "192.0.2.1")).unwrap();
     sync_once(&a, &server).unwrap();
 
     let again = sync_once(&a, &server).unwrap();
@@ -253,14 +253,14 @@ fn syncing_again_finds_nothing_to_do() {
 fn the_server_holds_nothing_it_can_read() {
     let server = MemoryServer::new();
     let a = first_device();
-    let mut host = draft("prox-1", "10.0.0.12");
+    let mut host = draft("prox-1", "192.0.2.12");
     host.group_path = Some("Homelab".into());
     host.password = PasswordChange::Set {
         value: SecretText::new("hunter2"),
     };
     a.save_host(host).unwrap();
     a.trust_host_key(
-        "10.0.0.12",
+        "192.0.2.12",
         22,
         "ssh-ed25519",
         "SHA256:abcdef",
@@ -273,7 +273,13 @@ fn the_server_holds_nothing_it_can_read() {
     assert!(!held.is_empty());
     for env in &held {
         let haystack = String::from_utf8_lossy(&env.blob).to_string();
-        for secret in ["prox-1", "10.0.0.12", "hunter2", "Homelab", "SHA256:abcdef"] {
+        for secret in [
+            "prox-1",
+            "192.0.2.12",
+            "hunter2",
+            "Homelab",
+            "SHA256:abcdef",
+        ] {
             assert!(
                 !haystack.contains(secret),
                 "{secret} must not be readable in a blob"
@@ -290,7 +296,7 @@ fn a_server_that_marks_a_record_deleted_gets_nowhere() {
     let server = MemoryServer::new();
     let a = first_device();
     let b = joined_device(&a);
-    a.save_host(draft("nas", "10.0.0.9")).unwrap();
+    a.save_host(draft("nas", "192.0.2.9")).unwrap();
     sync_once(&a, &server).unwrap();
     sync_once(&b, &server).unwrap();
     assert_eq!(names(&b), vec!["nas"]);
@@ -317,7 +323,7 @@ fn a_server_that_replays_an_old_version_gets_nowhere() {
     let server = MemoryServer::new();
     let a = first_device();
     let b = joined_device(&a);
-    let host = a.save_host(draft("bastion", "10.0.0.2")).unwrap();
+    let host = a.save_host(draft("bastion", "192.0.2.2")).unwrap();
     sync_once(&a, &server).unwrap();
     let old = server
         .records()
@@ -325,7 +331,7 @@ fn a_server_that_replays_an_old_version_gets_nowhere() {
         .find(|env| env.kind == EntityKind::Host)
         .unwrap();
 
-    let mut renamed = draft("bastion-new", "10.0.0.2");
+    let mut renamed = draft("bastion-new", "192.0.2.2");
     renamed.id = Some(host.id);
     a.save_host(renamed).unwrap();
     sync_once(&a, &server).unwrap();
@@ -361,7 +367,7 @@ fn a_server_that_replays_an_old_version_gets_nowhere() {
 fn a_record_from_another_vault_is_dropped() {
     let server = MemoryServer::new();
     let a = first_device();
-    a.save_host(draft("one", "10.0.0.1")).unwrap();
+    a.save_host(draft("one", "192.0.2.1")).unwrap();
     sync_once(&a, &server).unwrap();
 
     let mut stranger = server
@@ -385,7 +391,7 @@ fn two_devices_that_trusted_different_keys_for_one_host_end_up_agreeing() {
     let b = joined_device(&a);
 
     a.trust_host_key(
-        "nas.lan",
+        "nas.example",
         22,
         "ssh-ed25519",
         "SHA256:aaa",
@@ -397,7 +403,7 @@ fn two_devices_that_trusted_different_keys_for_one_host_end_up_agreeing() {
     // test here.
     std::thread::sleep(std::time::Duration::from_millis(2));
     b.trust_host_key(
-        "nas.lan",
+        "nas.example",
         22,
         "ssh-ed25519",
         "SHA256:bbb",
@@ -414,8 +420,8 @@ fn two_devices_that_trusted_different_keys_for_one_host_end_up_agreeing() {
     sync_once(&a, &server).unwrap();
     sync_once(&b, &server).unwrap();
 
-    let on_a = a.known_host("nas.lan", 22).unwrap().unwrap();
-    let on_b = b.known_host("nas.lan", 22).unwrap().unwrap();
+    let on_a = a.known_host("nas.example", 22).unwrap().unwrap();
+    let on_b = b.known_host("nas.example", 22).unwrap().unwrap();
     assert_eq!(
         on_a.fingerprint, on_b.fingerprint,
         "one key per address, the same one on both devices"
@@ -442,7 +448,7 @@ fn a_field_a_newer_build_wrote_is_not_dropped_by_this_one() {
     extra.insert("tags".into(), serde_json::json!(["homelab", "critical"]));
     let payload = serde_json::to_vec(&HostPayload {
         name: "future".into(),
-        address: "10.0.0.77".into(),
+        address: "192.0.2.77".into(),
         port: 22,
         workspace: "private".into(),
         position: 0,
@@ -470,7 +476,7 @@ fn a_field_a_newer_build_wrote_is_not_dropped_by_this_one() {
     assert_eq!(names(&a), vec!["future"]);
 
     // This build edits the host and pushes it back.
-    let mut edit = draft("future-renamed", "10.0.0.77");
+    let mut edit = draft("future-renamed", "192.0.2.77");
     edit.id = Some(id);
     a.save_host(edit).unwrap();
     sync_once(&a, &server).unwrap();
@@ -508,7 +514,7 @@ fn a_host_whose_login_has_not_arrived_yet_is_still_shown() {
     let server = MemoryServer::new();
     let a = first_device();
     let b = joined_device(&a);
-    let mut host = draft("half", "10.0.0.5");
+    let mut host = draft("half", "192.0.2.5");
     host.group_path = Some("Later".into());
     a.save_host(host).unwrap();
     sync_once(&a, &server).unwrap();
@@ -553,14 +559,14 @@ fn a_host_whose_login_has_not_arrived_yet_is_still_shown() {
 fn a_device_that_joins_brings_its_own_hosts_along() {
     let server = MemoryServer::new();
     let a = first_device();
-    a.save_host(draft("from-a", "10.0.0.1")).unwrap();
+    a.save_host(draft("from-a", "192.0.2.1")).unwrap();
     sync_once(&a, &server).unwrap();
 
     // B had a vault and a host of its own before it ever heard of a server.
     let b = Store::open_in_memory().unwrap();
     b.create_vault_with(b"b's own password", KdfParams::INSECURE_FOR_TESTS)
         .unwrap();
-    let mut own = draft("from-b", "10.0.0.2");
+    let mut own = draft("from-b", "192.0.2.2");
     own.password = PasswordChange::Set {
         value: SecretText::new("b-secret"),
     };
@@ -592,7 +598,7 @@ fn a_device_that_joins_brings_its_own_hosts_along() {
 fn a_pass_without_a_vault_asks_for_the_password_instead_of_failing() {
     let server = MemoryServer::new();
     let a = first_device();
-    a.save_host(draft("one", "10.0.0.1")).unwrap();
+    a.save_host(draft("one", "192.0.2.1")).unwrap();
     a.lock_vault();
     assert!(matches!(
         sync_once(&a, &server),
@@ -632,7 +638,7 @@ fn many_large_records_travel_in_several_requests_and_all_arrive() {
     // so together they are more than one request may carry.
     let count = MAX_BATCH_BYTES / (100 * 1024) + 10;
     for index in 0..count {
-        let mut host = draft(&format!("big-{index}"), "10.0.0.1");
+        let mut host = draft(&format!("big-{index}"), "192.0.2.1");
         host.password = PasswordChange::Set {
             value: SecretText::new("x".repeat(120 * 1024)),
         };
@@ -720,7 +726,7 @@ fn a_workspace_this_build_does_not_know_lands_in_the_private_one() {
     let clock = Hlc::new(1_700_000_000_000, 0, 9);
     let payload = serde_json::to_vec(&HostPayload {
         name: "third".into(),
-        address: "10.0.0.33".into(),
+        address: "192.0.2.33".into(),
         port: 22,
         workspace: "family".into(),
         position: 0,
@@ -787,7 +793,7 @@ fn edits_deletes_and_many_pages_between_three_devices_leave_nothing_to_report() 
         ids.push(a.save_host(host).unwrap().id);
     }
     a.trust_host_key(
-        "nas.lan",
+        "nas.example",
         22,
         "ssh-ed25519",
         "SHA256:one",
@@ -810,20 +816,20 @@ fn edits_deletes_and_many_pages_between_three_devices_leave_nothing_to_report() 
     // Everyone at once: two renames of the same host, a delete, a new host,
     // and a host key trusted differently on two devices — the one that loses
     // its slot is gone without a tombstone, and must not count as missing.
-    let mut on_a = draft("renamed-on-a", "10.0.1.0");
+    let mut on_a = draft("renamed-on-a", "198.51.100.10");
     on_a.id = Some(ids[0]);
     a.save_host(on_a).unwrap();
-    a.trust_host_key("db.lan", 22, "ssh-ed25519", "SHA256:a", "ssh-ed25519 A")
+    a.trust_host_key("db.example", 22, "ssh-ed25519", "SHA256:a", "ssh-ed25519 A")
         .unwrap();
     std::thread::sleep(std::time::Duration::from_millis(3));
-    let mut on_b = draft("renamed-on-b", "10.0.1.0");
+    let mut on_b = draft("renamed-on-b", "198.51.100.10");
     on_b.id = Some(ids[0]);
     b.save_host(on_b).unwrap();
     b.delete_host(ids[1]).unwrap();
-    b.trust_host_key("db.lan", 22, "ssh-ed25519", "SHA256:b", "ssh-ed25519 B")
+    b.trust_host_key("db.example", 22, "ssh-ed25519", "SHA256:b", "ssh-ed25519 B")
         .unwrap();
-    c.save_host(draft("new-on-c", "10.0.2.1")).unwrap();
-    c.forget_host_key("nas.lan", 22).unwrap();
+    c.save_host(draft("new-on-c", "198.51.100.21")).unwrap();
+    c.forget_host_key("nas.example", 22).unwrap();
 
     for _ in 0..2 {
         for device in [&a, &b, &c] {
@@ -837,7 +843,7 @@ fn edits_deletes_and_many_pages_between_three_devices_leave_nothing_to_report() 
         assert!(device.manifest_violations().unwrap().is_empty());
         assert_eq!(
             device
-                .known_host("db.lan", 22)
+                .known_host("db.example", 22)
                 .unwrap()
                 .unwrap()
                 .fingerprint,
@@ -856,9 +862,9 @@ fn edits_deletes_and_many_pages_between_three_devices_leave_nothing_to_report() 
 fn a_server_that_hands_a_new_device_an_old_host_key_is_caught() {
     let server = MemoryServer::new();
     let a = first_device();
-    a.save_host(draft("bastion", "bastion.lan")).unwrap();
+    a.save_host(draft("bastion", "bastion.example")).unwrap();
     a.trust_host_key(
-        "bastion.lan",
+        "bastion.example",
         22,
         "ssh-ed25519",
         "SHA256:old",
@@ -870,7 +876,7 @@ fn a_server_that_hands_a_new_device_an_old_host_key_is_caught() {
 
     // The bastion was reinstalled; A trusts its new key, in place.
     a.trust_host_key(
-        "bastion.lan",
+        "bastion.example",
         22,
         "ssh-ed25519",
         "SHA256:new",
@@ -895,7 +901,7 @@ fn a_server_that_hands_a_new_device_an_old_host_key_is_caught() {
     assert_eq!(violations[0].problem, uwussh_store::Problem::Older);
 
     // The old key is not trusted: the next connection asks.
-    assert!(c.known_host("bastion.lan", 22).unwrap().is_none());
+    assert!(c.known_host("bastion.example", 22).unwrap().is_none());
     // The next pass still says so, without pulling everything again.
     let again = sync_once(&c, &server).unwrap();
     assert_eq!(again.withheld.records, 1);
@@ -903,7 +909,7 @@ fn a_server_that_hands_a_new_device_an_old_host_key_is_caught() {
 
     // A key the user accepts on this device, after seeing it, is trusted.
     c.trust_host_key(
-        "bastion.lan",
+        "bastion.example",
         22,
         "ssh-ed25519",
         "SHA256:new",
@@ -911,7 +917,7 @@ fn a_server_that_hands_a_new_device_an_old_host_key_is_caught() {
     )
     .unwrap();
     assert_eq!(
-        c.known_host("bastion.lan", 22)
+        c.known_host("bastion.example", 22)
             .unwrap()
             .unwrap()
             .fingerprint,
@@ -923,10 +929,10 @@ fn a_server_that_hands_a_new_device_an_old_host_key_is_caught() {
 fn a_server_that_keeps_a_record_to_itself_is_caught() {
     let server = MemoryServer::new();
     let a = first_device();
-    a.save_host(draft("web", "10.0.0.20")).unwrap();
-    let hidden = a.save_host(draft("hidden", "10.0.0.21")).unwrap();
+    a.save_host(draft("web", "192.0.2.20")).unwrap();
+    let hidden = a.save_host(draft("hidden", "192.0.2.21")).unwrap();
     a.trust_host_key(
-        "web.lan",
+        "web.example",
         22,
         "ssh-ed25519",
         "SHA256:web",
@@ -949,7 +955,7 @@ fn a_server_that_keeps_a_record_to_itself_is_caught() {
         (violations[0].kind, violations[0].id, violations[0].problem),
         (EntityKind::Host, hidden.id, uwussh_store::Problem::Missing)
     );
-    assert!(c.known_host("web.lan", 22).unwrap().is_some());
+    assert!(c.known_host("web.example", 22).unwrap().is_some());
 }
 
 #[test]
@@ -957,7 +963,7 @@ fn a_delete_the_server_keeps_from_an_existing_device_is_caught() {
     let server = MemoryServer::new();
     let a = first_device();
     let b = joined_device(&a);
-    let host = a.save_host(draft("decommissioned", "10.0.0.66")).unwrap();
+    let host = a.save_host(draft("decommissioned", "192.0.2.66")).unwrap();
     sync_once(&a, &server).unwrap();
     sync_once(&b, &server).unwrap();
 
@@ -985,9 +991,9 @@ fn a_delete_the_server_keeps_from_an_existing_device_is_caught() {
 fn a_new_device_notices_the_manifest_its_pairing_promised_is_missing() {
     let server = MemoryServer::new();
     let a = first_device();
-    a.save_host(draft("one", "10.0.0.1")).unwrap();
+    a.save_host(draft("one", "192.0.2.1")).unwrap();
     a.trust_host_key(
-        "one.lan",
+        "one.example",
         22,
         "ssh-ed25519",
         "SHA256:one",
@@ -1029,11 +1035,11 @@ fn a_new_device_notices_the_manifest_its_pairing_promised_is_missing() {
             uwussh_store::Problem::Missing
         )
     );
-    assert!(c.known_host("one.lan", 22).unwrap().is_none());
+    assert!(c.known_host("one.example", 22).unwrap().is_none());
 
     // An older manifest of A's in its place does not satisfy it either.
     let old_manifest = envelope_of(&server, floor.id);
-    a.save_host(draft("two", "10.0.0.2")).unwrap();
+    a.save_host(draft("two", "192.0.2.2")).unwrap();
     sync_once(&a, &server).unwrap();
     let newer = a.published_manifest().unwrap().unwrap();
     assert!(newer.clock > floor.clock);
@@ -1053,12 +1059,12 @@ fn a_server_that_replays_an_old_manifest_to_an_existing_device_gets_nowhere() {
     let server = MemoryServer::new();
     let a = first_device();
     let b = joined_device(&a);
-    a.save_host(draft("one", "10.0.0.1")).unwrap();
+    a.save_host(draft("one", "192.0.2.1")).unwrap();
     sync_once(&a, &server).unwrap();
     let id = a.own_manifest_id().unwrap();
     let old = envelope_of(&server, id);
 
-    let two = a.save_host(draft("two", "10.0.0.2")).unwrap();
+    let two = a.save_host(draft("two", "192.0.2.2")).unwrap();
     sync_once(&a, &server).unwrap();
     sync_once(&b, &server).unwrap();
     let newest = b.manifest_clock(id).unwrap().unwrap();
@@ -1115,7 +1121,7 @@ fn a_manifest_the_server_does_not_know_yet_holds_up_nothing() {
 
     let server = Older(MemoryServer::new());
     let a = first_device();
-    a.save_host(draft("one", "10.0.0.1")).unwrap();
+    a.save_host(draft("one", "192.0.2.1")).unwrap();
     let report = sync_once(&a, &server).unwrap();
     assert!(report.pushed >= 2);
     assert_eq!(a.pending_count().unwrap(), 0);
@@ -1157,7 +1163,7 @@ fn a_server_that_never_lets_a_pull_finish_does_not_switch_the_check_off() {
     let server = MemoryServer::new();
     let a = first_device();
     a.trust_host_key(
-        "one.lan",
+        "one.example",
         22,
         "ssh-ed25519",
         "SHA256:one",
@@ -1187,20 +1193,20 @@ fn a_server_that_never_lets_a_pull_finish_does_not_switch_the_check_off() {
     assert!(report.withheld.host_keys);
     assert!(report.withheld.any(), "a pull that never ends is an alarm");
     assert_eq!(c.list_known_hosts().unwrap().len(), 1, "the key did arrive");
-    assert!(c.known_host("one.lan", 22).unwrap().is_none());
+    assert!(c.known_host("one.example", 22).unwrap().is_none());
 
     // A device without a floor is no different.
     let d = joined_device(&a);
     let report = sync_once(&d, &endless).unwrap();
     assert!(!report.complete);
     assert!(report.withheld.host_keys);
-    assert!(d.known_host("one.lan", 22).unwrap().is_none());
+    assert!(d.known_host("one.example", 22).unwrap().is_none());
 
     // A pull that reaches the end clears it.
     let report = sync_once(&c, &endless.server).unwrap();
     assert!(report.complete);
     assert_eq!(report.withheld, Default::default());
-    assert!(c.known_host("one.lan", 22).unwrap().is_some());
+    assert!(c.known_host("one.example", 22).unwrap().is_some());
 }
 
 // ── The command assistant ───────────────────────────────────────────────────
@@ -1333,7 +1339,7 @@ fn the_assistants_settings_key_and_answers_reach_the_other_device_sealed() {
 fn a_server_that_does_not_know_the_assistant_still_syncs_everything_else() {
     let server = MemoryServer::new();
     let a = first_device();
-    a.save_host(draft("prox-1", "10.0.0.12")).unwrap();
+    a.save_host(draft("prox-1", "192.0.2.12")).unwrap();
     a.save_assist_settings(assistant_draft(PasswordChange::Keep))
         .unwrap();
 
@@ -1368,7 +1374,7 @@ fn a_build_that_does_not_know_the_assistant_pulls_past_a_page_full_of_it() {
     }
     sync_once(&a, &server).unwrap();
     // Written after ten records b cannot read: two and a half pages of them.
-    a.save_host(draft("behind", "10.0.0.9")).unwrap();
+    a.save_host(draft("behind", "192.0.2.9")).unwrap();
     sync_once(&a, &server).unwrap();
 
     let report = sync_once(&b, &UnknowingView(&server)).unwrap();

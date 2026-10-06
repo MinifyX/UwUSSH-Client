@@ -29,13 +29,13 @@ await page.click('.sidebar-head [aria-label="Importieren"]');
 await page.waitFor(`document.querySelector('.import-sources')`, { what: 'source picker' });
 await page.click('.import-source', 'UwUSSH-Export');
 await page.waitFor(
-  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Importieren' && document.querySelector('.modal input[type=password]')`,
+  `[...document.querySelectorAll('.uwu-modal h2')].pop()?.textContent === 'Importieren' && document.querySelector('.uwu-modal input[type=password]')`,
   {
     what: 'export password prompt',
   },
 );
 check('a sealed export asks for its password', true);
-await page.click('.modal input[type=password]');
+await page.click('.uwu-modal input[type=password]');
 await page.type('wrong-password');
 await page.key('Enter');
 await page.waitFor(`document.querySelector('.field-error')?.textContent.includes('passt nicht')`, {
@@ -43,7 +43,7 @@ await page.waitFor(`document.querySelector('.field-error')?.textContent.includes
   timeout: 20_000,
 });
 check('a wrong export password is reported', true);
-await page.click('.modal input[type=password]');
+await page.click('.uwu-modal input[type=password]');
 await page.type('export-pw-123');
 await page.key('Enter');
 await page.waitFor(`document.querySelector('.import-counts')`, {
@@ -56,9 +56,9 @@ check(
   await page.text('.import-counts li'),
 );
 await shot('d0-export-preview');
-await page.click('.modal-footer button', 'Importieren');
+await page.click('.uwu-modal footer button', 'Importieren');
 await page.waitFor(
-  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Tresor anlegen'`,
+  `[...document.querySelectorAll('.uwu-modal h2')].pop()?.textContent === 'Tresor anlegen'`,
   {
     what: 'vault for the imported secrets',
   },
@@ -69,12 +69,12 @@ await page.waitFor(`document.activeElement?.type === 'password'`, {
 });
 await page.type('d-master');
 await page.eval(
-  `[...document.querySelectorAll('.modal')].pop().querySelectorAll('input[type=password]')[1].focus()`,
+  `[...document.querySelectorAll('.uwu-modal')].pop().querySelectorAll('input[type=password]')[1].focus()`,
 );
 await page.type('d-master');
 await page.key('Enter');
 await page.waitFor(
-  `[...document.querySelectorAll('.modal-title')].pop()?.textContent.startsWith('Import abgeschlossen')`,
+  `[...document.querySelectorAll('.uwu-modal h2')].pop()?.textContent.startsWith('Import abgeschlossen')`,
   {
     what: 'export imported',
     timeout: 20_000,
@@ -87,13 +87,13 @@ check(
     restored.some((h) => h.name === 'nas' && h.workspace === 'business'),
   JSON.stringify(restored.map((h) => [h.name, h.workspace, h.hasPassword])),
 );
-await page.click('.modal-footer button', 'Fertig');
-await page.waitFor(`!document.querySelector('.modal')`, { what: 'import dialog closed' });
+await page.click('.uwu-modal footer button', 'Fertig');
+await page.waitFor(`!document.querySelector('.uwu-modal')`, { what: 'import dialog closed' });
 
 // ── Import: pick a source, preview it, write it — no vault ──────────────────
 await page.click('.sidebar-head [aria-label="Importieren"]');
 await page.waitFor(
-  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Importieren'`,
+  `[...document.querySelectorAll('.uwu-modal h2')].pop()?.textContent === 'Importieren'`,
   {
     what: 'import dialog',
   },
@@ -115,9 +115,9 @@ check(
 );
 await shot('d2-preview');
 
-await page.click('.modal-footer button', 'Importieren');
+await page.click('.uwu-modal footer button', 'Importieren');
 await page.waitFor(
-  `[...document.querySelectorAll('.modal-title')].pop()?.textContent.startsWith('Import abgeschlossen')`,
+  `[...document.querySelectorAll('.uwu-modal h2')].pop()?.textContent.startsWith('Import abgeschlossen')`,
   {
     what: 'import done',
   },
@@ -129,10 +129,10 @@ check(
   ).length === 1,
 );
 check('nothing sensitive was skipped', !log().includes('password for uwu'));
-await page.click('.modal-footer button', 'Fertig');
+await page.click('.uwu-modal footer button', 'Fertig');
 
 await page.waitFor(
-  `!document.querySelector('.modal') && [...document.querySelectorAll('.host-name')].some(e => e.textContent === 'dev-sshd')`,
+  `!document.querySelector('.uwu-modal') && [...document.querySelectorAll('.host-name')].some(e => e.textContent === 'dev-sshd')`,
   { what: 'imported host in list' },
 );
 check('the imported host is in the list', true);
@@ -141,11 +141,11 @@ await shot('d3-imported');
 // ── Connect: the exported key changed, the stored password logs in ──────────
 await page.click('.host .host-name', 'dev-sshd');
 await page.waitFor(
-  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Der Host-Key hat sich geändert'`,
+  `[...document.querySelectorAll('.uwu-modal h2')].pop()?.textContent === 'Der Host-Key hat sich geändert'`,
   { what: 'changed key from the export', timeout: 15_000 },
 );
 check('the exported trusted key came back and is checked', true);
-await page.click('.modal-footer button', 'Neuen Schlüssel akzeptieren');
+await page.click('.uwu-modal footer button', 'Neuen Schlüssel akzeptieren');
 
 await page.waitFor(terminalHas('toy shell'), { what: 'connected banner', timeout: 15_000 });
 check('connected to the imported host', true);

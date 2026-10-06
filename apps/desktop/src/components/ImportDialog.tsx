@@ -1,3 +1,4 @@
+import { Button, Icon, ICONS } from '@uwusuite/design';
 import { useEffect, useState } from 'react';
 import {
   asBackupFailure,
@@ -7,6 +8,7 @@ import {
   type BackupSummary,
   type PickedExport,
 } from '../lib/backup';
+import { grantSshFolder, isAppStore } from '../lib/flavor';
 import { t, useLanguage } from '../lib/i18n';
 import {
   availableImports,
@@ -17,7 +19,6 @@ import {
   type ImportSource,
   type ImportSummary,
 } from '../lib/session';
-import { Icon } from './Icon';
 import { useCloseGuard } from './CloseGuard';
 import { Modal } from './Modal';
 import { NyuScene } from './nyu/scenes';
@@ -134,6 +135,18 @@ export function ImportDialog({ onClose, onImported }: Props) {
     });
   }
 
+  /**
+   * Store build: the sandbox hides `~/.ssh/config` until the person points at
+   * the folder once. Afterwards the sources are asked for again.
+   */
+  async function grantSsh() {
+    const folder = await grantSshFolder();
+    if (!folder) return;
+    const sources = await availableImports();
+    setStep({ kind: 'pick', sources });
+    if (!sources.includes('openssh')) setError(t('In {folder} liegt keine config.', { folder }));
+  }
+
   async function pickFile() {
     const file = await pickExportFile();
     if (!file) return;
@@ -196,23 +209,48 @@ export function ImportDialog({ onClose, onImported }: Props) {
         return <p className="import-note">{t('Wird gesucht…')}</p>;
 
       case 'pick': {
-        const [beforeConfig, afterConfig] = t(
-          'Auf diesem Rechner wurden keine anderen SSH-Clients gefunden. UwUSSH liest Termius, PuTTY, KiTTY und {config} dort, wo sie ihre Daten ablegen.',
+        // The store build reads only what the person hands it: no Termius,
+        // and `~/.ssh` once it was let in.
+        const store = isAppStore();
+        const [beforeConfig, afterConfig] = (
+          store
+            ? t(
+                'UwUSSH darf hier nur lesen, was du freigibst. Gib ~/.ssh frei, dann liest es {config}.',
+              )
+            : t(
+                'Auf diesem Rechner wurden keine anderen SSH-Clients gefunden. UwUSSH liest Termius, PuTTY, KiTTY und {config} dort, wo sie ihre Daten ablegen.',
+              )
         ).split('{config}');
+        const offerGrant = store && !step.sources.includes('openssh');
         return (
           <div className="import-sources">
             <p className="import-note">{t('Woraus möchtest du importieren?')}</p>
             {step.sources.map((source) => (
               <button
                 key={source}
+                type="button"
                 className="import-source"
                 disabled={busy}
                 onClick={() => void guard(() => preview(source))}
               >
+                <Icon icon={ICONS.import} className="text-muted" />
                 {LABEL[source]}
               </button>
             ))}
+            {offerGrant && (
+              <button
+                type="button"
+                className="import-source"
+                disabled={busy}
+                onClick={() => void guard(grantSsh)}
+                title={t('Damit UwUSSH ~/.ssh/config und deine Key-Dateien lesen darf')}
+              >
+                <Icon icon={ICONS.sshKey} className="text-muted" />
+                {t('~/.ssh freigeben…')}
+              </button>
+            )}
             <button
+              type="button"
               className="import-source"
               disabled={busy}
               onClick={() => void guard(pickFolder)}
@@ -220,12 +258,19 @@ export function ImportDialog({ onClose, onImported }: Props) {
                 'Ein portables KiTTY (Ordner mit Sessions), ein Sessions-Ordner oder .reg-Exporte von PuTTY und KiTTY',
               )}
             >
-              <Icon name="folder" size={16} /> {t('KiTTY- / PuTTY-Sitzungen aus Ordner…')}
+              <Icon icon={ICONS.folder} className="text-muted" />
+              {t('KiTTY- / PuTTY-Sitzungen aus Ordner…')}
             </button>
-            <button className="import-source" disabled={busy} onClick={() => void guard(pickFile)}>
-              <Icon name="file" size={16} /> {t('UwUSSH-Export (.uwussh)…')}
+            <button
+              type="button"
+              className="import-source"
+              disabled={busy}
+              onClick={() => void guard(pickFile)}
+            >
+              <Icon icon={ICONS.file} className="text-muted" />
+              {t('UwUSSH-Export (.uwussh)…')}
             </button>
-            {step.sources.length === 0 && (
+            {(step.sources.length === 0 || offerGrant) && (
               <p className="import-note">
                 {beforeConfig}
                 <code>~/.ssh/config</code>
@@ -310,16 +355,17 @@ export function ImportDialog({ onClose, onImported }: Props) {
         return (
           <>
             <span className="spacer" />
-            <button data-secondary onClick={closeGuard.request}>
+            <Button data-secondary onClick={closeGuard.request}>
               {t('Abbrechen')}
-            </button>
-            <button
-              className="primary"
-              disabled={busy || nothing}
+            </Button>
+            <Button
+              variant="primary"
+              busy={busy}
+              disabled={nothing}
               onClick={() => void guard(() => importSource(step.source))}
             >
               {busy ? t('Importiere…') : t('Importieren')}
-            </button>
+            </Button>
           </>
         );
       }
@@ -327,16 +373,16 @@ export function ImportDialog({ onClose, onImported }: Props) {
         return (
           <>
             <span className="spacer" />
-            <button data-secondary onClick={closeGuard.request}>
+            <Button data-secondary onClick={closeGuard.request}>
               {t('Abbrechen')}
-            </button>
-            <button
-              className="primary"
+            </Button>
+            <Button
+              variant="primary"
               disabled={busy || !password}
               onClick={() => void guard(() => unlockFile(step.file))}
             >
               {t('Öffnen')}
-            </button>
+            </Button>
           </>
         );
       case 'file-preview': {
@@ -345,16 +391,17 @@ export function ImportDialog({ onClose, onImported }: Props) {
         return (
           <>
             <span className="spacer" />
-            <button data-secondary onClick={closeGuard.request}>
+            <Button data-secondary onClick={closeGuard.request}>
               {t('Abbrechen')}
-            </button>
-            <button
-              className="primary"
-              disabled={busy || nothing}
+            </Button>
+            <Button
+              variant="primary"
+              busy={busy}
+              disabled={nothing}
               onClick={() => void guard(() => importFile(step.file, step.password))}
             >
               {busy ? t('Importiere…') : t('Importieren')}
-            </button>
+            </Button>
           </>
         );
       }
@@ -362,18 +409,18 @@ export function ImportDialog({ onClose, onImported }: Props) {
         return (
           <>
             <span className="spacer" />
-            <button className="primary" onClick={onClose}>
+            <Button variant="primary" onClick={onClose}>
               {t('Fertig')}
-            </button>
+            </Button>
           </>
         );
       default:
         return (
           <>
             <span className="spacer" />
-            <button data-secondary onClick={closeGuard.request}>
+            <Button data-secondary onClick={closeGuard.request}>
               {t('Abbrechen')}
-            </button>
+            </Button>
           </>
         );
     }

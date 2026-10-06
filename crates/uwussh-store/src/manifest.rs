@@ -726,7 +726,7 @@ mod tests {
         let store = Store::open_in_memory().unwrap();
         store
             .trust_host_key(
-                "mine.lan",
+                "mine.example",
                 22,
                 "ssh-ed25519",
                 "SHA256:mine",
@@ -741,7 +741,7 @@ mod tests {
                 "INSERT INTO known_hosts
                     (id, vault_id, address, port, algorithm, fingerprint_sha256, public_key,
                      first_seen_ms, hlc_wall_ms, hlc_counter, hlc_device, dirty, server_seq)
-                 VALUES (?1, ?2, 'theirs.lan', 22, 'ssh-ed25519', 'SHA256:theirs',
+                 VALUES (?1, ?2, 'theirs.example', 22, 'ssh-ed25519', 'SHA256:theirs',
                          'ssh-ed25519 T', 0, 100, 0, ?3, 0, 1)",
                 params![theirs.to_string(), "v", OTHER],
             )
@@ -759,7 +759,7 @@ mod tests {
         let key = |id, wall| ManifestEntry::new(EntityKind::KnownHost, id, at(wall), false);
         manifest_from(&store, OTHER, at(1_000), vec![key(gave_way, 100)]);
         assert_eq!(store.check_manifests().unwrap(), Withheld::default());
-        assert!(store.known_host("theirs.lan", 22).unwrap().is_some());
+        assert!(store.known_host("theirs.example", 22).unwrap().is_some());
 
         // A newer version of the key is listed and never came.
         manifest_from(
@@ -771,12 +771,12 @@ mod tests {
         let withheld = store.check_manifests().unwrap();
         assert!(withheld.host_keys);
         assert!(
-            store.known_host("theirs.lan", 22).unwrap().is_none(),
+            store.known_host("theirs.example", 22).unwrap().is_none(),
             "a key from another device is not answered with"
         );
         assert_eq!(
             store
-                .known_host("mine.lan", 22)
+                .known_host("mine.example", 22)
                 .unwrap()
                 .unwrap()
                 .fingerprint,
@@ -792,7 +792,7 @@ mod tests {
         // The user connects, sees the key and accepts it: it is theirs now.
         store
             .trust_host_key(
-                "theirs.lan",
+                "theirs.example",
                 22,
                 "ssh-ed25519",
                 "SHA256:new",
@@ -801,7 +801,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             store
-                .known_host("theirs.lan", 22)
+                .known_host("theirs.example", 22)
                 .unwrap()
                 .unwrap()
                 .fingerprint,
@@ -931,7 +931,7 @@ mod tests {
                 "INSERT INTO known_hosts
                     (id, vault_id, address, port, algorithm, fingerprint_sha256, public_key,
                      first_seen_ms, hlc_wall_ms, hlc_counter, hlc_device, dirty, server_seq)
-                 VALUES (?1, ?2, 'nas.lan', 22, 'ssh-ed25519', 'SHA256:x', 'k', 0, 1, 0, 1, 0, 1)",
+                 VALUES (?1, ?2, 'nas.example', 22, 'ssh-ed25519', 'SHA256:x', 'k', 0, 1, 0, 1, 0, 1)",
                 params![Uuid::now_v7().to_string(), vault],
             )
             .unwrap();

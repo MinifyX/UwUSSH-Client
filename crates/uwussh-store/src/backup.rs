@@ -808,7 +808,7 @@ mod tests {
         store.create_group(Workspace::Business, "Clients").unwrap();
         store.create_group(Workspace::Private, "Empty").unwrap();
 
-        let mut web = draft("web", "10.0.0.5");
+        let mut web = draft("web", "192.0.2.5");
         web.workspace = Some(Workspace::Business);
         web.group_path = Some("Clients".into());
         web.password = PasswordChange::Set {
@@ -825,7 +825,7 @@ mod tests {
                 passphrase: Some(SecretText::new("meow")),
             })
             .unwrap();
-        let mut pve = draft("pve", "10.0.0.6");
+        let mut pve = draft("pve", "192.0.2.6");
         pve.auth = AuthMethod::Key;
         pve.key_id = Some(key.id);
         let pve = store.save_host(pve).unwrap();
@@ -845,7 +845,7 @@ mod tests {
 
         store
             .trust_host_key(
-                "10.0.0.5",
+                "192.0.2.5",
                 22,
                 "ssh-ed25519",
                 "SHA256:web",
@@ -900,7 +900,7 @@ mod tests {
             .unwrap()
             .iter()
             .any(|g| g.name == "Empty"));
-        assert!(target.known_host("10.0.0.5", 22).unwrap().is_some());
+        assert!(target.known_host("192.0.2.5", 22).unwrap().is_some());
 
         // Reading it again adds nothing.
         let again = target

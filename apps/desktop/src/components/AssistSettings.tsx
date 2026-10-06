@@ -1,3 +1,4 @@
+import { Button, Icon, IconButton, ICONS, Select, Tag } from '@uwusuite/design';
 import { useCallback, useEffect, useState } from 'react';
 import {
   asAssistFailure,
@@ -20,7 +21,6 @@ import {
 } from '../lib/assist';
 import { locale, t, useLanguage } from '../lib/i18n';
 import { keysFor } from '../lib/shortcuts';
-import { Icon } from './Icon';
 import { VaultDialog } from './VaultDialog';
 
 type Result = { tone: 'ok' | 'error'; text: string };
@@ -174,8 +174,7 @@ export function AssistProviderSetup({ onSaved, saveLabel }: Props) {
     <div className="assist-provider">
       <label className="field">
         <span>{t('Anbieter')}</span>
-        <select
-          className="select"
+        <Select
           value={kind}
           onChange={(event) => pick(event.target.value as ProviderKind, settings)}
         >
@@ -185,7 +184,7 @@ export function AssistProviderSetup({ onSaved, saveLabel }: Props) {
               {provider.kind === settings.provider ? ` · ${t('aktiv')}` : ''}
             </option>
           ))}
-        </select>
+        </Select>
         <em className="field-hint">
           {t(info.hint)}
           {kind === 'ollama' &&
@@ -223,9 +222,14 @@ export function AssistProviderSetup({ onSaved, saveLabel }: Props) {
               onChange={(event) => setApiKey(event.target.value)}
             />
             {stored?.hasKey && (
-              <button type="button" onClick={() => setForgetKey(!forgetKey)}>
+              <Button
+                size="sm"
+                variant={forgetKey ? 'secondary' : 'danger'}
+                icon={forgetKey ? ICONS.undo : ICONS.delete}
+                onClick={() => setForgetKey(!forgetKey)}
+              >
                 {forgetKey ? t('Doch behalten') : t('Key entfernen')}
-              </button>
+              </Button>
             )}
           </div>
           <em className="field-hint">
@@ -256,6 +260,7 @@ export function AssistProviderSetup({ onSaved, saveLabel }: Props) {
             <button
               key={name}
               type="button"
+              className="assist-model"
               aria-pressed={name === model.trim()}
               onClick={() => setModel(name)}
             >
@@ -266,23 +271,28 @@ export function AssistProviderSetup({ onSaved, saveLabel }: Props) {
       )}
 
       <div className="assist-provider-row">
-        <button type="button" onClick={() => void test()} disabled={busy !== null}>
+        <Button
+          icon={ICONS.connect}
+          busy={busy === 'test'}
+          onClick={() => void test()}
+          disabled={busy !== null}
+        >
           {busy === 'test' ? t('Teste…') : t('Verbindung testen')}
-        </button>
+        </Button>
         <span className="spacer" />
         {settings.provider && (
-          <button type="button" onClick={() => void save('')} disabled={busy !== null}>
+          <Button variant="ghost" onClick={() => void save('')} disabled={busy !== null}>
             {t('Ausschalten')}
-          </button>
+          </Button>
         )}
-        <button
-          type="button"
-          className="primary"
+        <Button
+          variant="primary"
+          busy={busy === 'save'}
           onClick={() => void save(kind)}
           disabled={busy !== null || !model.trim() || keyMissing}
         >
           {saveLabel ?? t('Speichern und verwenden')}
-        </button>
+        </Button>
       </div>
       {result && (
         <p
@@ -333,12 +343,17 @@ function AssistCache() {
   return (
     <div className="key-list">
       <div className="key-list-head">
-        <p className="setting-label">{t('Gemerkte Befehle')}</p>
+        <p className="text-body font-semibold">{t('Gemerkte Befehle')}</p>
         <span className="spacer" />
-        <button onClick={() => guard(assistCacheClear)} disabled={!entries || entries.length === 0}>
-          <Icon name="trash" size={15} />
+        <Button
+          size="sm"
+          variant="danger"
+          icon={ICONS.delete}
+          onClick={() => guard(assistCacheClear)}
+          disabled={!entries || entries.length === 0}
+        >
           {t('Alle löschen')}
-        </button>
+        </Button>
       </div>
       {entries && entries.length === 0 ? (
         <p className="setting-description">
@@ -350,7 +365,7 @@ function AssistCache() {
         <ul>
           {(entries ?? []).map((entry) => (
             <li key={entry.id}>
-              <Icon name="sparkles" size={16} />
+              <Icon icon={ICONS.ai} className="text-pink-ink" />
               <span className="key-list-text">
                 <b className="assist-cache-command" title={entry.command}>
                   {entry.command}
@@ -361,20 +376,16 @@ function AssistCache() {
                     ` · ${entry.hits === 1 ? t('1× wiederverwendet') : t('{count}× wiederverwendet', { count: entry.hits })}`}
                   {' · '}
                   {new Date(entry.usedMs || entry.createdMs).toLocaleDateString(locale())}
-                  {entry.dangerous && (
-                    <span className="assist-cache-danger"> · {t('gefährlich')}</span>
-                  )}
                 </small>
               </span>
+              {entry.dangerous && <Tag tone="danger">{t('gefährlich')}</Tag>}
               <span className="spacer" />
-              <button
-                className="icon-button"
-                title={t('Löschen')}
-                aria-label={t('{label} löschen', { label: entry.command })}
+              <IconButton
+                size="sm"
+                icon={ICONS.delete}
+                label={t('{label} löschen', { label: entry.command })}
                 onClick={() => guard(() => assistCacheDelete(entry.id))}
-              >
-                <Icon name="trash" size={15} />
-              </button>
+              />
             </li>
           ))}
         </ul>

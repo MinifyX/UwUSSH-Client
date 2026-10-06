@@ -886,7 +886,7 @@ pub(crate) mod tests {
     #[test]
     fn a_saved_host_comes_back_as_saved() {
         let store = store();
-        let saved = store.save_host(draft("prox-1", "10.0.0.12")).unwrap();
+        let saved = store.save_host(draft("prox-1", "192.0.2.12")).unwrap();
         assert_eq!(store.list_hosts().unwrap(), vec![saved.clone()]);
         assert_eq!(store.get_host(saved.id).unwrap(), Some(saved.clone()));
         assert_eq!(saved.workspace, Workspace::Private);
@@ -895,16 +895,16 @@ pub(crate) mod tests {
 
     #[test]
     fn an_empty_name_defaults_to_the_address() {
-        let saved = store().save_host(draft("  ", "nas.lan")).unwrap();
-        assert_eq!(saved.name, "nas.lan");
+        let saved = store().save_host(draft("  ", "nas.example")).unwrap();
+        assert_eq!(saved.name, "nas.example");
     }
 
     #[test]
     fn updating_keeps_the_id_and_changes_the_fields() {
         let store = store();
-        let saved = store.save_host(draft("old", "10.0.0.1")).unwrap();
+        let saved = store.save_host(draft("old", "192.0.2.1")).unwrap();
 
-        let mut edit = draft("new", "10.0.0.2");
+        let mut edit = draft("new", "192.0.2.2");
         edit.id = Some(saved.id);
         edit.port = 2222;
         edit.username = "lorin".into();
@@ -917,7 +917,7 @@ pub(crate) mod tests {
                 updated.address.as_str(),
                 updated.port
             ),
-            ("new", "10.0.0.2", 2222)
+            ("new", "192.0.2.2", 2222)
         );
         assert_eq!(updated.username, "lorin");
         assert_eq!(
@@ -930,8 +930,8 @@ pub(crate) mod tests {
     #[test]
     fn updates_bump_the_revision_for_sync() {
         let store = store();
-        let saved = store.save_host(draft("a", "10.0.0.1")).unwrap();
-        let mut edit = draft("b", "10.0.0.1");
+        let saved = store.save_host(draft("a", "192.0.2.1")).unwrap();
+        let mut edit = draft("b", "192.0.2.1");
         edit.id = Some(saved.id);
         store.save_host(edit).unwrap();
 
@@ -960,7 +960,7 @@ pub(crate) mod tests {
             })
         ));
 
-        let mut no_user = draft("x", "10.0.0.1");
+        let mut no_user = draft("x", "192.0.2.1");
         no_user.username = " ".into();
         assert!(matches!(
             store.save_host(no_user),
@@ -970,7 +970,7 @@ pub(crate) mod tests {
             })
         ));
 
-        let mut keyless = draft("x", "10.0.0.1");
+        let mut keyless = draft("x", "192.0.2.1");
         keyless.auth = AuthMethod::Key;
         assert!(matches!(
             store.save_host(keyless),
@@ -980,7 +980,7 @@ pub(crate) mod tests {
             })
         ));
 
-        let mut port_zero = draft("x", "10.0.0.1");
+        let mut port_zero = draft("x", "192.0.2.1");
         port_zero.port = 0;
         assert!(matches!(
             store.save_host(port_zero),
@@ -990,7 +990,7 @@ pub(crate) mod tests {
             })
         ));
 
-        let mut unknown_key = draft("x", "10.0.0.1");
+        let mut unknown_key = draft("x", "192.0.2.1");
         unknown_key.auth = AuthMethod::Key;
         unknown_key.key_id = Some(Uuid::now_v7());
         assert!(matches!(
@@ -1005,13 +1005,13 @@ pub(crate) mod tests {
     #[test]
     fn switching_to_password_auth_drops_the_key_path() {
         let store = store();
-        let mut keyed = draft("x", "10.0.0.1");
+        let mut keyed = draft("x", "192.0.2.1");
         keyed.auth = AuthMethod::Key;
         keyed.key_path = Some("~/.ssh/id_ed25519".into());
         let saved = store.save_host(keyed).unwrap();
         assert_eq!(saved.key_path.as_deref(), Some("~/.ssh/id_ed25519"));
 
-        let mut edit = draft("x", "10.0.0.1");
+        let mut edit = draft("x", "192.0.2.1");
         edit.id = Some(saved.id);
         edit.key_path = Some("~/.ssh/id_ed25519".into());
         let updated = store.save_host(edit).unwrap();
@@ -1022,7 +1022,7 @@ pub(crate) mod tests {
     #[test]
     fn deleted_hosts_disappear_but_stay_as_tombstones() {
         let store = store();
-        let saved = store.save_host(draft("x", "10.0.0.1")).unwrap();
+        let saved = store.save_host(draft("x", "192.0.2.1")).unwrap();
         store.delete_host(saved.id).unwrap();
 
         assert!(store.list_hosts().unwrap().is_empty());
@@ -1047,7 +1047,7 @@ pub(crate) mod tests {
             Err(StoreError::UnknownHost(_))
         ));
 
-        let mut edit = draft("x", "10.0.0.1");
+        let mut edit = draft("x", "192.0.2.1");
         edit.id = Some(ghost);
         assert!(matches!(
             store.save_host(edit),
@@ -1058,7 +1058,7 @@ pub(crate) mod tests {
     #[test]
     fn marking_a_connection_does_not_count_as_an_edit() {
         let store = store();
-        let saved = store.save_host(draft("x", "10.0.0.1")).unwrap();
+        let saved = store.save_host(draft("x", "192.0.2.1")).unwrap();
         store.mark_connected(saved.id).unwrap();
         store.set_host_os(saved.id, Some("debian")).unwrap();
 
@@ -1094,13 +1094,13 @@ pub(crate) mod tests {
     #[test]
     fn hosts_sharing_a_login_never_change_each_other() {
         let store = unlocked();
-        let mut first = draft("a", "10.0.0.1");
+        let mut first = draft("a", "192.0.2.1");
         first.password = PasswordChange::Set {
             value: SecretText::new("shared"),
         };
         let a = store.save_host(first).unwrap();
-        let b = store.save_host(draft("b", "10.0.0.2")).unwrap();
-        let c = store.save_host(draft("c", "10.0.0.3")).unwrap();
+        let b = store.save_host(draft("b", "192.0.2.2")).unwrap();
+        let c = store.save_host(draft("c", "192.0.2.3")).unwrap();
         share_identity(&store, a.id, b.id);
         share_identity(&store, a.id, c.id);
         let password = |id| store.reveal_host_password(id).map(|p| p.to_vec());
@@ -1119,7 +1119,7 @@ pub(crate) mod tests {
         assert_eq!(password(b.id).unwrap(), b"only-b");
 
         // Editing a's user, and forgetting c's password, leave the others be.
-        let mut edit = draft("a", "10.0.0.1");
+        let mut edit = draft("a", "192.0.2.1");
         edit.id = Some(a.id);
         edit.username = "admin".into();
         store.save_host(edit).unwrap();
@@ -1154,7 +1154,7 @@ pub(crate) mod tests {
     #[test]
     fn a_password_set_in_the_form_is_sealed_and_can_be_revealed() {
         let store = unlocked();
-        let mut new = draft("web", "10.0.0.5");
+        let mut new = draft("web", "192.0.2.5");
         new.password = PasswordChange::Set {
             value: SecretText::new("hunter2"),
         };
@@ -1183,7 +1183,7 @@ pub(crate) mod tests {
     #[test]
     fn setting_a_password_needs_the_vault_and_writes_nothing_without_it() {
         let store = store();
-        let mut new = draft("web", "10.0.0.5");
+        let mut new = draft("web", "192.0.2.5");
         new.password = PasswordChange::Set {
             value: SecretText::new("hunter2"),
         };
@@ -1194,7 +1194,7 @@ pub(crate) mod tests {
     #[test]
     fn keeping_replacing_and_forgetting_a_password() {
         let store = unlocked();
-        let mut new = draft("web", "10.0.0.5");
+        let mut new = draft("web", "192.0.2.5");
         new.password = PasswordChange::Set {
             value: SecretText::new("one"),
         };
@@ -1202,12 +1202,12 @@ pub(crate) mod tests {
 
         // An edit that doesn't touch the password keeps it, even locked.
         store.lock_vault();
-        let mut rename = draft("web-1", "10.0.0.5");
+        let mut rename = draft("web-1", "192.0.2.5");
         rename.id = Some(saved.id);
         assert!(store.save_host(rename).unwrap().has_password);
         store.unlock_vault(b"master").unwrap();
 
-        let mut replace = draft("web-1", "10.0.0.5");
+        let mut replace = draft("web-1", "192.0.2.5");
         replace.id = Some(saved.id);
         replace.password = PasswordChange::Set {
             value: SecretText::new("two"),
@@ -1219,7 +1219,7 @@ pub(crate) mod tests {
         );
         assert_eq!(live_secrets(&store), 1, "the old password is gone");
 
-        let mut forget = draft("web-1", "10.0.0.5");
+        let mut forget = draft("web-1", "192.0.2.5");
         forget.id = Some(saved.id);
         forget.password = PasswordChange::Forget;
         let forgotten = store.save_host(forget).unwrap();
@@ -1243,7 +1243,7 @@ pub(crate) mod tests {
     #[test]
     fn a_key_host_can_keep_a_password_for_sudo() {
         let store = unlocked();
-        let mut keyed = draft("pve", "10.0.0.6");
+        let mut keyed = draft("pve", "192.0.2.6");
         keyed.auth = AuthMethod::Key;
         keyed.key_path = Some("~/.ssh/id_ed25519".into());
         keyed.password = PasswordChange::Set {
@@ -1267,7 +1267,7 @@ pub(crate) mod tests {
     #[test]
     fn a_password_that_worked_can_be_saved_afterwards() {
         let store = unlocked();
-        let saved = store.save_host(draft("web", "10.0.0.5")).unwrap();
+        let saved = store.save_host(draft("web", "192.0.2.5")).unwrap();
         let updated = store
             .set_host_password(
                 saved.id,
@@ -1291,7 +1291,7 @@ pub(crate) mod tests {
     #[test]
     fn deleting_a_host_forgets_its_password() {
         let store = unlocked();
-        let mut new = draft("web", "10.0.0.5");
+        let mut new = draft("web", "192.0.2.5");
         new.password = PasswordChange::Set {
             value: SecretText::new("hunter2"),
         };
@@ -1303,11 +1303,11 @@ pub(crate) mod tests {
     #[test]
     fn a_new_host_joins_its_group_at_the_end_and_creates_the_group() {
         let store = store();
-        let mut a = draft("a", "10.0.0.1");
+        let mut a = draft("a", "192.0.2.1");
         a.group_path = Some("Homelab".into());
         a.workspace = Some(Workspace::Business);
         let a = store.save_host(a).unwrap();
-        let mut b = draft("b", "10.0.0.2");
+        let mut b = draft("b", "192.0.2.2");
         b.group_path = Some("Homelab".into());
         b.workspace = Some(Workspace::Business);
         let b = store.save_host(b).unwrap();
@@ -1320,7 +1320,7 @@ pub(crate) mod tests {
         assert_eq!(groups[0].workspace, Workspace::Business);
 
         // An edit without a workspace keeps the host where it is.
-        let mut edit = draft("b2", "10.0.0.2");
+        let mut edit = draft("b2", "192.0.2.2");
         edit.id = Some(b.id);
         edit.group_path = Some("Homelab".into());
         let edited = store.save_host(edit).unwrap();

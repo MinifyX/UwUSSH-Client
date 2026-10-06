@@ -1,3 +1,4 @@
+import { Button, ICONS, Segmented } from '@uwusuite/design';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { t, useLanguage } from '../../lib/i18n';
 import {
@@ -15,7 +16,6 @@ import {
   type KeyRecord,
   type PrivateFormat,
 } from '../../lib/keys';
-import { Icon } from '../Icon';
 import { NyuScene } from '../nyu/scenes';
 import { NyuLaserPad } from './NyuLaserPad';
 import './keygen.css';
@@ -235,65 +235,46 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
           </div>
         </div>
 
-        <div className="segmented keygen-tabs" role="tablist" aria-label={t('Ansicht')}>
-          <button
-            role="tab"
-            aria-selected={!advanced}
-            aria-checked={!advanced}
-            onClick={() => setAdvanced(false)}
-          >
-            {t('Einfach')}
-          </button>
-          <button
-            role="tab"
-            aria-selected={advanced}
-            aria-checked={advanced}
-            onClick={() => setAdvanced(true)}
-          >
-            {t('Erweitert')}
-          </button>
-        </div>
+        <Segmented
+          className="justify-self-start"
+          label={t('Ansicht')}
+          value={advanced ? 'advanced' : 'simple'}
+          onChange={(value) => setAdvanced(value === 'advanced')}
+          options={[
+            { value: 'simple', label: t('Einfach') },
+            { value: 'advanced', label: t('Erweitert') },
+          ]}
+        />
 
         {advanced && (
           <div className="keygen-advanced">
             <fieldset className="field">
               <span>{t('Schlüsseltyp')}</span>
-              <div className="segmented" role="radiogroup" aria-label={t('Schlüsseltyp')}>
-                {(
-                  [
-                    ['rsa', 'RSA'],
-                    ['ed25519', 'Ed25519'],
-                    ['ecdsa', 'ECDSA'],
-                  ] as const
-                ).map(([value, text]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    role="radio"
-                    aria-checked={choice === value}
-                    onClick={() => setChoice(value)}
-                  >
-                    {text}
-                  </button>
-                ))}
-              </div>
+              <Segmented<KindChoice>
+                className="justify-self-start"
+                label={t('Schlüsseltyp')}
+                value={choice}
+                onChange={setChoice}
+                options={[
+                  { value: 'rsa', label: 'RSA' },
+                  { value: 'ed25519', label: 'Ed25519' },
+                  { value: 'ecdsa', label: 'ECDSA' },
+                ]}
+              />
             </fieldset>
             {choice === 'rsa' && (
               <fieldset className="field">
                 <span>{t('Schlüssellänge')}</span>
-                <div className="segmented" role="radiogroup" aria-label={t('Schlüssellänge')}>
-                  {[1024, 2048, 3072, 4096].map((value) => (
-                    <button
-                      key={value}
-                      type="button"
-                      role="radio"
-                      aria-checked={bits === value}
-                      onClick={() => setBits(value)}
-                    >
-                      {value}
-                    </button>
-                  ))}
-                </div>
+                <Segmented
+                  className="justify-self-start"
+                  label={t('Schlüssellänge')}
+                  value={String(bits)}
+                  onChange={(value) => setBits(Number(value))}
+                  options={[1024, 2048, 3072, 4096].map((value) => ({
+                    value: String(value),
+                    label: value,
+                  }))}
+                />
                 {bits === 1024 && (
                   <em className="field-error">
                     {t('1024 Bit gelten als zu schwach – nur für sehr alte Geräte.')}
@@ -304,19 +285,16 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
             {choice === 'ecdsa' && (
               <fieldset className="field">
                 <span>{t('Kurve')}</span>
-                <div className="segmented" role="radiogroup" aria-label={t('Kurve')}>
-                  {[256, 384, 521].map((value) => (
-                    <button
-                      key={value}
-                      type="button"
-                      role="radio"
-                      aria-checked={curve === value}
-                      onClick={() => setCurve(value)}
-                    >
-                      P-{value}
-                    </button>
-                  ))}
-                </div>
+                <Segmented
+                  className="justify-self-start"
+                  label={t('Kurve')}
+                  value={String(curve)}
+                  onChange={(value) => setCurve(Number(value))}
+                  options={[256, 384, 521].map((value) => ({
+                    value: String(value),
+                    label: `P-${value}`,
+                  }))}
+                />
               </fieldset>
             )}
             {choice === 'ed25519' && (
@@ -365,9 +343,9 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
         <div className="keygen-actions">
           <span className="keygen-summary">{describeKind(choice, bits, curve)}</span>
           <span className="spacer" />
-          <button className="primary" disabled={!settingsReady} onClick={() => setStep('entropy')}>
+          <Button variant="primary" disabled={!settingsReady} onClick={() => setStep('entropy')}>
             {t('Weiter')}
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -399,17 +377,19 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
           </p>
         )}
         <div className="keygen-actions">
-          <button
-            className="quiet"
+          <Button
+            variant="ghost"
             onClick={() => setStep('settings')}
             disabled={step === 'generating'}
           >
             {t('Zurück')}
-          </button>
+          </Button>
           <span className="spacer" />
           {progress < 1 && (
-            <button
-              className="link-button keygen-skip"
+            <Button
+              variant="ghost"
+              size="sm"
+              className="keygen-skip"
               onClick={() => void generate()}
               disabled={step === 'generating'}
               title={t(
@@ -417,15 +397,17 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
               )}
             >
               {t('Ohne Maus erzeugen')}
-            </button>
+            </Button>
           )}
-          <button
-            className="primary"
-            disabled={progress < 1 || step === 'generating'}
+          <Button
+            variant="primary"
+            icon={ICONS.generate}
+            busy={step === 'generating'}
+            disabled={progress < 1}
             onClick={() => void generate()}
           >
             {step === 'generating' ? t('Erzeuge …') : t('Schlüssel erzeugen')}
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -453,17 +435,17 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
       </div>
 
       <div className="key-facts">
-        <pre className="randomart" aria-label={t('Randomart des Schlüssels')}>
+        <pre className="randomart selectable" aria-label={t('Randomart des Schlüssels')}>
           {info.randomart}
         </pre>
         <dl>
           <dt>Fingerprint (SHA-256)</dt>
           <dd>
-            <code className="fingerprint">{info.fingerprintSha256}</code>
+            <code className="fingerprint selectable">{info.fingerprintSha256}</code>
           </dd>
           <dt>Fingerprint (MD5)</dt>
           <dd>
-            <code className="fingerprint">{info.fingerprintMd5}</code>
+            <code className="fingerprint selectable">{info.fingerprintMd5}</code>
           </dd>
         </dl>
       </div>
@@ -473,11 +455,16 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
         <textarea className="key-text" readOnly rows={3} value={info.publicOpenssh} />
       </label>
       <div className="keygen-row">
-        <button onClick={() => void copy(info.publicOpenssh).then(() => flash('public'))}>
-          <Icon name={copied === 'public' ? 'check' : 'copy'} size={15} />
+        <Button
+          size="sm"
+          icon={copied === 'public' ? ICONS.done : ICONS.copy}
+          onClick={() => void copy(info.publicOpenssh).then(() => flash('public'))}
+        >
           {copied === 'public' ? t('Kopiert') : t('Kopieren')}
-        </button>
-        <button
+        </Button>
+        <Button
+          size="sm"
+          icon={ICONS.download}
           disabled={busy}
           onClick={() =>
             void run(async () => {
@@ -487,16 +474,15 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
             })
           }
         >
-          <Icon name="download" size={15} />
           {t('Als .pub speichern…')}
-        </button>
+        </Button>
       </div>
 
       <fieldset className="field keygen-private">
         <span>{t('Private Key')}</span>
         <div className="keygen-row">
           <select
-            className="select"
+            className="keygen-format"
             value={format}
             aria-label="Format"
             onChange={(e) => {
@@ -510,7 +496,9 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
               </option>
             ))}
           </select>
-          <button
+          <Button
+            size="sm"
+            icon={privateText ? ICONS.hide : ICONS.show}
             disabled={busy}
             onClick={() =>
               privateText
@@ -520,10 +508,11 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
                   )
             }
           >
-            <Icon name="eye" size={15} />
             {privateText ? t('Verbergen') : t('Anzeigen')}
-          </button>
-          <button
+          </Button>
+          <Button
+            size="sm"
+            icon={copied === 'private' ? ICONS.done : ICONS.copy}
             disabled={busy}
             onClick={() =>
               void run(async () => {
@@ -532,10 +521,11 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
               })
             }
           >
-            <Icon name={copied === 'private' ? 'check' : 'copy'} size={15} />
             {copied === 'private' ? t('Kopiert') : t('Kopieren')}
-          </button>
-          <button
+          </Button>
+          <Button
+            size="sm"
+            icon={ICONS.download}
             disabled={busy}
             onClick={() =>
               void run(async () => {
@@ -545,9 +535,8 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
               })
             }
           >
-            <Icon name="download" size={15} />
             {t('Speichern…')}
-          </button>
+          </Button>
         </div>
         {privateText && <textarea className="key-text" readOnly rows={8} value={privateText} />}
         <em
@@ -567,8 +556,9 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
             <span>{t('Name im Tresor')}</span>
             <input value={label} onChange={(e) => setLabel(e.target.value)} />
           </label>
-          <button
-            className="primary"
+          <Button
+            variant="primary"
+            icon={ICONS.vault}
             disabled={busy}
             onClick={() =>
               void run(async () => {
@@ -578,9 +568,8 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
               })
             }
           >
-            <Icon name="key" size={15} />
             {storeLabel ?? t('In den Tresor legen')}
-          </button>
+          </Button>
         </div>
       )}
 
@@ -591,8 +580,8 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
       )}
 
       <div className="keygen-actions">
-        <button
-          className="quiet"
+        <Button
+          variant="ghost"
           onClick={() => {
             setGenerated(null);
             setPrivateText(null);
@@ -603,7 +592,7 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
           }}
         >
           {t('Noch einen erzeugen')}
-        </button>
+        </Button>
       </div>
     </div>
   );

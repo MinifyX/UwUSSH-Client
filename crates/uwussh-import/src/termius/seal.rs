@@ -202,13 +202,13 @@ mod tests {
 
     #[test]
     fn a_sealed_field_opens_with_its_key() {
-        let sealed = seal(&KEY, [1; 24], b"10.0.0.12");
+        let sealed = seal(&KEY, [1; 24], b"192.0.2.12");
         assert!(
             sealed.starts_with("BA"),
             "Termius' fields all start with BA"
         );
         let opened = LocalKey::from_bytes(KEY).open(&sealed).unwrap();
-        assert_eq!(opened.as_slice(), b"10.0.0.12");
+        assert_eq!(opened.as_slice(), b"192.0.2.12");
     }
 
     #[test]

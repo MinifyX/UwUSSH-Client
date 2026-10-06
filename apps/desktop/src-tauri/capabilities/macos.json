@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "macos",
+  "description": "macOS only: the menu bar (setMacMenu), ⌘W and the red light hiding the window instead of closing it, and showing it again before the quit question. The page draws no title bar there, so it doesn't get the title bar's window controls (desktop.json).",
+  "platforms": ["macOS"],
+  "windows": ["main"],
+  "permissions": [
+    "core:menu:default",
+    "core:window:allow-hide",
+    "core:window:allow-show",
+    "core:window:allow-set-focus",
+    "core:window:allow-close"
+  ]
+}

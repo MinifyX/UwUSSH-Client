@@ -17,9 +17,19 @@
 //! - [`lock`] — the same through UwULock: signing in, the move from UwUSync,
 //!   the realtime channel
 //! - [`system`] — updates, links, a fresh start for a reloaded page
+//! - [`updates`] — finding, downloading and installing new versions; only in
+//!   builds with the `self-update` feature, which the Mac App Store's is not
 //! - [`links`] — `uwussh://connect/<host id>` links
+//! - [`sandbox_access`] — the Mac App Store sandbox's bookmarks, so folders
+//!   and files the person picked stay reachable after a restart
 //! - [`m0`] — the throughput measurement
-//! - [`menu`] — the macOS menu bar
+//!
+//! The macOS menu bar is the page's (`setMacMenu` in App.tsx).
+
+// The store build must not carry a local shell or an updater; `--features mas`
+// on top of the defaults would bring both.
+#[cfg(all(feature = "mas", any(feature = "local-shell", feature = "self-update")))]
+compile_error!("the `mas` feature goes with --no-default-features");
 
 mod assist;
 mod backup;
@@ -33,11 +43,12 @@ mod keys;
 mod links;
 mod lock;
 mod m0;
-mod menu;
+mod sandbox_access;
 mod sessions;
 mod sync;
 mod system;
 mod tunnels;
+#[cfg(feature = "self-update")]
 mod updates;
 
 use parking_lot::Mutex;
@@ -110,15 +121,19 @@ pub fn run() {
         .init();
 
     let builder = tauri::Builder::default();
-    // Only macOS has a menu bar; Tauri adds none elsewhere either.
-    #[cfg(target_os = "macos")]
-    let builder = builder.menu(menu::build).on_menu_event(menu::on_event);
 
     // One UwUSSH per user, registered first: a second start hands its link
     // over and quits before anything else of it runs. A run with a database
     // of its own (UWUSSH_DB, for trying things out and the end-to-end tests)
     // stays a separate window.
-    let builder = if std::env::var_os("UWUSSH_DB").is_none() {
+    //
+    // Not in the Mac App Store build: on a Mac, Launch Services already keeps
+    // an app bundle to one copy and hands a `uwussh://` link to the running
+    // one (the deep-link plugin gets it either way), and the plugin's socket
+    // in /tmp is outside what the sandbox lets the app create.
+    let single_instance =
+        std::env::var_os("UWUSSH_DB").is_none() && !cfg!(all(target_os = "macos", feature = "mas"));
+    let builder = if single_instance {
         builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             links::second_instance(app)
         }))
@@ -126,12 +141,33 @@ pub fn run() {
         builder
     };
 
-    builder
+    let builder = builder
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init());
+    // The updater plugin's own commands are in no capability, so the page
+    // cannot reach them; the feed stays what tauri.conf.json says.
+    #[cfg(feature = "self-update")]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+
+    builder
         .setup(|app| {
+            std::thread::spawn(sync::device_name);
+            // macOS ends an app without asking the window; this asks the page
+            // first (`onMacQuit` in App.tsx, answered through `finish_quit`),
+            // which asks the person while connections are open.
+            #[cfg(target_os = "macos")]
+            {
+                use tauri::Emitter;
+                let handle = app.handle().clone();
+                if let Err(error) = uwu_macos::install_quit_guard(move || {
+                    handle.emit(uwu_macos::QUIT_EVENT, ()).is_ok()
+                }) {
+                    tracing::warn!(%error, "quit guard");
+                }
+            }
+
+            #[cfg(feature = "self-update")]
             if updates::apply_pending_on_start(app.handle()) {
                 // The downloaded setup replaces this version and starts UwUSSH again.
                 std::process::exit(0);
@@ -145,6 +181,12 @@ pub fn run() {
                 Some(path) => std::path::PathBuf::from(path),
                 None => app.path().app_data_dir()?.join("uwussh.db"),
             };
+            // Before anything reads a key file or the page lists a folder: the
+            // folders and files the person picked in an earlier run, next to
+            // the database so UWUSSH_DB moves them too.
+            if let Some(directory) = path.parent() {
+                sandbox_access::restore(directory);
+            }
             let store = Store::open(&path)?;
             tracing::info!(path = %path.display(), "store open");
             // A vault this device keeps the key for opens right away, so the
@@ -166,12 +208,15 @@ pub fn run() {
                 picked_folder: Mutex::new(None),
             });
             app.manage(keygen::Generated::default());
+            #[cfg(feature = "self-update")]
             updates::start(app.handle());
             sync::start(app.handle());
             links::setup(app);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            finish_quit,
+            quit_app,
             sessions::spawn_shell_session,
             sessions::write_session,
             sessions::resize_session,
@@ -220,6 +265,8 @@ pub fn run() {
             files::local_rename,
             files::local_trash,
             files::local_copy,
+            files::local_pick_folder,
+            files::local_forget_folder,
             files::smb_connect,
             tunnels::list_tunnels,
             tunnels::save_tunnel,
@@ -231,6 +278,8 @@ pub fn run() {
             keys::rename_key,
             keys::delete_key,
             keys::pick_key_file,
+            keys::pick_key_path,
+            keys::grant_ssh_folder,
             keys::import_picked_key,
             keys::forget_picked_key,
             keys::export_key_file,
@@ -276,6 +325,7 @@ pub fn run() {
             lock::lock_forget_move,
             lock::lock_app_sync_off,
             lock::lock_sign_out,
+            system::app_flavor,
             system::close_all_sessions,
             system::set_update_channel,
             system::update_status,
@@ -288,6 +338,38 @@ pub fn run() {
             m0::m0_autorun,
             m0::m0_finish,
         ])
-        .run(tauri::generate_context!())
-        .expect("failed to start UwUSSH");
+        .build(tauri::generate_context!())
+        .expect("failed to start UwUSSH")
+        .run(|app, event| {
+            // macOS: ⌘W and the red light only hid the window (App.tsx); a
+            // click on the Dock icon brings it back.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen {
+                has_visible_windows: false,
+                ..
+            } = event
+            {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (app, event);
+        });
+}
+
+/// The page's answer to a quit from the Dock, ⌘Q or a logout (macOS): go ahead
+/// or stay. Does nothing elsewhere.
+#[tauri::command]
+fn finish_quit(proceed: bool) {
+    uwu_macos::reply_quit(proceed);
+}
+
+/// Ends the app after the person said yes to quitting with connections open.
+/// On macOS the quit question answered "stay" first, so macOS is not waiting
+/// for anything; this ends the app the way closing its last window would.
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
 }

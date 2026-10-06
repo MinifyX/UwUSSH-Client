@@ -1,5 +1,8 @@
+import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { Button, Icon, IconButton, ICONS } from '@uwusuite/design';
+import { hideWindowOnClose, onMacQuit } from '@uwusuite/design/tauri';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   HostKeyChanged,
@@ -11,7 +14,6 @@ import { AssistPopup } from './components/AssistPopup';
 import { FileBrowser } from './components/FileBrowser';
 import { HostForm } from './components/HostForm';
 import { HostList } from './components/HostList';
-import { Icon } from './components/Icon';
 import { ImportDialog } from './components/ImportDialog';
 import { Onboarding } from './components/Onboarding';
 import { M0Results, M0Status } from './components/M0Panel';
@@ -35,10 +37,12 @@ import {
   connectHost,
   installUpdate,
   listGroups,
+  openProjectPage,
   listHosts,
   m0Autorun,
   m0Finish,
   sessionCanTypePassword,
+  saveHost,
   setHostPassword,
   setUpdateChannel,
   spawnShellSession,
@@ -55,12 +59,15 @@ import {
   type UpdateInfo,
   type Workspace,
 } from './lib/session';
+import { useAppAppearance } from './lib/appearance';
 import { language, t } from './lib/i18n';
-import { shortcutFor, terminalKey } from './lib/keymap';
+import { shortcutFor, terminalKey, type ShortcutAction } from './lib/keymap';
 import { platform } from './lib/platform';
 import { markOnboardingDone, onboardingDecision, onboardingDone } from './lib/onboarding';
 import { getSettings, settingsWereStored, useSettings } from './lib/settings';
-import { keysFor } from './lib/shortcuts';
+import { isAppStore, localShellAvailable, pickKeyPath } from './lib/flavor';
+import { setSshMacMenu } from './lib/macMenu';
+import { desktop, keysFor } from './lib/shortcuts';
 import { findLinkedHost } from './lib/links';
 import { syncPassNow, syncStatus, type Withheld } from './lib/sync';
 import {
@@ -154,6 +161,16 @@ function describeFailure(failure: ConnectFailure, host: HostRecord): string {
   }
 }
 
+/** A failure from Rust as text: its message when it has one. */
+function describeError(error: unknown): string {
+  if (typeof error === 'object' && error !== null) {
+    const { message, kind } = error as { message?: unknown; kind?: unknown };
+    if (typeof message === 'string') return message;
+    if (typeof kind === 'string') return kind;
+  }
+  return String(error);
+}
+
 /** The keyboard goes nowhere: no element has focus. */
 function nothingFocused(): boolean {
   const active = document.activeElement;
@@ -202,6 +219,7 @@ const NO_TAB = '';
 
 export function App() {
   const settings = useSettings();
+  useAppAppearance(settings);
 
   // ── Tabs ──────────────────────────────────────────────────────────────────
   const [tabs, setTabs] = useState<Tab[]>([]);
@@ -483,6 +501,24 @@ export function App() {
             sudo = answer.value;
             continue;
           }
+          case 'key-unreadable':
+            // The store build may read a key file only once it was picked in a
+            // panel (or lies in a folder that was): offer the panel, then retry.
+            if (isAppStore() && failure.keyPath !== '<vault>') {
+              return stop({
+                tone: 'error',
+                text: `${describeFailure(failure, host)} ${t('UwUSSH darf nur Dateien lesen, die du freigibst.')}`,
+                action: {
+                  label: t('Key-Datei wählen…'),
+                  run: () => void pickKeyAndRetry(id, host),
+                },
+              });
+            }
+            return stop({
+              tone: 'error',
+              text: describeFailure(failure, host),
+              action: retry ? undefined : { label: t('Nochmal'), run: () => void restart(id) },
+            });
           default:
             return stop({
               tone: 'error',
@@ -639,6 +675,41 @@ export function App() {
     void startRef.current(id);
   };
 
+  /**
+   * Store build, a key file the sandbox kept out: pick it in a panel (which
+   * lets the app in from then on), store it on the host when it lies
+   * elsewhere, and connect again.
+   */
+  const pickKeyAndRetry = async (id: string, host: HostRecord) => {
+    try {
+      const picked = await pickKeyPath();
+      if (picked === null) return;
+      if (picked !== host.keyPath) {
+        const saved = await saveHost({
+          id: host.id,
+          name: host.name,
+          address: host.address,
+          port: host.port,
+          username: host.username,
+          auth: 'key',
+          keyPath: picked,
+          groupPath: host.groupPath,
+          workspace: host.workspace,
+          keyId: null,
+          password: { kind: 'keep' },
+        });
+        hostsRef.current = hostsRef.current.map((h) => (h.id === saved.id ? saved : h));
+        void refreshHosts();
+      }
+      restart(id);
+    } catch (e) {
+      setAppNotice({
+        tone: 'error',
+        text: t('Key-Datei nicht übernommen: {error}', { error: describeError(e) }),
+      });
+    }
+  };
+
   /** Opening a file tab's server side, through the same conversation. */
   const openFilesIn =
     (id: string, host: HostRecord) =>
@@ -783,7 +854,7 @@ export function App() {
       if (!tab) return;
       if (tab.kind === 'ssh') openTab({ kind: 'ssh', host: tab.host });
       else if (tab.kind === 'files') openTab({ kind: 'files', host: tab.host });
-      else openTab({ kind: 'shell' });
+      else if (localShellAvailable()) openTab({ kind: 'shell' });
     },
     [openTab],
   );
@@ -905,7 +976,8 @@ export function App() {
     boot ??= closeAllSessions()
       .catch(() => 0)
       .then(async () => ({
-        autorun: await m0Autorun().catch(() => false),
+        // The measurement spawns local programs, which the store build cannot.
+        autorun: localShellAvailable() && (await m0Autorun().catch(() => false)),
         link: await takeLink().catch(() => null),
       }));
     let cancelled = false;
@@ -956,7 +1028,8 @@ export function App() {
       // or the chosen hosts, each in its own tab, the first one in front.
       if (cancelled || tabsRef.current.length > 0) return;
       const { startup, startupHosts } = getSettings();
-      if (startup === 'shell') {
+      // The Mac App Store build has no local shell (lib/flavor.ts).
+      if (startup === 'shell' && localShellAvailable()) {
         openTab({ kind: 'shell' });
       } else if (startup === 'hosts' && startupHosts.length > 0) {
         const known = await listHosts().catch(() => [] as HostRecord[]);
@@ -1158,7 +1231,71 @@ export function App() {
     return () => window.removeEventListener('focus', onFocus);
   }, []);
 
-  // ── Keyboard ──────────────────────────────────────────────────────────────
+  // ── Keyboard and the macOS menu bar ───────────────────────────────────────
+
+  /** One shortcut's work, from the keyboard or from the menu bar. */
+  const perform = (action: ShortcutAction) => {
+    const list = tabsRef.current;
+    const id = activeRef.current;
+    const driver = id ? drivers.current.get(id) : undefined;
+    const index = list.findIndex((tab) => tab.id === id);
+    const tab = list[index];
+    switch (action.kind) {
+      case 'new-shell':
+        if (localShellAvailable()) openTab({ kind: 'shell' });
+        break;
+      case 'close-tab':
+        if (id) closeTab(id);
+        break;
+      case 'duplicate-tab':
+        duplicate(id);
+        break;
+      case 'next-tab':
+      case 'previous-tab': {
+        if (list.length < 2) break;
+        const step = action.kind === 'next-tab' ? 1 : -1;
+        setActiveId(list[(index + step + list.length) % list.length]!.id);
+        break;
+      }
+      case 'select-tab': {
+        const target = list[action.index];
+        if (target) setActiveId(target.id);
+        break;
+      }
+      case 'settings':
+        setSettingsOpen('appearance');
+        break;
+      case 'select-all':
+        driver?.term.selectAll();
+        break;
+      case 'copy': {
+        const selection = driver?.term.getSelection();
+        if (selection) {
+          void copyText(selection);
+          driver?.term.clearSelection();
+        }
+        break;
+      }
+      case 'type-password':
+        if (tab?.kind === 'ssh' && tab.canTypePassword && id) typePassword(id);
+        break;
+      case 'open-files':
+        if (tab?.kind === 'ssh' || tab?.kind === 'files') openFilesTab(tab.host);
+        break;
+      case 'assist':
+        if (tab && canAssist(tab) && driver?.session) setAssistFor(tab.id);
+        break;
+    }
+  };
+  const performRef = useRef(perform);
+  performRef.current = perform;
+
+  /**
+   * The actions whose keys belong to the macOS menu bar right now (its
+   * accelerators, see the menu below). Empty until the menu is set, and off
+   * macOS, so the page then handles every shortcut itself.
+   */
+  const menuKeys = useRef<ReadonlySet<ShortcutAction['kind']>>(new Set());
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -1184,86 +1321,198 @@ export function App() {
       // keyboard — the file list selects its own files.
       if (action.kind === 'copy' && inTextField(event.target)) return;
       if (action.kind === 'select-all' && !inTerminal(event.target)) return;
+      if (menuKeys.current.has(action.kind)) {
+        // The menu bar has this key (⌘T, ⌘W, ⌘D, ⌘,, ⇧⌘F, ⇧⌘P, ⌘K). WebKit
+        // offers a ⌘ key to the page first and to the menu only when the
+        // page leaves it alone, so the page must not take it: the menu acts,
+        // exactly once, and ⌘W with no tab still reaches it to hide the
+        // window. The terminal must not see it either.
+        event.stopPropagation();
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
-
-      const list = tabsRef.current;
-      const index = list.findIndex((tab) => tab.id === id);
-      const tab = list[index];
-      switch (action.kind) {
-        case 'new-shell':
-          openTab({ kind: 'shell' });
-          break;
-        case 'close-tab':
-          if (id) closeTab(id);
-          break;
-        case 'duplicate-tab':
-          duplicate(id);
-          break;
-        case 'next-tab':
-        case 'previous-tab': {
-          if (list.length < 2) break;
-          const step = action.kind === 'next-tab' ? 1 : -1;
-          setActiveId(list[(index + step + list.length) % list.length]!.id);
-          break;
-        }
-        case 'select-tab': {
-          const target = list[action.index];
-          if (target) setActiveId(target.id);
-          break;
-        }
-        case 'settings':
-          setSettingsOpen('appearance');
-          break;
-        case 'select-all':
-          driver?.term.selectAll();
-          break;
-        case 'copy': {
-          const selection = driver?.term.getSelection();
-          if (selection) {
-            void copyText(selection);
-            driver?.term.clearSelection();
-          }
-          break;
-        }
-        case 'type-password':
-          if (tab?.kind === 'ssh' && tab.canTypePassword && id) typePassword(id);
-          break;
-        case 'open-files':
-          if (tab?.kind === 'ssh' || tab?.kind === 'files') openFilesTab(tab.host);
-          break;
-        case 'assist':
-          if (tab && canAssist(tab) && driver?.session) setAssistFor(tab.id);
-          break;
-      }
+      performRef.current(action);
     };
     // Capture phase: the terminal must not see the app's own shortcuts.
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [closeTab, duplicate, openFilesTab, openTab, typePassword]);
+  }, []);
 
-  // ── Closing the window ────────────────────────────────────────────────────
+  /**
+   * The menu bar acts like the keyboard: nothing while a dialog is open (the
+   * dialog has the window), the shown tab otherwise. On a Mac the menu is
+   * where ⌘T, ⌘W, ⌘D, ⌘,, ⇧⌘F, ⇧⌘P and ⌘K are handled; the page's keydown
+   * leaves them to it (`menuKeys`), so each acts once without any timing.
+   */
+  const fromMenu = (action: ShortcutAction) => () => {
+    if (!modalRef.current) performRef.current(action);
+  };
+
+  // ⌘W with no tab open, and "Fenster schließen": the window hides, the
+  // sessions and tunnels keep running and the Dock icon brings it back.
+  const hideWindow = () => void getCurrentWindow().close();
+
+  const hasTabs = tabs.length > 0;
+  const activeKind = tabs.find((tab) => tab.id === activeId)?.kind ?? null;
+  const activeCanType = Boolean(
+    tabs.find((tab) => tab.id === activeId && tab.kind === 'ssh' && tab.canTypePassword),
+  );
+  useEffect(() => {
+    if (desktop !== 'mac') return;
+    const shell = localShellAvailable();
+    const hostTab = activeKind === 'ssh' || activeKind === 'files';
+    void setSshMacMenu({
+      appName: 'UwUSSH',
+      lang,
+      onSettings: fromMenu({ kind: 'settings' }),
+      file: [
+        ...(shell
+          ? [
+              {
+                text: t('Neue lokale Shell'),
+                accelerator: 'CmdOrCtrl+T',
+                action: fromMenu({ kind: 'new-shell' }),
+              },
+            ]
+          : []),
+        {
+          text: t('Neuer Host …'),
+          accelerator: 'CmdOrCtrl+N',
+          action: () => !modalRef.current && setForm({ host: null }),
+        },
+        {
+          text: t('Importieren …'),
+          action: () => !modalRef.current && setImporting(true),
+        },
+        'separator',
+        {
+          text: t('Tab duplizieren'),
+          accelerator: 'CmdOrCtrl+D',
+          enabled: hasTabs,
+          action: fromMenu({ kind: 'duplicate-tab' }),
+        },
+        {
+          text: t('Dateien öffnen'),
+          accelerator: 'CmdOrCtrl+Shift+F',
+          enabled: hostTab,
+          action: fromMenu({ kind: 'open-files' }),
+        },
+      ],
+      closeTab: {
+        text: t('Tab schließen'),
+        action: () => {
+          if (modalRef.current) return;
+          if (activeRef.current) closeTab(activeRef.current);
+          else hideWindow();
+        },
+      },
+      closeWindow: { text: t('Fenster schließen'), action: hideWindow },
+      menus: [
+        {
+          text: t('Sitzung'),
+          items: [
+            {
+              text: t('Passwort eintippen'),
+              accelerator: 'CmdOrCtrl+Shift+P',
+              enabled: activeCanType,
+              action: fromMenu({ kind: 'type-password' }),
+            },
+            {
+              text: t('Befehl aus Worten …'),
+              accelerator: 'CmdOrCtrl+K',
+              enabled: activeKind === 'ssh' || activeKind === 'shell',
+              action: fromMenu({ kind: 'assist' }),
+            },
+            'separator',
+            {
+              text: t('Tunnel …'),
+              action: () => !modalRef.current && setTunnelsFor({ host: null }),
+            },
+          ],
+        },
+      ],
+      help: [
+        { text: t('UwUSSH auf GitHub'), action: () => void openProjectPage('source') },
+        { text: t('Versionshinweise'), action: () => void openProjectPage('releases') },
+        { text: t('Problem melden'), action: () => void openProjectPage('issues') },
+      ],
+    })
+      .then(() => {
+        // Every action given an accelerator above, and nothing else.
+        menuKeys.current = new Set<ShortcutAction['kind']>([
+          ...(shell ? (['new-shell'] as const) : []),
+          'close-tab',
+          'settings',
+          'duplicate-tab',
+          'open-files',
+          'type-password',
+          'assist',
+        ]);
+      })
+      .catch(() => {
+        // No menu bar: the page keeps every shortcut.
+        menuKeys.current = new Set();
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lang, hasTabs, activeKind, activeCanType]);
+
+  // ── Closing the window and quitting ───────────────────────────────────────
+
+  /** Whether ending the app now should ask first: connections would be cut. */
+  const askBeforeEnding = () => getSettings().confirmCloseWithSessions && liveRef.current > 0;
 
   useEffect(() => {
-    let unlisten: (() => void) | undefined;
+    const stops: Array<() => void> = [];
     let stopped = false;
-    void getCurrentWindow()
-      .onCloseRequested((event) => {
-        if (getSettings().confirmCloseWithSessions && liveRef.current > 0) {
-          event.preventDefault();
+    const keep = (stop: () => void) => {
+      if (stopped) stop();
+      else stops.push(stop);
+    };
+    if (desktop === 'mac') {
+      // ⌘W with no tab, the red light, "Fenster schließen": the window hides
+      // and everything keeps running; the Dock icon brings it back (lib.rs).
+      void hideWindowOnClose(desktop)
+        .then(keep)
+        .catch(() => undefined);
+      // ⌘Q, the Dock, logging out: with connections open the app stays and
+      // asks; "Beenden" there ends it (quit_app). Otherwise it just goes.
+      void onMacQuit(
+        async () => {
+          if (!askBeforeEnding()) return true;
+          const window = getCurrentWindow();
+          await window.show().catch(() => undefined);
+          await window.setFocus().catch(() => undefined);
           setConfirmClose(true);
-        }
-      })
-      .then((stop) => {
-        if (stopped) stop();
-        else unlisten = stop;
-      })
-      .catch(() => undefined);
+          return false;
+        },
+        { platform: desktop },
+      )
+        .then(keep)
+        .catch(() => undefined);
+    } else {
+      // Windows and Linux: closing the window ends the app, after asking
+      // while connections are open.
+      void getCurrentWindow()
+        .onCloseRequested((event) => {
+          if (askBeforeEnding()) {
+            event.preventDefault();
+            setConfirmClose(true);
+          }
+        })
+        .then(keep)
+        .catch(() => undefined);
+    }
     return () => {
       stopped = true;
-      unlisten?.();
+      for (const stop of stops) stop();
     };
   }, []);
+
+  const endApp = () => {
+    if (desktop === 'mac') void invoke('quit_app');
+    else void getCurrentWindow().destroy();
+  };
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -1312,7 +1561,7 @@ export function App() {
               activeId={activeId}
               onSelect={setActiveId}
               onClose={closeTab}
-              onNewShell={openShell}
+              onNewShell={localShellAvailable() ? openShell : undefined}
               onAssist={() => activeId && setAssistFor(activeId)}
               canAssist={Boolean(activeTab && canAssist(activeTab))}
             />
@@ -1331,29 +1580,33 @@ export function App() {
                 {activeTab.kind === 'ssh' &&
                   activeTab.canTypePassword &&
                   activeTab.status === 'live' && (
-                    <button
-                      className="quiet toolbar-button"
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      icon={ICONS.secret}
+                      className="toolbar-button"
                       onClick={() => typePassword(activeTab.id)}
                       title={t(
                         'Das Passwort des Hosts ins Terminal tippen ({keys}). Enter kommt nur dazu, wenn gerade etwas nach einer Eingabe fragt.',
                         { keys: keysFor('type-password') },
                       )}
                     >
-                      <Icon name="key" size={15} />
                       {t('Passwort eintippen')}
-                    </button>
+                    </Button>
                   )}
                 {activeTab.kind === 'ssh' && (
-                  <button
-                    className="quiet toolbar-button"
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon={ICONS.files}
+                    className="toolbar-button"
                     onClick={() => openFilesTab(activeTab.host)}
                     title={t('Dateien dieses Hosts in einem neuen Tab ({keys})', {
                       keys: keysFor('open-files'),
                     })}
                   >
-                    <Icon name="files" size={15} />
                     {t('Dateien')}
-                  </button>
+                  </Button>
                 )}
                 {showM0 && (
                   <M0Status
@@ -1375,19 +1628,20 @@ export function App() {
                 <span>{notice.text}</span>
                 <span className="spacer" />
                 {notice.action && (
-                  <button onClick={notice.action.run}>{notice.action.label}</button>
+                  <Button size="sm" onClick={notice.action.run}>
+                    {notice.action.label}
+                  </Button>
                 )}
-                <button
-                  className="icon-button"
+                <IconButton
+                  size="sm"
+                  icon={ICONS.close}
+                  label={t('Hinweis schließen')}
                   onClick={() =>
                     activeTab?.notice
                       ? patchTab(activeTab.id, { notice: null })
                       : setAppNotice(null)
                   }
-                  aria-label={t('Hinweis schließen')}
-                >
-                  ×
-                </button>
+                />
               </div>
             ) : null}
 
@@ -1428,9 +1682,13 @@ export function App() {
                     <div className="pane-overlay" data-tone="failed">
                       <NyuScene name="loadError" className="pane-scene" />
                       <p>{t('Nicht verbunden.')}</p>
-                      <button className="primary" onClick={() => restart(tab.id)}>
+                      <Button
+                        variant="primary"
+                        icon={ICONS.refresh}
+                        onClick={() => restart(tab.id)}
+                      >
                         {t('Neu verbinden')}
-                      </button>
+                      </Button>
                     </div>
                   )}
                   {tab.kind === 'ssh' &&
@@ -1439,7 +1697,7 @@ export function App() {
                     tab.canTypePassword &&
                     tab.status === 'live' && (
                       <div className="password-helper" role="status">
-                        <Icon name="key" size={16} />
+                        <Icon icon={ICONS.secret} size="sm" />
                         <span>
                           {helperBefore}
                           <code>
@@ -1447,20 +1705,19 @@ export function App() {
                           </code>
                           {helperAfter}
                         </span>
-                        <button className="primary" onClick={() => typePassword(tab.id)}>
+                        <Button variant="primary" size="sm" onClick={() => typePassword(tab.id)}>
                           {t('Eintippen')}
-                        </button>
+                        </Button>
                         <kbd>{keysFor('type-password')}</kbd>
-                        <button
-                          className="icon-button"
+                        <IconButton
+                          size="sm"
+                          icon={ICONS.close}
+                          label={t('Nicht eintippen')}
                           onClick={() => {
                             patchTab(tab.id, { prompt: false });
                             drivers.current.get(tab.id)?.term.focus();
                           }}
-                          aria-label={t('Nicht eintippen')}
-                        >
-                          ×
-                        </button>
+                        />
                       </div>
                     )}
                 </div>
@@ -1474,9 +1731,19 @@ export function App() {
                       'Klick links einen Host an – jede Verbindung bekommt ihren eigenen Tab, auch mehrere zum selben Server.',
                     )}
                   </p>
-                  <button className="primary" onClick={openShell}>
-                    {t('Lokale Shell öffnen')}
-                  </button>
+                  {localShellAvailable() ? (
+                    <Button variant="primary" icon={ICONS.terminal} onClick={openShell}>
+                      {t('Lokale Shell öffnen')}
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="primary"
+                      icon={ICONS.add}
+                      onClick={() => setForm({ host: null })}
+                    >
+                      {t('Host hinzufügen')}
+                    </Button>
+                  )}
                 </div>
               )}
             </div>
@@ -1591,21 +1858,17 @@ export function App() {
 
       {confirmClose && (
         <Modal
-          title={t('UwUSSH schließen?')}
+          title={desktop === 'mac' ? t('UwUSSH beenden?') : t('UwUSSH schließen?')}
+          size="small"
           onCancel={() => setConfirmClose(false)}
           footer={
             <>
-              <span className="spacer" />
-              <button data-autofocus onClick={() => setConfirmClose(false)}>
+              <Button data-autofocus onClick={() => setConfirmClose(false)}>
                 {t('Abbrechen')}
-              </button>
-              <button
-                className="primary"
-                data-secondary
-                onClick={() => void getCurrentWindow().destroy()}
-              >
-                {t('Schließen')}
-              </button>
+              </Button>
+              <Button variant="primary" data-secondary onClick={endApp}>
+                {desktop === 'mac' ? t('Beenden') : t('Schließen')}
+              </Button>
             </>
           }
         >

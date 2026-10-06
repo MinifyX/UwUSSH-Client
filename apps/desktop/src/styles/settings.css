@@ -1,0 +1,1126 @@
+/*
+ * Settings, sync, the command assistant, the first-start setup, the update hint and M0.
+ */
+
+/* ── M0 ────────────────────────────────────────────────── */
+
+.m0-status {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.m0-status .stat {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.m0-table-wrap {
+  overflow-x: auto;
+  padding: 10px 14px 0;
+  background: var(--uwu-canvas);
+}
+
+.m0-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--uwu-surface);
+  border: 1px solid var(--uwu-hairline);
+  border-radius: var(--uwu-radius-control);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.m0-table th,
+.m0-table td {
+  padding: 7px 12px;
+  text-align: right;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--uwu-hairline);
+}
+
+.m0-table th:first-child,
+.m0-table td:first-child {
+  text-align: left;
+}
+
+.m0-table th {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--uwu-muted);
+}
+
+.m0-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.m0-table td[data-alarm='true'],
+.m0-table .flag {
+  color: var(--uwu-warning-ink);
+  font-weight: 600;
+}
+
+.stat {
+  border: 1px solid var(--uwu-border);
+  border-radius: var(--uwu-radius-pill);
+  padding: 4px 12px;
+  font-family: var(--uwu-mono);
+  font-size: 11px;
+  color: var(--uwu-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.stat b {
+  color: var(--uwu-ink);
+  font-weight: 500;
+}
+
+.stat[data-alarm='true'] {
+  border-color: var(--uwu-warning-ink);
+  color: var(--uwu-warning-ink);
+}
+
+/* ── Settings ────────────────────────────────────────────────────────────── */
+
+.settings {
+  display: grid;
+  grid-template-columns: 170px minmax(0, 1fr);
+  gap: var(--uwu-space-5);
+  min-height: 0;
+  height: min(560px, calc(100svh - 160px));
+}
+
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Its own look: the legacy button rules in base.css don't reach it. */
+.settings-nav button {
+  display: flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 var(--uwu-space-3);
+  border: 0;
+  border-radius: var(--uwu-radius-pill);
+  background: transparent;
+  font-size: var(--uwu-text-meta);
+  font-weight: 500;
+  color: var(--uwu-muted);
+  text-align: left;
+  transition:
+    background-color var(--uwu-duration-fast),
+    color var(--uwu-duration-fast);
+}
+
+.settings-nav button:hover {
+  background: color-mix(in srgb, var(--uwu-pink-tint) 45%, transparent);
+  color: var(--uwu-ink);
+}
+
+.settings-nav button[aria-current='page'] {
+  background: var(--uwu-pink-tint);
+  color: var(--uwu-pink-ink);
+  font-weight: 600;
+}
+
+.settings-content {
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: var(--uwu-space-1);
+}
+
+/* A heading or explanation inside a settings page or the sync forms. */
+.setting-label {
+  margin: 0;
+  font-weight: 600;
+}
+
+.setting-description {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  line-height: var(--uwu-leading);
+  color: var(--uwu-muted);
+}
+
+.setting-result {
+  margin: var(--uwu-space-2) 0 0;
+  font-size: var(--uwu-text-meta);
+  color: var(--uwu-muted);
+}
+
+.setting-result[data-tone='error'] {
+  color: var(--uwu-warning-ink);
+}
+
+/* Used by HostForm, FileBrowser and the key generator too (not only here). */
+.select {
+  font: inherit;
+  padding: 7px 10px;
+  border-radius: var(--uwu-radius-control);
+  border: 1px solid var(--uwu-control);
+  background: var(--uwu-surface);
+  color: var(--uwu-ink);
+}
+
+/* Settings → Darstellung → Schrift: every choice in its own font. */
+.font-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px;
+}
+
+.font-picker button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: var(--uwu-space-2) var(--uwu-space-3);
+  border: 1px solid var(--uwu-border);
+  border-radius: var(--uwu-radius-control);
+  background: var(--uwu-surface);
+  color: var(--uwu-ink);
+  text-align: left;
+  transition:
+    border-color var(--uwu-duration-fast),
+    background-color var(--uwu-duration-fast);
+}
+
+.font-picker button:hover {
+  border-color: var(--uwu-pink);
+}
+
+.font-picker button[aria-checked='true'] {
+  border-color: var(--uwu-pink);
+  background: var(--uwu-pink-tint);
+  color: var(--uwu-pink-ink);
+}
+
+[data-contrast='high'] .font-picker button[aria-checked='true'] {
+  outline: 2px solid var(--uwu-ink);
+  outline-offset: -2px;
+}
+
+.font-picker-name {
+  font-size: var(--uwu-text-body);
+  font-weight: 600;
+}
+
+.font-picker-sample {
+  font-size: var(--uwu-text-caption);
+  color: var(--uwu-muted);
+}
+
+.font-picker button[aria-checked='true'] .font-picker-sample {
+  color: inherit;
+}
+
+.vault-status {
+  display: block;
+  max-width: 260px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  text-align: right;
+}
+
+.vault-status[data-status='unlocked'] {
+  color: var(--uwu-success-ink);
+}
+
+.shortcuts {
+  padding: 14px 0 4px;
+}
+
+.shortcuts dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 16px;
+  margin: 8px 0 0;
+}
+
+.shortcuts dt {
+  font-family: var(--uwu-mono);
+  font-size: 11.5px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--uwu-ink);
+}
+
+.shortcuts dd {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--uwu-muted);
+}
+
+.about {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 16px 0;
+  text-align: center;
+}
+
+.about-version {
+  margin: 0;
+  font-family: var(--uwu-mono);
+  font-size: 12px;
+  color: var(--uwu-muted);
+}
+
+.about-text {
+  max-width: 380px;
+  margin: 8px 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--uwu-muted);
+}
+
+.about-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.about-diagnostics {
+  margin-top: 18px;
+  font-size: 13px;
+  color: var(--uwu-muted);
+}
+
+.about-diagnostics summary {
+  cursor: pointer;
+}
+
+.about-diagnostics button {
+  margin-top: var(--uwu-space-2);
+}
+
+/* ── Update hint ─────────────────────────────────────────────────────────── */
+
+.update-hint {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 8;
+  width: min(340px, calc(100vw - 32px));
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: var(--uwu-radius-card);
+  border: 1px solid var(--uwu-border);
+  background: var(--uwu-surface);
+  box-shadow: var(--uwu-shadow-float);
+}
+
+.update-hint-head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.update-hint-title {
+  margin: 0;
+  font-weight: 700;
+}
+
+.update-hint-meta,
+.update-hint-notes,
+.update-hint-warning {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--uwu-muted);
+}
+
+.update-hint-notes {
+  max-height: 160px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  border-radius: var(--uwu-radius-control);
+  background: var(--uwu-canvas);
+  line-height: 1.5;
+  white-space: pre-line;
+  user-select: text;
+}
+
+.update-hint-warning {
+  color: var(--uwu-warning-ink);
+}
+
+.update-hint-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* Used by the key generator too. */
+.link-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--uwu-pink-ink);
+  font-size: inherit;
+  font-weight: 600;
+}
+
+.link-button:hover:not(:disabled) {
+  background: transparent;
+  text-decoration: underline;
+}
+
+/* ── Settings extras ───────────────────────────────────── */
+
+.workspace-names {
+  display: grid;
+  gap: 6px;
+  width: 200px;
+}
+
+.swatches {
+  display: inline-flex;
+  gap: 4px;
+  margin-right: 10px;
+  vertical-align: middle;
+}
+
+.swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px var(--uwu-stage-border);
+}
+
+.highlight-custom {
+  display: grid;
+  gap: 8px;
+  padding: 14px 0 10px;
+  border-bottom: 1px solid var(--uwu-hairline);
+}
+
+.highlight-custom ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+
+.highlight-custom li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 4px 10px;
+  border-radius: var(--uwu-radius-control);
+  background: var(--uwu-stage);
+  color: var(--uwu-stage-ink);
+}
+
+.highlight-add {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.highlight-preview {
+  margin: 14px 0 4px;
+  padding: 12px 14px;
+  border-radius: var(--uwu-radius-card);
+  background: var(--uwu-stage);
+  color: var(--uwu-stage-ink);
+  font-family: var(--uwu-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.key-list {
+  display: grid;
+  gap: 8px;
+  padding: 16px 0 6px;
+}
+
+.key-list-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.key-list ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+
+.key-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 6px 6px 12px;
+  border-radius: var(--uwu-radius-card);
+  border: 1px solid var(--uwu-hairline);
+  background: var(--uwu-surface);
+}
+
+.key-list-text {
+  display: grid;
+  min-width: 0;
+}
+
+.key-list-text b,
+.key-list-text small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.key-list-text small {
+  color: var(--uwu-muted);
+  font-size: 11.5px;
+}
+
+/* ── Settings: hosts opened on start ───────────────────── */
+
+.startup-hosts {
+  display: grid;
+  gap: 8px;
+  max-height: 220px;
+  overflow: auto;
+  margin: -4px 0 8px;
+  padding: 10px 12px;
+  border-radius: var(--uwu-radius-control);
+  border: 1px solid var(--uwu-hairline);
+  background: var(--uwu-elevated);
+}
+
+.startup-hosts .check.inline span {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.startup-hosts small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Settings: sync ────────────────────────────────────── */
+
+.sync-intro,
+.sync-kit,
+.sync-form {
+  display: grid;
+  gap: 12px;
+}
+
+.sync-scene {
+  width: 150px;
+  justify-self: center;
+  margin: -6px 0 -8px;
+}
+
+.sync-choices {
+  display: grid;
+  gap: 8px;
+}
+
+.sync-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--uwu-space-3);
+  padding: var(--uwu-space-3) 14px;
+  text-align: left;
+  border-radius: var(--uwu-radius-card);
+  border: 1px solid var(--uwu-border);
+  background: var(--uwu-surface);
+  color: var(--uwu-ink);
+  font: inherit;
+  transition: border-color var(--uwu-duration-fast);
+}
+
+.sync-choice:hover {
+  border-color: var(--uwu-pink);
+}
+
+.sync-choice > svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--uwu-pink-ink);
+}
+
+.sync-choice > span {
+  display: grid;
+  gap: 2px;
+}
+
+.sync-choice small {
+  color: var(--uwu-muted);
+  font-size: 12px;
+  line-height: 1.45;
+  font-weight: 400;
+}
+
+.sync-code-input {
+  font: 12px/1.5 var(--uwu-mono);
+  width: 100%;
+  padding: 8px 10px;
+  resize: vertical;
+  border-radius: var(--uwu-radius-control);
+  border: 1px solid var(--uwu-control);
+  background: var(--uwu-surface);
+  color: var(--uwu-ink);
+  word-break: break-all;
+}
+
+.sync-code-input:focus {
+  border-color: var(--uwu-pink);
+  box-shadow: var(--uwu-focus);
+  outline: none;
+}
+
+.sync-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The recovery kit: a Card with a dashed pink edge, so it reads as "keep this". */
+.sync-kit-card {
+  gap: 10px;
+  border: 1px dashed var(--uwu-pink);
+}
+
+.sync-kit-card dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 12.5px;
+}
+
+.sync-kit-card dt {
+  color: var(--uwu-muted);
+}
+
+.sync-kit-card dd {
+  margin: 0;
+  min-width: 0;
+  word-break: break-all;
+}
+
+.sync-kit-code {
+  font: 600 17px/1.4 var(--uwu-mono);
+  letter-spacing: 0.04em;
+  word-break: break-all;
+  user-select: all;
+}
+
+.sync-fingerprint {
+  font-size: 11.5px;
+  word-break: break-all;
+}
+
+.sync-devices {
+  display: grid;
+  gap: 8px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--uwu-hairline);
+}
+
+.sync-device-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sync-device-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 6px 6px 6px 12px;
+  border-radius: var(--uwu-radius-card);
+  border: 1px solid var(--uwu-hairline);
+  background: var(--uwu-surface);
+}
+
+.sync-device-list li[data-revoked] {
+  opacity: 0.55;
+}
+
+.sync-device-text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.sync-device-text b {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sync-device-text small {
+  color: var(--uwu-muted);
+  font-size: 11.5px;
+}
+
+/* ── Command assistant ───────────────────────────────────────────────────── */
+
+.assist {
+  display: grid;
+  gap: 12px;
+  width: min(560px, 100%);
+}
+
+.assist-target {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--uwu-muted);
+}
+
+.assist-status {
+  margin: 0;
+  font-size: 13px;
+  color: var(--uwu-muted);
+}
+
+.assist-result {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: var(--uwu-radius-card);
+  border: 1px solid var(--uwu-border);
+  background: var(--uwu-elevated);
+}
+
+.assist-result[data-dangerous='true'] {
+  border-color: var(--uwu-danger);
+}
+
+.assist-command-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.assist-command {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--uwu-mono);
+  font-size: 13px;
+  padding: 8px 10px;
+  border-radius: var(--uwu-radius-control);
+  border: 1px solid var(--uwu-control);
+  background: var(--uwu-surface);
+  color: var(--uwu-ink);
+}
+
+.assist-command:focus {
+  border-color: var(--uwu-pink);
+  box-shadow: var(--uwu-focus);
+  outline: none;
+}
+
+.assist-result[data-dangerous='true'] .assist-command {
+  color: var(--uwu-danger-ink);
+}
+
+.assist-explanation {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.assist-failure {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+
+.assist-provider {
+  display: grid;
+  gap: 12px;
+  padding: 12px 0;
+}
+
+.assist-provider-row {
+  display: flex;
+  gap: 8px;
+  align-items: end;
+  flex-wrap: wrap;
+}
+
+.assist-models {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* Model names to pick from: small chips, the chosen one pink. */
+.assist-model {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--uwu-border);
+  border-radius: var(--uwu-radius-pill);
+  background: var(--uwu-surface);
+  color: var(--uwu-ink);
+  font-family: var(--uwu-mono);
+  font-size: var(--uwu-text-caption);
+  transition: border-color var(--uwu-duration-fast);
+}
+
+.assist-model:hover {
+  border-color: var(--uwu-pink);
+}
+
+.assist-model[aria-pressed='true'] {
+  border-color: var(--uwu-pink);
+  background: var(--uwu-pink-tint);
+  color: var(--uwu-pink-ink);
+}
+
+.assist-cache-command {
+  font-family: var(--uwu-mono);
+}
+
+.assist-provider-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── First-start setup ────────────────────────────────────────────────────── */
+
+/* Title and buttons stay put (the package Dialog); only the page in between
+   scrolls, so the wizard works down to the smallest window (720 × 480). One
+   height for every step, so the buttons stay where the pointer is. */
+.onboarding-dialog {
+  height: min(580px, calc(100svh - 48px));
+}
+
+.onboarding {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.onboarding-steps {
+  display: flex;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.onboarding-steps li {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.onboarding-steps button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 6px 8px;
+  border: 0;
+  border-bottom: 3px solid var(--uwu-hairline);
+  border-radius: 0;
+  background: transparent;
+  color: var(--uwu-muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.onboarding-steps button[data-state='past'] {
+  border-bottom-color: var(--uwu-pink-tint-strong);
+}
+
+.onboarding-steps button[data-state='current'] {
+  border-bottom-color: var(--uwu-pink-solid);
+  color: var(--uwu-ink);
+}
+
+.onboarding-steps button:hover {
+  color: var(--uwu-ink);
+}
+
+.onboarding-dot {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--uwu-hairline);
+  color: var(--uwu-muted);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.onboarding-steps button[data-state='past'] .onboarding-dot {
+  background: var(--uwu-pink-tint);
+  color: var(--uwu-pink-ink);
+}
+
+.onboarding-steps button[data-state='current'] .onboarding-dot {
+  background: var(--uwu-pink-solid);
+  color: var(--uwu-on-pink);
+}
+
+.onboarding-step-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.onboarding-page {
+  display: grid;
+  grid-template-columns: 170px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+  animation: onboarding-in var(--uwu-duration-enter) ease-out;
+}
+
+@keyframes onboarding-in {
+  from {
+    opacity: 0;
+    translate: 8px 0;
+  }
+}
+
+[data-motion='reduced'] .onboarding-page {
+  animation: none;
+}
+
+.onboarding-scene {
+  width: 100%;
+  margin-top: 6px;
+}
+
+.onboarding-content {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.onboarding-choice[data-ok] {
+  border-color: var(--uwu-success);
+}
+
+.onboarding-choice[data-ok] > svg {
+  color: var(--uwu-success-ink);
+}
+
+.theme-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.theme-card {
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  padding: var(--uwu-space-2);
+  border: 1px solid var(--uwu-border);
+  border-radius: var(--uwu-radius-card);
+  background: var(--uwu-surface);
+  color: var(--uwu-ink);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.theme-card:hover {
+  border-color: var(--uwu-pink);
+}
+
+.theme-card[aria-checked='true'] {
+  border-color: var(--uwu-pink-solid);
+  box-shadow: 0 0 0 1px var(--uwu-pink-solid);
+  background: var(--uwu-pink-tint);
+  color: var(--uwu-pink-ink);
+}
+
+/* Small pictures of each scheme. They must look light or dark whatever the
+   app shows right now, so they use the stage tokens, which are the same in
+   both themes: stage-ink is a light paper, stage the dark ground. */
+.theme-preview {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  width: 100%;
+  height: 46px;
+  padding: 6px;
+  border-radius: var(--uwu-radius-small);
+  border: 1px solid var(--uwu-stage-muted);
+  background: var(--uwu-stage-ink);
+}
+
+.theme-preview[data-preview='dark'] {
+  border-color: var(--uwu-stage-border);
+  background: var(--uwu-stage);
+}
+
+/* System: half and half, light on the left. */
+.theme-preview[data-preview='system'] {
+  background: linear-gradient(105deg, var(--uwu-stage-ink) 50%, var(--uwu-stage) 50%);
+}
+
+.theme-preview-bar {
+  height: 6px;
+  width: 40%;
+  border-radius: 3px;
+  background: var(--uwu-pink);
+}
+
+.theme-preview-line {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--uwu-stage-muted);
+}
+
+.theme-preview[data-preview='dark'] .theme-preview-line {
+  background: var(--uwu-stage-border);
+}
+
+.theme-preview-line.short {
+  width: 60%;
+}
+
+.onboarding-found {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--uwu-muted);
+}
+
+.onboarding-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.onboarding-actions .setting-description {
+  margin: 0;
+}
+
+.onboarding-ok {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--uwu-success-ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.onboarding-summary {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.onboarding-summary li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.onboarding-summary small {
+  color: var(--uwu-muted);
+  font-size: 12px;
+}
+
+.onboarding-mark {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  align-self: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--uwu-hairline);
+  color: var(--uwu-muted);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.onboarding-summary li[data-ok] .onboarding-mark {
+  background: var(--uwu-success-tint);
+  color: var(--uwu-success-ink);
+}
+
+.onboarding-tips {
+  padding: 4px 0 0;
+}
+
+.onboarding-sync {
+  display: grid;
+  gap: 12px;
+}
+
+/* Narrow windows: the step names go, Nyu gets less room. */
+@media (max-width: 760px) {
+  .onboarding-step-label {
+    display: none;
+  }
+
+  .onboarding-steps button[data-state='current'] .onboarding-step-label {
+    display: inline;
+  }
+
+  .onboarding-steps li:has(button[data-state='current']) {
+    flex: 3;
+  }
+}
+
+@media (max-width: 600px), (max-height: 520px) {
+  .onboarding-page {
+    grid-template-columns: 110px minmax(0, 1fr);
+    gap: 14px;
+  }
+}
+
+/* Phones and narrow windows: the settings nav becomes a row of pills above. */
+@media (max-width: 699px) {
+  .settings {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: var(--uwu-space-3);
+  }
+
+  .settings-nav {
+    flex-direction: row;
+    overflow-x: auto;
+    gap: var(--uwu-space-1);
+    padding-bottom: 2px;
+  }
+
+  .settings-nav button {
+    flex: none;
+    white-space: nowrap;
+  }
+}

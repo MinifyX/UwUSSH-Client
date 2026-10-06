@@ -3,7 +3,7 @@
 //! Stored by `(address, port)` with the SHA-256 fingerprint for comparison and
 //! the full OpenSSH public key alongside, so an export to a plain
 //! `known_hosts` file stays possible. Addresses are compared case-insensitively
-//! — `Prox-1.lan` and `prox-1.lan` are the same machine, and treating them as
+//! — `Prox-1.example` and `prox-1.example` are the same machine, and treating them as
 //! two would ask the user to trust the same key twice.
 
 use crate::manifest::HOST_KEY_KINDS;
@@ -184,12 +184,12 @@ mod tests {
     fn a_trusted_key_is_found_regardless_of_address_case() {
         let store = Store::open_in_memory().unwrap();
         store
-            .trust_host_key("Prox-1.LAN", 22, "ssh-ed25519", KEY_A.0, KEY_A.1)
+            .trust_host_key("Prox-1.EXAMPLE", 22, "ssh-ed25519", KEY_A.0, KEY_A.1)
             .unwrap();
 
-        let found = store.known_host("prox-1.lan", 22).unwrap().unwrap();
+        let found = store.known_host("prox-1.example", 22).unwrap().unwrap();
         assert_eq!(found.fingerprint, KEY_A.0);
-        assert_eq!(found.address, "prox-1.lan");
+        assert_eq!(found.address, "prox-1.example");
     }
 
     #[test]

@@ -1,0 +1,510 @@
+/*
+ * The host list: workspaces, groups, hosts, dragging, badges. Rows follow the
+ * suite's sidebar (docs/components.md "Sidebar"): about 36 px, rounded-xl,
+ * the active one pink-tint and semibold, group titles 12 px uppercase muted.
+ * The context menu draws itself from utilities (components/ContextMenu.tsx).
+ */
+
+/* ── Sidebar ───────────────────────────────────────────── */
+
+.sidebar {
+  border-right: 1px solid var(--uwu-hairline);
+  background: var(--uwu-surface);
+  padding: 12px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 0 0 8px;
+}
+
+.sidebar h2,
+.host-group h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--uwu-muted);
+}
+
+.search {
+  font: inherit;
+  font-size: var(--uwu-text-meta);
+  width: 100%;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--uwu-radius-control);
+  border: 1px solid var(--uwu-border);
+  background: var(--uwu-canvas);
+  color: var(--uwu-ink);
+}
+
+.search::placeholder {
+  color: var(--uwu-faint);
+}
+
+.search:focus {
+  outline: none;
+  border-color: var(--uwu-pink);
+  box-shadow: var(--uwu-focus);
+}
+
+.host-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0 -4px;
+  padding: 0 4px 12px;
+  flex: 1;
+}
+
+/* Once the list is taller than the sidebar, the flex column would squeeze its
+   sections (the ungrouped list has only a 6px floor) and they'd overlap. They
+   keep their height and the column scrolls instead. */
+.host-scroll > * {
+  flex-shrink: 0;
+}
+
+.sidebar-empty {
+  margin-top: 24px;
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  text-align: center;
+  color: var(--uwu-muted);
+}
+
+.sidebar-empty p,
+.sidebar-note {
+  margin: 0;
+  font-size: var(--uwu-text-meta);
+  color: var(--uwu-muted);
+}
+
+.sidebar-note {
+  padding: 0 8px;
+}
+
+/* ── Workspaces: a segmented switch that also takes drops ──────────────── */
+
+.workspace-switch {
+  display: flex;
+  padding: 4px;
+  border-radius: var(--uwu-radius-pill);
+  background: var(--uwu-canvas);
+}
+
+.workspace-switch button {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--uwu-radius-pill);
+  background: transparent;
+  color: var(--uwu-muted);
+  font-size: var(--uwu-text-meta);
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    color 140ms ease,
+    transform 160ms ease;
+}
+
+.workspace-switch button:hover:not([aria-checked='true']) {
+  background: transparent;
+  color: var(--uwu-ink);
+}
+
+.workspace-switch button[aria-checked='true'] {
+  background: var(--uwu-surface);
+  color: var(--uwu-pink-ink);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--uwu-ink) 14%, transparent);
+}
+
+/* Canvas and surface are one colour in high contrast: the choice gets an outline too. */
+[data-contrast='high'] .workspace-switch button[aria-checked='true'] {
+  outline: 2px solid var(--uwu-ink);
+  outline-offset: -2px;
+}
+
+.workspace-switch button:focus-visible {
+  outline: none;
+  box-shadow: var(--uwu-focus);
+}
+
+.workspace-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-count {
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: var(--uwu-radius-pill);
+  background: var(--uwu-hairline);
+  font-size: var(--uwu-text-badge);
+  line-height: 18px;
+  color: var(--uwu-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.sidebar[data-dragging] .workspace-switch button[data-drop-over] {
+  background: var(--uwu-pink-tint-strong);
+  color: var(--uwu-pink-ink);
+  transform: scale(1.04);
+}
+
+/* ── Hosts ─────────────────────────────────────────────── */
+
+.host-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.host-row {
+  position: relative;
+}
+
+.host {
+  width: 100%;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--uwu-ink);
+  font-size: 13.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.host:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--uwu-pink-tint) 60%, transparent);
+}
+
+.host:focus-visible {
+  outline: none;
+  box-shadow: var(--uwu-focus);
+}
+
+.host[aria-current='true'] {
+  background: var(--uwu-pink-tint);
+  color: var(--uwu-pink-ink);
+  font-weight: 600;
+}
+
+.host[aria-busy='true'] {
+  opacity: 0.75;
+}
+
+.host-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.host-text {
+  display: grid;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.host .meta {
+  font-family: var(--uwu-mono);
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--uwu-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The OS sticker, with the connection state as a dot on its corner. */
+.host-icon {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  transition: transform 180ms ease;
+}
+
+.host:hover .host-icon {
+  transform: rotate(-6deg) scale(1.08);
+}
+
+.host-icon .dot {
+  position: absolute;
+  right: -2px;
+  bottom: -1px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 2px solid var(--uwu-surface);
+  box-sizing: content-box;
+  background: var(--uwu-offline);
+}
+
+.host-icon .dot[data-state='idle'] {
+  display: none;
+}
+
+.host-icon .dot[data-state='online'] {
+  background: var(--uwu-success);
+}
+
+.host-icon .dot[data-state='connecting'] {
+  background: var(--uwu-pink);
+  animation: uwu-pulse 1s ease-in-out infinite;
+}
+
+/* The local shell's terminal glyph in place of a sticker. */
+.host-glyph {
+  color: var(--uwu-muted);
+}
+
+/* Files and edit appear where they are needed, so the list stays calm. */
+.host-actions {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  translate: 0 -50%;
+  display: flex;
+  opacity: 0;
+  border-radius: var(--uwu-radius-pill);
+  background: var(--uwu-elevated);
+}
+
+.host-row:hover .host-actions,
+.host-actions:focus-within {
+  opacity: 1;
+}
+
+/* ── Badges in the host list: a running tunnel, a password login ──────────── */
+
+.host-line {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.host-badge {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  line-height: 0;
+}
+
+.host-badge[data-kind='tunnel'] {
+  color: var(--uwu-success-ink);
+}
+
+.host-badge [data-kind='password'] {
+  color: var(--uwu-warning-ink);
+  cursor: help;
+}
+
+/* ── Groups ────────────────────────────────────────────── */
+
+.host-group {
+  display: grid;
+  gap: 2px;
+  border-radius: 12px;
+  animation: group-in 260ms ease both;
+}
+
+@keyframes group-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+.group-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-radius: 12px;
+  touch-action: none;
+}
+
+.group-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 8px 4px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--uwu-muted);
+  font: inherit;
+  cursor: grab;
+}
+
+.group-toggle:hover:not(:disabled) {
+  background: transparent;
+  color: var(--uwu-ink);
+}
+
+.group-toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--uwu-focus);
+}
+
+.group-toggle h3 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ChevronDown: down while open, turned to point right while closed. */
+.group-chevron {
+  color: var(--uwu-muted);
+  transition: transform 160ms ease;
+}
+
+.group-toggle[aria-expanded='false'] .group-chevron {
+  transform: rotate(-90deg);
+}
+
+.group-count {
+  font-size: 11px;
+  color: var(--uwu-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.group-more {
+  opacity: 0;
+}
+
+.group-head:hover .group-more,
+.group-more:focus-visible {
+  opacity: 1;
+}
+
+.group-input {
+  font: inherit;
+  font-size: var(--uwu-text-meta);
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: var(--uwu-radius-control);
+  border: 1px solid var(--uwu-pink);
+  background: var(--uwu-canvas);
+  color: var(--uwu-ink);
+}
+
+.group-input:focus {
+  outline: none;
+  box-shadow: var(--uwu-focus);
+}
+
+.group-empty {
+  padding: 6px 12px 8px 24px;
+  margin: 2px 0 4px 12px;
+  font-size: 11.5px;
+  color: var(--uwu-muted);
+  border: 1px dashed var(--uwu-border);
+  border-radius: 12px;
+}
+
+/* ── Dragging ──────────────────────────────────────────── */
+
+.host-dropzone {
+  min-height: 6px;
+  border-radius: 12px;
+}
+
+/* Where a drop would land. */
+.host-group[data-drop-over='inside'],
+.host-dropzone[data-drop-over='inside'] {
+  background: var(--uwu-pink-tint);
+  box-shadow: inset 0 0 0 1px var(--uwu-pink);
+}
+
+.group-head[data-drop-over='inside'] {
+  background: var(--uwu-pink-tint);
+}
+
+.host-row[data-drop-over='before']::before,
+.host-row[data-drop-over='after']::after,
+.group-head[data-drop-over='before']::before,
+.group-head[data-drop-over='after']::after {
+  content: '';
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--uwu-pink);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--uwu-pink) 25%, transparent);
+  z-index: 2;
+}
+
+.host-row[data-drop-over='before']::before,
+.group-head[data-drop-over='before']::before {
+  top: -2px;
+}
+
+.host-row[data-drop-over='after']::after,
+.group-head[data-drop-over='after']::after {
+  bottom: -2px;
+}
+
+html[data-dragging] * {
+  cursor: grabbing !important;
+}
+
+/* What follows the pointer while dragging (lib/dnd.ts). */
+.drag-ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: var(--uwu-z-menu);
+  pointer-events: none;
+  padding: 4px 12px;
+  border-radius: var(--uwu-radius-pill);
+  background: var(--uwu-pink-solid);
+  color: var(--uwu-on-pink);
+  font-size: var(--uwu-text-meta);
+  font-weight: 600;
+  box-shadow: var(--uwu-shadow-float);
+  white-space: nowrap;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.drag-ghost::before {
+  content: '🐾 ';
+}

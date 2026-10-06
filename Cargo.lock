@@ -6426,7 +6426,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
@@ -7084,6 +7084,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "uwu-macos"
+version = "1.6.1"
+source = "git+https://github.com/MinifyX/UwUSuite-Design?tag=v1.6.1#73e6c6b0db0e46d8489c8c002315bd437ff65442"
+dependencies = [
+ "objc2",
+]
+
+[[package]]
 name = "uwukeygen"
 version = "0.3.0-beta.2"
 dependencies = [
@@ -7172,6 +7180,8 @@ dependencies = [
  "chacha20poly1305",
  "keyring",
  "minisign-verify",
+ "objc2",
+ "objc2-foundation",
  "parking_lot",
  "rand 0.8.8",
  "semver",
@@ -7190,6 +7200,7 @@ dependencies = [
  "tracing-subscriber",
  "trash",
  "uuid",
+ "uwu-macos",
  "uwussh-assist",
  "uwussh-core",
  "uwussh-import",

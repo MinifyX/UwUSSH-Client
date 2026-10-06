@@ -425,8 +425,16 @@ pub(crate) struct Place {
 }
 
 /// Where the local side can start: home, the usual folders, and every drive.
+///
+/// In the Mac App Store build the sandbox keeps the app out of all of that
+/// except Downloads (`files.downloads.read-write`), so the list is Downloads
+/// and the folders the person added with [`local_pick_folder`] — the only
+/// places a transfer can land or start from there.
 #[tauri::command]
 pub(crate) fn local_places(app: AppHandle) -> Vec<Place> {
+    if cfg!(feature = "mas") {
+        return sandboxed_places();
+    }
     let mut places = Vec::new();
     let paths = app.path();
     for (label, kind, path) in [
@@ -463,6 +471,58 @@ pub(crate) fn local_places(app: AppHandle) -> Vec<Place> {
         kind: "drive",
     });
     places
+}
+
+/// Downloads and the picked folders. Downloads by its real path: Tauri's would
+/// be the container's `Downloads`, a link to it that shows up in every path
+/// the page displays.
+fn sandboxed_places() -> Vec<Place> {
+    let downloads = uwussh_core::home_dir().map(|home| home.join("Downloads"));
+    let downloads = downloads.into_iter().map(|path| Place {
+        label: "Downloads".into(),
+        path: path.display().to_string(),
+        kind: "downloads",
+    });
+    downloads
+        .chain(
+            crate::sandbox_access::places()
+                .into_iter()
+                .map(picked_place),
+        )
+        .collect()
+}
+
+fn picked_place(path: PathBuf) -> Place {
+    Place {
+        label: path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.display().to_string()),
+        path: path.display().to_string(),
+        kind: "picked",
+    }
+}
+
+/// A folder of this computer for the file browser, picked in a panel. In the
+/// Mac App Store build that is how a folder becomes reachable at all: it is
+/// remembered (a security-scoped bookmark) and listed in [`local_places`]
+/// from then on. Elsewhere it is a quick way to a folder, nothing is kept.
+#[tauri::command]
+pub(crate) async fn local_pick_folder(app: AppHandle) -> Result<Option<Place>, SftpError> {
+    let Some(dir) = crate::dialogs::folder(&app, "Ordner für den Dateibrowser", None).await else {
+        return Ok(None);
+    };
+    crate::sandbox_access::add_place(&dir);
+    Ok(Some(picked_place(dir)))
+}
+
+/// Takes a picked folder off the list (Mac App Store build); from the next
+/// start the app cannot reach it any more. Nothing elsewhere.
+#[tauri::command]
+pub(crate) fn local_forget_folder(path: String) -> Result<(), SftpError> {
+    check_local_path(&path)?;
+    crate::sandbox_access::forget_place(Path::new(&path));
+    Ok(())
 }
 
 #[tauri::command]
@@ -547,14 +607,31 @@ pub(crate) async fn local_trash(paths: Vec<String>) -> Result<(), SftpError> {
         check_local_path(path)?;
     }
     tauri::async_runtime::spawn_blocking(move || {
-        trash::delete_all(paths.iter().map(PathBuf::from)).map_err(|e| SftpError::Local {
-            message: e.to_string(),
-        })
+        trash_context()
+            .delete_all(paths.iter().map(PathBuf::from))
+            .map_err(|e| SftpError::Local {
+                message: e.to_string(),
+            })
     })
     .await
     .map_err(|e| SftpError::Local {
         message: e.to_string(),
     })?
+}
+
+/// How a file goes to the bin. On a Mac `trash` asks Finder by default,
+/// through `osascript`, which is what puts "Put Back" in Finder's menu. A
+/// sandboxed app may not script Finder, so the Mac App Store build moves the
+/// file itself, through `NSFileManager` — same bin, without "Put Back".
+fn trash_context() -> trash::TrashContext {
+    #[allow(unused_mut)]
+    let mut context = trash::TrashContext::default();
+    #[cfg(all(target_os = "macos", feature = "mas"))]
+    {
+        use trash::macos::{DeleteMethod, TrashContextExtMacos as _};
+        context.set_delete_method(DeleteMethod::NsFileManager);
+    }
+    context
 }
 
 /// Copy local files or folders (an SMB share included) into a local folder.
@@ -901,7 +978,7 @@ mod tests {
 
     #[test]
     fn an_smb_server_is_a_plain_name() {
-        for good in ["nas", "nas.lan", "192.168.1.20", "files-01.example.org"] {
+        for good in ["nas", "nas.example", "192.0.2.20", "files-01.example.org"] {
             assert!(smb_server_name(good), "{good}");
         }
         for bad in [

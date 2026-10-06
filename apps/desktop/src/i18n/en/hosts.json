@@ -60,7 +60,7 @@
   "Abbrechen": "Cancel",
   "Speichern": "Save",
   "Adresse": "Address",
-  "10.0.0.12 oder prox-1.lan": "10.0.0.12 or prox-1.lan",
+  "192.0.2.12 oder prox-1.example": "192.0.2.12 or prox-1.example",
   "Port": "Port",
   "Benutzer": "User",
   "Name": "Name",
@@ -137,5 +137,7 @@
   "Öffnet eine lokale Shell": "Opens a local shell",
   "Weitere lokale Shell öffnen": "Open another local shell",
   "Speichere…": "Saving…",
-  "Ein abgebrochener Sync-Versuch hat deinen Tresor so verschlüsselt, dass das Master-Passwort allein ihn nicht mehr öffnet. Dieses Gerät kommt noch hinein – leg ein neues Master-Passwort fest, dann ist alles wieder wie vorher.": "A sync attempt that failed left your vault encrypted so that the master password alone no longer opens it. This device can still get in – set a new master password and everything is back as it was."
+  "Ein abgebrochener Sync-Versuch hat deinen Tresor so verschlüsselt, dass das Master-Passwort allein ihn nicht mehr öffnet. Dieses Gerät kommt noch hinein – leg ein neues Master-Passwort fest, dann ist alles wieder wie vorher.": "A sync attempt that failed left your vault encrypted so that the master password alone no longer opens it. This device can still get in – set a new master password and everything is back as it was.",
+  "Keys auf Netzlaufwerken liest UwUSSH nicht": "UwUSSH doesn't read keys on network drives",
+  "Datei wählen…": "Choose file…"
 }

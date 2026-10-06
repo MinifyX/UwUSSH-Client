@@ -1,216 +1,92 @@
 # Design
 
-Clean, bright, soft — with a wink. Same design system as
-[UwUMail](https://github.com/MinifyX/UwUMail-Client), same cat, one confident
-bubblegum pink. The terminal is the one place that stays a terminal.
+UwUSSH looks like every UwU app because it is built from the suite's design
+package, [@uwusuite/design](https://github.com/MinifyX/UwUSuite-Design): its
+tokens, UwU Sans and the font picker, light, dark and high contrast, the
+motion rules, the icons (Lucide through `Icon` and `ICONS`), the components
+(Button, IconButton, Dialog, Switch, Segmented, SettingRow, Hint, Tag, Card,
+TitleBar, Wordmark, …), the macOS menu bar and Nyu. The rules for all of that
+live there, in its `docs/` (color, typography, icons, components, window,
+macos, motion, nyu, tone), and the way an app moves onto it in its
+[docs/migration.md](https://github.com/MinifyX/UwUSuite-Design/blob/main/docs/migration.md).
 
-## Color
+This page is only about what is special about UwUSSH: the terminal is the one
+place that stays a terminal.
 
-Tokens come from UwUMail unchanged, including the `--uwu-*` naming, and live in
-`apps/desktop/src/styles/tokens.css`. Components never use raw hex values.
+## Where things are
 
-| Token              | Light     | Dark      | Use                                            |
-| ------------------ | --------- | --------- | ---------------------------------------------- |
-| `--uwu-canvas`     | `#f8f4f6` | `#141016` | App background                                 |
-| `--uwu-surface`    | `#ffffff` | `#1c171f` | Host tree, panels, cards                       |
-| `--uwu-elevated`   | `#fcf8fa` | `#241e28` | Hover rows, popovers                           |
-| `--uwu-ink`        | `#1c1420` | `#f8f2f6` | Primary text                                   |
-| `--uwu-muted`      | `#716672` | `#b3a8b3` | Secondary text                                 |
-| `--uwu-hairline`   | `#f2e8ee` | `#2c2430` | Dividers                                       |
-| `--uwu-border`     | `#e9dde4` | `#3a3040` | Control borders                                |
-| `--uwu-pink`       | `#ff4d8d` | `#ff7fac` | **Brand.** Status dots, selection, focus, logo |
-| `--uwu-pink-solid` | `#e11d74` | `#ff7fac` | Filled buttons with text                       |
-| `--uwu-pink-tint`  | `#ffe4ef` | `#3a1a2a` | Selected host, active row                      |
+- `apps/desktop/src/styles/index.css` imports Tailwind, the package's
+  `tailwind.css` and `font-picker.css`, then the app's own sheets into
+  Tailwind's `components` layer (a utility class always wins over them):
+  `base.css` (form pieces and checkboxes), `shell.css` (body, tabs, toolbar,
+  notices, the terminal panes and their overlays), `sidebar.css` (workspaces,
+  groups, host rows, badges, the context menu, the password-login tooltip),
+  `dialogs.css` (host form, host keys, import, vault, export, tunnels),
+  `settings.css` (settings, sync, the command assistant, the setup wizard,
+  the update hint) and `files.css` (the file browser).
+- Theme, contrast and motion: Settings → Darstellung, through the package's
+  `useAppearance()` (`lib/appearance.ts`); `/boot.js` (the package's
+  `bootScript()`, a file because the CSP allows no inline script) puts them on
+  `<html>` before the first paint. UwUSSH is dark until the person picks
+  something.
+- The interface font: Settings → Darstellung → Schrift, the package's choices
+  and `applyUiFont()`. A stored font that is no longer offered falls back to
+  UwU Sans. The terminal's font is its own setting.
+- UwUKeygen (`apps/keygen`) uses the desktop's components and sheets; the
+  installer (`apps/setup`) is the package's installer look: always light, the
+  tile gradient, plum text, Nyu packing the box.
 
-**Why two pinks?** White text on `#ff4d8d` reaches only 3.1:1. Filled buttons
-therefore use `#e11d74` (4.5:1, WCAG AA). The brighter brand pink stays for
-everything that is not small text on a pink fill.
+## What is UwUSSH's own
 
-Connection state uses semantic color, separate from the brand: reachable is
-mint, unreachable is muted grey, and a failed host key is amber — never pink,
-because pink means "selected" everywhere else.
-
-## Terminal themes
-
-New compared to UwUMail, and the one part that doesn't follow the UwU look. The
-terminal gets its own token set mapping the 16 ANSI colors, because a terminal
-that fights the program's own colors is a broken terminal.
-
-- **Nyu** (default) — the 16 ANSI colors translated into the UwU palette, dark
-  ground, pink cursor.
-- **Classics** — Solarized, Gruvbox, Campbell, shipped as-is and not
-  "improved".
-- Font: **JetBrains Mono**, bundled. Size, line height, cursor shape, bell and
-  scrollback are per terminal profile, assignable per host.
-
-## Type
-
-- **Manrope** (variable, bundled, no network) for the interface.
-- Sizes: 12 caption · 13 meta · 14 body/list · 16 panel body · 18 section ·
-  22 title. Weights 400, 500, 600 for titles and host names, 700 only for the
-  wordmark.
-
-## Shape and space
-
-- Radius: 10px controls, 16px cards and panes, 999px pills and badges.
-- Spacing on a 4px grid.
-- Shadows only for floating layers: menus, the command palette, toasts.
-
-## Layout
-
-```
-┌────────────┬──────────────────────────────────┬──────────┐
-│ Sidebar    │ Tab bar                          │ Inspector│
-│            ├──────────────────────────────────┤          │
-│ Search     │                                  │ Host     │
-│ ▸ Homelab  │      Terminal / SFTP             │ Forwards │
-│   ● prox-1 │                                  │ Snippets │
-│ ▸ Hetzner  │                                  │          │
-└────────────┴──────────────────────────────────┴──────────┘
-```
-
-- Custom title bar, no OS chrome edge. It carries its own minimize,
-  maximize/restore and close buttons at Windows' own size (46 px wide, the full
-  bar high); close turns brand pink on hover, as in the installer. The inspector
-  folds away, because full-screen terminal has to be one keystroke out.
-- Tabs sit above the terminal, one per session. The active tab has a pink top
-  edge and the terminal's background, a status dot says connecting (pulsing
-  pink), online (mint) or ended (grey), and a second tab to the same host gets a
-  small number.
-- The sidebar has two workspaces, **Private** and **Business** (renamable), as
-  pills at the top with a count each — like UwUMail's accounts. Groups fold,
-  and hosts and groups move by dragging: onto another row to reorder, onto a
-  group to file, onto the other workspace's pill to move across. Dragging uses
-  pointer events, not HTML5 drag and drop, which Tauri's file drop swallows on
-  Windows.
-- Each host row has an icon for the system the server runs, with the status dot
-  on its corner, and quick actions (files, edit) on hover.
-- Files open in their own tab: this computer on the left, the server on the
-  right, a transfer bar at the bottom. Drag and drop works between the panes,
-  into folders, and from Explorer.
+- **The terminal** sits on the package's stage (`--uwu-stage`, dark in both
+  themes), and xterm.js' background and foreground are the stage colours. The
+  16 ANSI colours (`NYU_THEME` in `lib/driver.ts`) are UwUSSH's: a terminal
+  that fights the program's own colours is a broken terminal. Overlays over a
+  pane (connecting, failed) use `stage-overlay`.
+- **Tabs** sit above the terminal, one per session: an icon for the system
+  with a state dot (connecting pulses pink, online mint, ended grey), the
+  active tab has the pink top inset, and a second tab to the same host gets a
+  small number. The tab bar is the app's, built from tokens.
 - **Reconnect is a banner, never a modal.** A modal over a running terminal is
   a UX bug, not a safety feature.
-- Keyboard-first: everything reachable without the mouse, visible focus rings,
-  command palette on `Ctrl+K`.
+- **The sidebar** has two workspaces, Privat and Business (renamable), groups
+  that fold, and hosts and groups that move by dragging (pointer events, not
+  HTML5 drag and drop, which Tauri's file drop swallows on Windows).
+- **System icons** (`OsIcon`): a small rounded Nyu sticker per system —
+  Ubuntu, Debian, Fedora, Arch, Windows, macOS, MikroTik, Proxmox and more —
+  in its brand colour with two little cat ears. Lucide has no system logos and
+  the suite uses no company logos as icons; these only evoke the system, so
+  they stay in the app.
+- **Nyu** is the package's `terminal` shell. The scenes (`components/nyu/scenes.tsx`,
+  the installer's and UwUKeygen's laser pad, where Nyu chases the cursor while
+  the key's randomness is collected) are UwUSSH's.
 
-## Nyu, the mascot
+## macOS
 
-Nyu is the same cat as in UwUMail — the envelope is just a **terminal window**
-now. Window chrome with three dots on top, ears poking out above it, and the
-screen is the face: UwU eyes, `w` mouth, blush.
+The system draws the title bar; the gear and the app's actions live in the
+menu bar (`lib/macMenu.ts`, the package's `setMacMenu` skeleton): Einstellungen
+(⌘,), Neue lokale Shell (⌘T), Neuer Host (⌘N), Tab duplizieren (⌘D), Dateien
+öffnen (⇧⌘F), and a Sitzung menu with Passwort eintippen (⇧⌘P), Befehl aus
+Worten (⌘K) and Tunnel.
 
-- **Sticker style**, unchanged. Plum outlines `#4B1D3F`, pink body `#FF6FA6`,
-  light screen `#FFB8D3`, pastel props, a white die-cut edge. The colors are
-  fixed artwork and stay the same in dark mode; the white edge keeps the
-  outlines readable on dark backgrounds.
-- **App icon** (website, GitHub, macOS Dock). Built like UwUMail's: Nyu as a
-  pink terminal window with cat ears, slightly tilted, the dark screen showing
-  the UwU face and a small `>_` prompt. A big star top left, a small one top
-  right, the heart bottom left.
-- **The tile.** Every UwU app's icon for the website and GitHub sits on
-  UwUMail's pastel pink tile (`#FFF3F8` to `#FFD3E5`), never another colour.
-  Each one gets sparkles and a heart, arranged differently around it.
-- **Taskbar icon.** The dark tile of the first version swallowed the ears and
-  the window at 16–24 px. On the Windows taskbar, in the setup and in Linux
-  menus Nyu now stands alone: upright, no tile, white die-cut edge, and a
-  screen that is only a big `>_` with a yellow cursor, so it reads as a
-  terminal; the ears and blush say Nyu (`brand/uwussh-taskbar-icon.svg`). At
-  16 and 24 px a simplified cut takes over (`uwussh-taskbar-icon-small.svg`).
-  `node scripts/icons.mjs` regenerates all desktop icons from these three.
-- **UwUKeygen's icons** are its siblings: a golden key whose bow is Nyu's
-  head with the UwU face, on the same pink tile for the website and GitHub
-  (`brand/uwukeygen-app-icon.svg`, also `apps/keygen/public/icon.svg`), and
-  upright without a tile for the taskbar (`uwukeygen-taskbar-icon.svg`, with
-  a bolder `-small` cut for 16 and 24 px). `scripts/icons.mjs` builds both apps.
-- **The face.** Wherever Nyu has one, it's UwU: two U eyes and a **round `w`**
-  (two soft arcs, never a zigzag).
-- **System icons** (`OsIcon`): one small rounded tile per system — Ubuntu,
-  Debian, Fedora, Red Hat, Arch, Alpine, Windows, macOS, Cisco, MikroTik,
-  Proxmox, Raspberry Pi, Synology and more, plus a plain Linux and a plain server — each
-  in its brand colour with two little cat ears. They say "this is a Debian box"
-  without shouting a logo.
-- **Sources** in `brand/` (icon, symbol, mono symbol) and
-  `apps/desktop/src/components/nyu/` (React).
+One difference to the package: ⌘W closes the **tab** in front, as in
+Terminal.app, and only with no tab left does it hide the window. "Fenster
+schließen" is ⇧⌘W. Hidden, UwUSSH keeps its connections and tunnels and stays
+in the Dock; the Dock icon brings the window back. ⌘Q, the Dock and logging out
+ask first while connections are open (`uwu-macos`, `onMacQuit`).
 
-**The installer** (`apps/setup`) is UwUMail's setup with the terminal cat: the
-same pink gradient window, Nyu waving hello, hopping while she tosses little
-terminal windows into a box with the key, cheering when it's done, and waving
-goodbye with a tear on uninstall. Its scenes share `components/nyu/` with the
-app.
+## App icons
 
-**Scenes** (`NyuScene`, 320 × 220), for the empty states an SSH client actually
-has:
+`brand/` has UwUSSH's and UwUKeygen's app, taskbar, small and symbol icons.
+`pnpm exec uwu-icons --brand ../../brand --name uwussh` in `apps/desktop` (and
+`--name uwukeygen` in `apps/keygen`) regenerates every platform file, the Dock
+icon in Apple's grid.
 
-| Scene           | When                                               |
-| --------------- | -------------------------------------------------- |
-| Welcome         | First start, no hosts yet                          |
-| Import done     | After a PuTTY/KiTTY/Termius import, with the count |
-| Vault asleep    | Vault locked — Nyu naps on the key                 |
-| Nothing found   | Search with no matches                             |
-| Connection lost | Reconnect banner, Nyu waiting with a cable         |
-| All offline     | No host reachable                                  |
-| No tunnels      | Port forwarding panel with nothing running         |
-| Empty folder    | Empty SFTP directory                               |
-| Vault           | Creating or unlocking the vault — Nyu on the safe  |
-| Connecting      | A tab waiting for its connection, Nyu with a cable |
-| Files           | Transfers running, exporting                       |
-| Keys            | UwUKeygen, before a key exists                     |
-| Goodbye         | Closing with connections still open                |
+## Security is never playful
 
-**The laser pad.** UwUKeygen collects randomness where PuTTYgen shows an empty
-box: a marked area where the cursor becomes a pink laser dot and Nyu chases it —
-her eyes follow the dot, she crouches, pounces and catches it, creeps across the
-mat hop by hop after a dot that lies still, and dozes off when the mouse rests. A progress ring fills while she plays. With animations off
-she stays still and the ring still fills.
-
-**Motion.** Nyu blinks in scenes, twitches her ears on hover, and the cursor on
-her screen blinks at terminal rhythm. Settings → Appearance → Animations
-(System / On / Off) resolves to `<html data-motion="full|reduced">`; with
-`reduced`, all animation collapses to 1 ms and Nyu holds still.
-
-**Name.** Nyu only appears by name in the playful tone. The neutral tone keeps
-the pictures and says "UwUSSH".
-
-## Tone of voice
-
-Playful by default: kaomoji, warm little jokes, soft animation. Settings → Tone
-→ **Neutral** replaces the words, never the layout or the colors. Every string
-lives in `locales/<lang>/neutral.json`, with the playful variant under the same
-key in `playful.json`; missing playful keys fall back to neutral.
-
-| Situation       | Neutral                      | Playful                                                        |
-| --------------- | ---------------------------- | -------------------------------------------------------------- |
-| No hosts        | No hosts yet                 | Pretty empty in here (・_・;) Let's go get your PuTTY sessions |
-| Connected       | Connected to prox-1          | We're in! ✨                                                   |
-| Import done     | Imported 47 hosts            | Collected 47 hosts (๑˃ᴗ˂)ﻭ                                     |
-| Connection lost | Disconnected. Retrying in 5s | Whoops, gone (╥﹏╥) Trying again in 5s                         |
-| Vault locked    | Vault locked                 | Nyu's watching your keys ᶻ 𝗓 𐰁                                 |
-
-Rules for playful copy:
-
-1. **Information first.** The joke never replaces what happened or what to do.
-2. **Short.** One kaomoji at most, never in buttons that act on data.
-3. **Kind.** Never mock the user; the app laughs at itself.
-4. **Security is never playful.** A changed host key, a failed vault unlock, a
-   request to forward your agent: no kaomoji, no Nyu, in _both_ tones. A sad
-   face next to a possible man-in-the-middle warning destroys exactly what the
-   warning is for.
-
-Rule 4 is the one that's new compared to UwUMail, and it is not negotiable:
-
-```
-⚠  The host key for prox-1 changed.
-
-  known   SHA256:nThbg6kX…UmcQ2p4   since 2026-03-14
-  now     SHA256:7Pq1Zx0v…Kd9Lm3s
-
-This can be a rebuilt server — or a man in the middle.
-
-              [ Accept new key ]  [ Reject ]   ← focus
-```
-
-The first version made you type the address to override. It protected nothing
-a plain button doesn't — the warning is what protects — and it annoyed on every
-rebuilt VM, so it is two buttons now, with focus on the safe one.
-
-German strings follow the same rules and use "du".
+The suite's tone rules apply (playful by default, information first, one
+kaomoji at most). UwUSSH adds one that is not negotiable: a changed host key, a
+failed vault unlock, a request to forward your agent get no kaomoji and no Nyu,
+in both tones, and the warning dialog's focus sits on the safe choice. A sad
+face next to a possible man-in-the-middle warning destroys exactly what the
+warning is for.
