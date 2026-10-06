@@ -23,22 +23,22 @@ check('hosts survive a reload (they live in SQLite, not the page)', true);
 // ── Fix: errors clear on edit, inputs stay aligned ─────────────────────────
 await page.click('.sidebar-head [aria-label="Host hinzufügen"]');
 await page.waitFor(
-  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Neuer Host'`,
+  `[...document.querySelectorAll('.uwu-modal h2')].pop()?.textContent === 'Neuer Host'`,
   {
     what: 'host form',
   },
 );
-await page.click('.modal-footer button', 'Speichern');
+await page.click('.uwu-modal footer button', 'Speichern');
 await page.waitFor(`document.querySelector('.field-error')`, { what: 'validation error' });
 const tops = await page.eval(
-  `[...document.querySelectorAll('.modal .form-row')[0].querySelectorAll('input')].map((i) => Math.round(i.getBoundingClientRect().top))`,
+  `[...document.querySelectorAll('.uwu-modal .form-row')[0].querySelectorAll('input')].map((i) => Math.round(i.getBoundingClientRect().top))`,
 );
 check(
   'port input stays level with address while an error shows',
   tops[0] === tops[1],
   JSON.stringify(tops),
 );
-await page.eval(`document.querySelectorAll('.modal input')[0].focus()`);
+await page.eval(`document.querySelectorAll('.uwu-modal input')[0].focus()`);
 await page.type('1');
 await sleep(150);
 check(
@@ -59,42 +59,42 @@ await sleep(300);
 check(
   'a click beside a dialog does not close it',
   await page.eval(
-    `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Neuer Host'`,
+    `[...document.querySelectorAll('.uwu-modal h2')].pop()?.textContent === 'Neuer Host'`,
   ),
 );
 // Closing a form with something typed into it asks first.
 await page.key('Escape');
 await page.waitFor(
-  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Wirklich schließen?'`,
+  `[...document.querySelectorAll('.uwu-modal h2')].pop()?.textContent === 'Wirklich schließen?'`,
   { what: 'close question' },
 );
 check('closing a changed form asks first', true);
-await page.click('.modal-footer button', 'Weiter bearbeiten');
+await page.click('.uwu-modal footer button', 'Weiter bearbeiten');
 await sleep(200);
 check(
   '"keep editing" keeps what was typed',
   await page.eval(
-    `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Neuer Host'`,
+    `[...document.querySelectorAll('.uwu-modal h2')].pop()?.textContent === 'Neuer Host'`,
   ),
 );
 await page.key('Escape');
 await page.waitFor(
-  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Wirklich schließen?'`,
+  `[...document.querySelectorAll('.uwu-modal h2')].pop()?.textContent === 'Wirklich schließen?'`,
   { what: 'close question again' },
 );
-await page.click('.modal-footer button', 'Schließen');
-await page.waitFor(`!document.querySelector('.modal')`, { what: 'form closed' });
+await page.click('.uwu-modal footer button', 'Schließen');
+await page.waitFor(`!document.querySelector('.uwu-modal')`, { what: 'form closed' });
 
 // ── The host key changed ────────────────────────────────────────────────────
 await page.click('.host .host-name', 'dev-sshd');
 await page.waitFor(
-  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Der Host-Key hat sich geändert'`,
+  `[...document.querySelectorAll('.uwu-modal h2')].pop()?.textContent === 'Der Host-Key hat sich geändert'`,
   { what: 'changed-key warning', timeout: 15_000 },
 );
 await sleep(300);
 check(
   'warning is styled as a warning',
-  await page.eval(`document.querySelector('.modal')?.dataset.tone === 'warning'`),
+  await page.eval(`document.querySelector('.uwu-modal')?.dataset.tone === 'warning'`),
 );
 const fps = (await page.text('.key-compare .fingerprint')).split(' | ');
 check('shows the fingerprint trusted before', fps[0] === OLD_FINGERPRINT, fps[0]);
@@ -102,9 +102,9 @@ check('shows the fingerprint presented now', fps[1] === NEW_FINGERPRINT, fps[1])
 check(
   'the warning offers two plain buttons, no typing',
   await page.eval(
-    `!document.querySelector('.modal input') && [...document.querySelectorAll('.modal-footer button')].map(b => b.textContent).join('|') === 'Neuen Schlüssel akzeptieren|Ablehnen'`,
+    `!document.querySelector('.uwu-modal input') && [...document.querySelectorAll('.uwu-modal footer button')].map(b => b.textContent).join('|') === 'Neuen Schlüssel akzeptieren|Ablehnen'`,
   ),
-  await page.text('.modal-footer button'),
+  await page.text('.uwu-modal footer button'),
 );
 check(
   'focus sits on the safe choice',
@@ -133,17 +133,17 @@ check(
 // Now deliberately accept the new key.
 await page.click('.host .host-name', 'dev-sshd');
 await page.waitFor(
-  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Der Host-Key hat sich geändert'`,
+  `[...document.querySelectorAll('.uwu-modal h2')].pop()?.textContent === 'Der Host-Key hat sich geändert'`,
   { what: 'changed-key warning again', timeout: 15_000 },
 );
-await page.click('.modal-footer button', 'Neuen Schlüssel akzeptieren');
+await page.click('.uwu-modal footer button', 'Neuen Schlüssel akzeptieren');
 
 // The password was stored in phase A: after the key, nothing else is asked.
 await page.waitFor(terminalHas('toy shell'), { what: 'connected with new key', timeout: 15_000 });
 check('connected to the server with its new key', true);
 check(
   'the stored password logged in without a prompt',
-  await page.eval(`!document.querySelector('.modal')`),
+  await page.eval(`!document.querySelector('.uwu-modal')`),
 );
 
 // ── Fix: the dot goes out when the session ends ─────────────────────────────
@@ -167,19 +167,19 @@ await page.eval(
   `[...document.querySelectorAll('.host-row')].find(r => r.textContent.includes('dev-sshd')).querySelector('.host-actions button[aria-label$="bearbeiten"]').click()`,
 );
 await page.waitFor(
-  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'dev-sshd bearbeiten'`,
+  `[...document.querySelectorAll('.uwu-modal h2')].pop()?.textContent === 'dev-sshd bearbeiten'`,
   { what: 'edit form' },
 );
-await page.click('.modal-footer button', 'Löschen');
+await page.click('.uwu-modal footer button', 'Löschen');
 check(
   'deleting needs a second click',
   await page.eval(
-    `[...document.querySelectorAll('.modal-footer button')].some(b => b.textContent === 'Wirklich löschen')`,
+    `[...document.querySelectorAll('.uwu-modal footer button')].some(b => b.textContent === 'Wirklich löschen')`,
   ),
 );
-await page.click('.modal-footer button', 'Wirklich löschen');
+await page.click('.uwu-modal footer button', 'Wirklich löschen');
 await page.waitFor(
-  `!document.querySelector('.modal') && document.querySelector('.sidebar-empty')`,
+  `!document.querySelector('.uwu-modal') && document.querySelector('.sidebar-empty')`,
   { what: 'empty list after delete' },
 );
 check('host is gone and the empty state is back', true);

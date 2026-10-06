@@ -16,7 +16,7 @@ const MASTER = 'sync-master-pw';
 
 const a = await connect(Number(PORT_A));
 const b = await connect(Number(PORT_B));
-const top = `[...document.querySelectorAll('.modal')].pop()`;
+const top = `[...document.querySelectorAll('.uwu-modal')].pop()`;
 const invoke = (page, command, args = {}) =>
   page.eval(
     `window.__TAURI_INTERNALS__.invoke(${JSON.stringify(command)}, ${JSON.stringify(args)})`,
@@ -34,7 +34,7 @@ check(
 );
 
 async function openSync(page) {
-  await page.click('[aria-label="Einstellungen"]');
+  await page.click('[aria-label^="Einstellungen"]');
   await page.waitFor(`document.querySelector('.settings-nav')`, { what: 'settings' });
   await page.click('.settings-nav button', 'Sync');
   await page.waitFor(`document.querySelector('.sync-intro, .setting-row')`, {
@@ -98,7 +98,7 @@ await a.click('.setting-row button', 'Anzeigen');
 await a.waitFor(`${top}?.querySelector('input[type=password]')`, { what: 'kit password prompt' });
 await a.eval(`${top}.querySelector('input[type=password]').focus()`);
 await a.type(MASTER);
-await a.click('.modal-footer button', 'Anzeigen');
+await a.click('.uwu-modal footer button', 'Anzeigen');
 await a.waitFor(`document.querySelector('.sync-kit-code')`, { what: 'kit again', timeout: 30_000 });
 check(
   'a paired device shows the same recovery code again',
@@ -116,12 +116,12 @@ await a.click('.sidebar-head [aria-label="Importieren"]');
 await a.waitFor(`document.querySelector('.import-sources')`, { what: 'source picker' });
 await a.click('.import-source', 'OpenSSH');
 await a.waitFor(`document.querySelector('.import-preview')`, { what: 'ssh_config preview' });
-await a.click('.modal-footer button', 'Importieren');
+await a.click('.uwu-modal footer button', 'Importieren');
 await a.waitFor(
-  `[...document.querySelectorAll('.modal-title')].pop()?.textContent.startsWith('Import abgeschlossen')`,
+  `[...document.querySelectorAll('.uwu-modal h2')].pop()?.textContent.startsWith('Import abgeschlossen')`,
   { what: 'import done' },
 );
-await a.click('.modal-footer button', 'Fertig');
+await a.click('.uwu-modal footer button', 'Fertig');
 await a.waitFor(
   `[...document.querySelectorAll('.host-name')].some(e => e.textContent === 'dev-sshd')`,
   {
@@ -142,7 +142,7 @@ await a.click('.setting-row button', 'Gerät hinzufügen');
 await a.waitFor(`${top}?.querySelector('input[type=password]')`, { what: 'add-device password' });
 await a.eval(`${top}.querySelector('input[type=password]').focus()`);
 await a.type(MASTER);
-await a.click('.modal-footer button', 'Code zeigen');
+await a.click('.uwu-modal footer button', 'Code zeigen');
 await a.waitFor(`document.querySelector('.sync-offer .sync-kit-code')`, {
   what: 'pairing code',
   timeout: 20_000,
@@ -232,7 +232,7 @@ check(
 );
 await a.click('.sync-device-list button', 'Widerrufen');
 await a.waitFor(`${top}?.querySelector('input[type=password]')`, { what: 'revoke password' });
-await a.click('.modal[data-tone="warning"] input[type=password]');
+await a.click('.uwu-modal-warning input[type=password]');
 await a.type('wrong-password');
 await a.key('Enter');
 await a.waitFor(`${top}?.querySelector('.field-error')`, {
@@ -240,7 +240,7 @@ await a.waitFor(`${top}?.querySelector('.field-error')`, {
   timeout: 20_000,
 });
 check('revoking with the wrong password is refused', true);
-await a.click('.modal[data-tone="warning"] input[type=password]');
+await a.click('.uwu-modal-warning input[type=password]');
 await a.type(MASTER);
 await a.key('Enter');
 await a.waitFor(`document.querySelector('.sync-devices .sync-revoked')`, {
@@ -261,7 +261,7 @@ await b.waitFor(
 check('the revoked device can no longer sync', true);
 
 // The revoked device leaves: its vault goes back to the master password alone.
-await b.click('[aria-label="Einstellungen"]');
+await b.click('[aria-label^="Einstellungen"]');
 await b.waitFor(`document.querySelector('.settings-nav')`, {
   what: 'settings on the second device',
 });
@@ -274,7 +274,7 @@ await b.waitFor(
 );
 await b.click('.setting-row button', 'Trennen');
 await b.waitFor(`${top}?.querySelector('input[type=password]')`, { what: 'disconnect password' });
-await b.click('.modal[data-tone="warning"] input[type=password]');
+await b.click('.uwu-modal-warning input[type=password]');
 await b.type(MASTER);
 await b.key('Enter');
 await b.waitFor(`document.querySelector('.sync-intro')`, {

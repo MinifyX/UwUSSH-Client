@@ -198,6 +198,6 @@ export async function passOnboarding(page) {
   await page.waitFor(`document.documentElement.dataset.onboarding`, { what: 'onboarding check' });
   if ((await page.eval(`document.documentElement.dataset.onboarding`)) !== 'show') return;
   await page.waitFor(`document.querySelector('.onboarding')`, { what: 'setup wizard' });
-  await page.click('.modal-footer button', 'Einrichtung überspringen');
+  await page.click('.uwu-modal footer button', 'Einrichtung überspringen');
   await page.waitFor(`!document.querySelector('.onboarding')`, { what: 'wizard closed' });
 }

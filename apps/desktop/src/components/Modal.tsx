@@ -89,7 +89,9 @@ export function Modal({
       width={WIDTH[size]}
       footer={footer}
       closeOnOutsideClick={false}
-      className={className ? `uwu-modal ${className}` : 'uwu-modal'}
+      className={['uwu-modal', tone === 'warning' && 'uwu-modal-warning', className]
+        .filter(Boolean)
+        .join(' ')}
     >
       <div
         ref={bodyRef}

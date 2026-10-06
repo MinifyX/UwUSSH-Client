@@ -30,21 +30,21 @@ check(
 );
 // A vault this device doesn't open on its own asks once at start.
 await page.waitFor(
-  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Tresor entsperren'`,
+  `[...document.querySelectorAll('.uwu-modal h2')].pop()?.textContent === 'Tresor entsperren'`,
   {
     what: 'unlock prompt at start',
   },
 );
 check('a locked vault asks once when the app starts', true);
-check('it can be put off', (await page.text('.modal-footer button')).includes('Später'));
+check('it can be put off', (await page.text('.uwu-modal footer button')).includes('Später'));
 await shot('c1-start');
-await page.click('.modal-footer button', 'Später');
-await page.waitFor(`!document.querySelector('.modal')`, { what: 'start prompt dismissed' });
+await page.click('.uwu-modal footer button', 'Später');
+await page.waitFor(`!document.querySelector('.uwu-modal')`, { what: 'start prompt dismissed' });
 
 // ── Connect: the vault is locked, so it must be unlocked first ──────────────
 await page.click('.host .host-name', 'dev-sshd');
 await page.waitFor(
-  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Tresor entsperren'`,
+  `[...document.querySelectorAll('.uwu-modal h2')].pop()?.textContent === 'Tresor entsperren'`,
   {
     what: 'unlock dialog',
   },
@@ -73,11 +73,11 @@ await page.key('Enter');
 
 // ── Trust the host key, then the key login goes through ─────────────────────
 await page.waitFor(
-  `[...document.querySelectorAll('.modal-title')].pop()?.textContent === 'Unbekannter Host-Key'`,
+  `[...document.querySelectorAll('.uwu-modal h2')].pop()?.textContent === 'Unbekannter Host-Key'`,
   { what: 'trust dialog after unlock' },
 );
 check('after unlocking, the host key is offered for trust', true);
-await page.click('.modal-footer button', 'Vertrauen und verbinden');
+await page.click('.uwu-modal footer button', 'Vertrauen und verbinden');
 
 await page.waitFor(`document.querySelector('.session-title b')?.textContent === 'dev-sshd'`, {
   what: 'connected title',
