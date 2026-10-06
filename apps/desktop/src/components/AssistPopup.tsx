@@ -1,3 +1,4 @@
+import { Button, Hint, ICONS, Select, Tag } from '@uwusuite/design';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import {
   asAssistFailure,
@@ -14,7 +15,6 @@ import {
 } from '../lib/assist';
 import { t, useLanguage } from '../lib/i18n';
 import type { SessionId } from '../lib/session';
-import { Icon } from './Icon';
 import { Modal } from './Modal';
 import { VaultDialog } from './VaultDialog';
 
@@ -130,25 +130,27 @@ export function AssistPopup({ session, target, targetName, onClose, onInserted, 
         onCancel={onClose}
         footer={
           <>
-            <button data-secondary onClick={onClose}>
+            <Button data-secondary onClick={onClose}>
               {t('Abbrechen')}
-            </button>
-            <button
+            </Button>
+            <Button
               data-secondary
+              icon={ICONS.refresh}
               onClick={() => void generate(true)}
               disabled={busy || !request.trim()}
               title={t('Fragt das Modell neu, ohne den Cache')}
             >
-              <Icon name="refresh" size={15} />
               {t('Neu generieren')}
-            </button>
-            <button
-              className="primary"
+            </Button>
+            <Button
+              variant="primary"
+              icon={answered ? undefined : ICONS.ai}
+              busy={busy}
               onClick={() => (answered ? void insert() : void generate(false))}
               disabled={busy || !request.trim() || (answered && !command.trim())}
             >
               {answered ? t('Einfügen') : t('Erzeugen')}
-            </button>
+            </Button>
           </>
         }
       >
@@ -156,8 +158,8 @@ export function AssistPopup({ session, target, targetName, onClose, onInserted, 
           <p className="assist-target">
             <span>{t('Für {name}', { name: targetName })}</span>
             {platform && platform.shells.length > 1 ? (
-              <select
-                className="select assist-shell"
+              <Select
+                className="assist-shell w-40 [&>select]:h-8 [&>select]:text-meta"
                 aria-label={t('Shell')}
                 value={platform.shell}
                 onChange={(event) => pickShell(event.target.value as Shell)}
@@ -167,9 +169,9 @@ export function AssistPopup({ session, target, targetName, onClose, onInserted, 
                     {SHELL_LABELS[option]}
                   </option>
                 ))}
-              </select>
+              </Select>
             ) : (
-              platform && <span className="assist-shell-name">{SHELL_LABELS[platform.shell]}</span>
+              platform && <Tag>{SHELL_LABELS[platform.shell]}</Tag>
             )}
           </p>
           <label className="field">
@@ -211,23 +213,20 @@ export function AssistPopup({ session, target, targetName, onClose, onInserted, 
                       spellCheck={false}
                     />
                     {suggestion.cached && (
-                      <span
-                        className="assist-badge"
-                        title={t('Diese Antwort kam ohne Modell aus dem Cache.')}
-                      >
+                      <Tag tone="pink" title={t('Diese Antwort kam ohne Modell aus dem Cache.')}>
                         {t('aus Cache')}
-                      </span>
+                      </Tag>
                     )}
                   </div>
                   {suggestion.explanation && (
                     <p className="assist-explanation">{suggestion.explanation}</p>
                   )}
                   {suggestion.dangerous && (
-                    <p className="assist-danger" role="alert">
+                    <Hint tone="danger" className="font-semibold">
                       {t(
                         'Vorsicht: Dieser Befehl kann Daten löschen, Dienste stoppen oder das System verändern. Lies ihn, bevor du Enter drückst.',
                       )}
-                    </p>
+                    </Hint>
                   )}
                   <p className="field-hint">
                     {t(
@@ -248,7 +247,11 @@ export function AssistPopup({ session, target, targetName, onClose, onInserted, 
               <p className="form-error" role="alert">
                 {assistErrorText(failure)}
               </p>
-              {notSetUp && <button onClick={onSetUp}>{t('KI einrichten')}</button>}
+              {notSetUp && (
+                <Button size="sm" icon={ICONS.ai} onClick={onSetUp}>
+                  {t('KI einrichten')}
+                </Button>
+              )}
             </div>
           )}
         </div>

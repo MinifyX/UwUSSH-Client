@@ -1,4 +1,7 @@
+import { Button, Icon, ICONS, Segmented, Tag } from '@uwusuite/design';
+import type { LucideIcon } from 'lucide-react';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { localShellAvailable } from '../lib/flavor';
 import { N_, t, useLanguage } from '../lib/i18n';
 import { systemName } from '../lib/platform';
 import {
@@ -18,11 +21,10 @@ import {
 import { keysFor } from '../lib/shortcuts';
 import { syncStatus, type SyncStatus } from '../lib/sync';
 import { AssistProviderSetup } from './AssistSettings';
-import { Icon, type IconName } from './Icon';
 import { ImportDialog } from './ImportDialog';
 import { Modal } from './Modal';
 import { NyuScene, type SceneName } from './nyu/scenes';
-import { Row, Segmented, Toggle } from './SettingsDialog';
+import { Row, Toggle } from './SettingsDialog';
 import { SyncSettings } from './SyncSettings';
 import { VaultDialog } from './VaultDialog';
 
@@ -174,26 +176,29 @@ export function Onboarding({ onClose, onHostsChanged }: Props) {
       title={stepTitle(step.id)}
       size="wizard"
       onCancel={onClose}
+      // One height for every step, so the buttons stay where the pointer is;
+      // only the page between title and buttons scrolls (down to 720 × 480).
+      className="onboarding-dialog"
       footer={
         <>
           {!last && (
-            <button className="quiet" data-secondary onClick={onClose}>
+            <Button variant="ghost" data-secondary onClick={onClose}>
               {t('Einrichtung überspringen')}
-            </button>
+            </Button>
           )}
           <span className="spacer" />
           {index > 0 && (
-            <button data-secondary onClick={() => setIndex(index - 1)}>
+            <Button data-secondary onClick={() => setIndex(index - 1)}>
               {t('Zurück')}
-            </button>
+            </Button>
           )}
-          <button
-            className="primary"
+          <Button
+            variant="primary"
             data-autofocus
             onClick={() => (last ? onClose() : setIndex(index + 1))}
           >
             {primaryLabel}
-          </button>
+          </Button>
         </>
       }
     >
@@ -208,7 +213,7 @@ export function Onboarding({ onClose, onHostsChanged }: Props) {
                 onClick={() => setIndex(at)}
               >
                 <span className="onboarding-dot" aria-hidden>
-                  {at < index ? <Icon name="check" size={11} /> : at + 1}
+                  {at < index ? <Icon icon={ICONS.done} size="xs" /> : at + 1}
                 </span>
                 <span className="onboarding-step-label">{t(candidate.label)}</span>
               </button>
@@ -240,12 +245,9 @@ export function Onboarding({ onClose, onHostsChanged }: Props) {
           title={t('Sync einrichten')}
           onCancel={() => close('sync')}
           footer={
-            <>
-              <span className="spacer" />
-              <button className="primary" data-secondary onClick={() => close('sync')}>
-                {t('Fertig')}
-              </button>
-            </>
+            <Button variant="primary" data-secondary onClick={() => close('sync')}>
+              {t('Fertig')}
+            </Button>
           }
         >
           <div className="onboarding-sync">
@@ -321,7 +323,7 @@ function Design() {
   const settings = useSettings();
   return (
     <>
-      <p className="setting-label">{t('Farbschema')}</p>
+      <p className="text-body font-semibold">{t('Farbschema')}</p>
       <div className="theme-cards" role="radiogroup" aria-label={t('Farbschema')}>
         {THEMES.map(({ value, label }) => (
           <button
@@ -376,7 +378,7 @@ function Choice({
   okText,
   onClick,
 }: {
-  icon: IconName;
+  icon: LucideIcon;
   title: string;
   text: string;
   ok: boolean;
@@ -385,7 +387,7 @@ function Choice({
 }) {
   return (
     <button className="sync-choice onboarding-choice" data-ok={ok || undefined} onClick={onClick}>
-      <Icon name={ok ? 'check' : icon} size={20} />
+      <Icon icon={ok ? ICONS.done : icon} size="lg" />
       <span>
         <b>{ok ? okText : title}</b>
         <small>{text}</small>
@@ -416,7 +418,7 @@ function VaultStep({
       </p>
       <div className="sync-choices">
         <Choice
-          icon="lock"
+          icon={ICONS.masterPassword}
           title={t('Master-Passwort festlegen')}
           okText={t('Tresor ist angelegt')}
           text={t(
@@ -427,7 +429,7 @@ function VaultStep({
           onClick={onVault}
         />
         <Choice
-          icon="network"
+          icon={ICONS.sync}
           title={t('Sync verbinden')}
           okText={
             sync?.backend === 'uwulock'
@@ -471,9 +473,9 @@ function ImportStep({
         <p className="onboarding-found">
           <span>{t('Auf diesem Rechner gefunden:')}</span>
           {found.map((source) => (
-            <span key={source} className="onboarding-chip">
+            <Tag key={source} tone="pink">
               {IMPORT_NAMES[source]}
-            </span>
+            </Tag>
           ))}
         </p>
       ) : (
@@ -482,13 +484,12 @@ function ImportStep({
         </p>
       )}
       <div className="onboarding-actions">
-        <button onClick={onImport}>
-          <Icon name="import" size={15} />
+        <Button icon={ICONS.import} onClick={onImport}>
           {t('Importieren…')}
-        </button>
+        </Button>
         {(hosts ?? 0) > 0 && (
           <span className="onboarding-ok">
-            <Icon name="check" size={14} />
+            <Icon icon={ICONS.done} size="xs" />
             {t('{count} Hosts in der Liste', { count: hosts ?? 0 })}
           </span>
         )}
@@ -518,13 +519,12 @@ function AssistStep({ saved, onSaved }: { saved: boolean; onSaved: () => void })
         />
       ) : (
         <div className="onboarding-actions">
-          <button onClick={() => setSetup(true)}>
-            <Icon name="sparkles" size={15} />
+          <Button icon={ICONS.ai} onClick={() => setSetup(true)}>
             {saved ? t('Anbieter ändern…') : t('KI einrichten…')}
-          </button>
+          </Button>
           {saved ? (
             <span className="onboarding-ok">
-              <Icon name="check" size={14} />
+              <Icon icon={ICONS.done} size="xs" />
               {t('Gespeichert')}
             </span>
           ) : (
@@ -562,7 +562,7 @@ function Summary({ items }: { items: { label: string; ok: boolean; note: string 
         {items.map((item) => (
           <li key={item.label} data-ok={item.ok || undefined}>
             <span className="onboarding-mark" aria-hidden>
-              {item.ok ? <Icon name="check" size={12} /> : '–'}
+              {item.ok ? <Icon icon={ICONS.done} size="xs" /> : '–'}
             </span>
             <b>{item.label}</b>
             <span className="sr-only">{item.ok ? t('eingerichtet') : t('übersprungen')}</span>
@@ -572,8 +572,12 @@ function Summary({ items }: { items: { label: string; ok: boolean; note: string 
       </ul>
       <div className="shortcuts onboarding-tips">
         <dl>
-          <dt>{keysFor('new-shell')}</dt>
-          <dd>{t('Neue lokale Shell')}</dd>
+          {localShellAvailable() && (
+            <>
+              <dt>{keysFor('new-shell')}</dt>
+              <dd>{t('Neue lokale Shell')}</dd>
+            </>
+          )}
           <dt>{keysFor('assist')}</dt>
           <dd>{t('Befehl aus Worten')}</dd>
           <dt>{keysFor('settings')}</dt>
