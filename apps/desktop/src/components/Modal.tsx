@@ -1,5 +1,5 @@
 import { Dialog } from '@uwusuite/design';
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 type ModalProps = {
@@ -55,6 +55,7 @@ export function Modal({
   bodyClassName,
 }: ModalProps) {
   const bodyRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
   // Escape calls the latest onCancel, not the one from when the dialog
   // opened: a form that asks before closing only knows once something changed.
   const cancelRef = useRef(onCancel);
@@ -64,6 +65,15 @@ export function Modal({
     const body = bodyRef.current;
     const dialog = body?.closest('dialog');
     if (!body || !dialog) return;
+    // The package's <dialog> shows the title but isn't named by it; screen
+    // readers (and tests) find a dialog by its name.
+    const heading = dialog.querySelector('header h2');
+    if (heading) {
+      heading.id ||= `${titleId}-title`;
+      dialog.setAttribute('aria-labelledby', heading.id);
+    } else {
+      dialog.setAttribute('aria-label', title);
+    }
     const previous = document.activeElement as HTMLElement | null;
     const first =
       dialog.querySelector<HTMLElement>('[data-autofocus]') ??

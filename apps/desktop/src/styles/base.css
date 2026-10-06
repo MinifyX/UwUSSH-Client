@@ -60,7 +60,7 @@
   width: 88px;
 }
 
-.field > span {
+.field > span:not(.input-with-button) {
   font-size: 12px;
   font-weight: 600;
   color: var(--uwu-muted);
