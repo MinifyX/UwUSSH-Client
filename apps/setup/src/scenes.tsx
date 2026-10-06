@@ -1,5 +1,7 @@
+import { NYU, NyuPaw, Sticker } from '@uwusuite/design';
 import type { ReactNode } from 'react';
-import { NYU, NyuFigure, Paw, Sticker } from '@nyu/Nyu';
+// Nyu's full figure and the app's scenes are still the app's own (apps/desktop).
+import { NyuFigure } from '@nyu/Nyu';
 import { Key, NyuScene, Prompt, Shadow, Star } from '@nyu/scenes';
 
 // Installer scenes on the same 320 × 220 canvas as the app's scenes.
@@ -20,7 +22,7 @@ function Canvas({ children }: { children: ReactNode }) {
 
 /** Nyu hops and tosses little terminals into a box with the key in it. */
 export function WorkingScene() {
-  const S = { stroke: NYU.outline, strokeWidth: 6 } as const;
+  const S = { stroke: NYU.ink, strokeWidth: 6 } as const;
   return (
     <Canvas>
       <Shadow cx={150} rx={120} />
@@ -45,7 +47,7 @@ export function WorkingScene() {
           scale={0.56}
           tilt={-4}
           edge={30}
-          front={<Paw x={232} y={110} />}
+          front={<NyuPaw x={232} y={110} />}
         />
       </g>
       <Sticker edge={12}>
@@ -66,7 +68,7 @@ export function WelcomeScene() {
 
 export function DoneScene() {
   return (
-    <div className="setup-pop w-full">
+    <div className="animate-pop w-full">
       <NyuScene name="done" className="w-full" />
     </div>
   );
