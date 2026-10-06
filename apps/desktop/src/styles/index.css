@@ -1,0 +1,23 @@
+/*
+ * Every stylesheet of the window, in cascade order.
+ *
+ * The suite first: Tailwind and @uwusuite/design — tokens, UwU Sans, the base
+ * layer, motion, Nyu and the title bar — plus the font picker's fonts. Then
+ * UwUSSH's own sheets, in Tailwind's `components` layer: they are built from
+ * the package's tokens, and a utility class on an element always wins over
+ * them.
+ */
+@import 'tailwindcss';
+@import '@uwusuite/design/tailwind.css';
+@import '@uwusuite/design/font-picker.css';
+
+/* Tailwind looks for class names in the app's sources. */
+@source '../';
+
+@import './base.css' layer(components);
+@import './shell.css' layer(components);
+@import './sidebar.css' layer(components);
+@import './dialogs.css' layer(components);
+@import './settings.css' layer(components);
+@import './files.css' layer(components);
+@import '../components/nyu/nyu.css' layer(components);

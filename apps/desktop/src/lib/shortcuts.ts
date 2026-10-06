@@ -3,7 +3,8 @@
  * language: labels for tooltips and the settings.
  */
 
-import { t } from './i18n';
+import { detectPlatform, shortcutText, withShortcut } from '@uwusuite/design';
+import { language, t } from './i18n';
 import {
   allChordLabels,
   primaryModifierLabel,
@@ -16,6 +17,19 @@ import { platform } from './platform';
 
 export function isMac(): boolean {
   return platform() === 'macos';
+}
+
+/** The desktop platform for chrome decisions (@uwusuite/design): title bar or menu bar. */
+export const desktop = detectPlatform();
+
+/** A Tauri accelerator (`CmdOrCtrl+,`) as this platform writes it. */
+export function keys(accelerator: string): string {
+  return shortcutText(accelerator, desktop, language());
+}
+
+/** A tooltip with its shortcut: `Einstellungen (⌘,)`. */
+export function withKeys(label: string, accelerator: string): string {
+  return withShortcut(label, accelerator, desktop, language());
 }
 
 function keyNames(): KeyNames {

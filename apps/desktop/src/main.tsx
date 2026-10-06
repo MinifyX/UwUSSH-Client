@@ -1,16 +1,12 @@
-import '@fontsource-variable/manrope';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';
-import './components/nyu/nyu.css';
-import { applyAppearance } from './lib/settings';
-import './styles/app.css';
-import './styles/features.css';
-import './styles/tokens.css';
+import { prepareDocument } from './lib/appearance';
+import './styles/index.css';
 
-// Dark by default, as the concept says; Settings → Appearance switches to light
-// or follows the system, and decides about animations.
-applyAppearance();
+// Dark by default, as the concept says (/boot.js put the theme on <html>
+// already); Settings → Darstellung switches theme, contrast, motion and font.
+prepareDocument();
 
 const root = document.getElementById('root');
 if (!root) throw new Error('#root missing from index.html');

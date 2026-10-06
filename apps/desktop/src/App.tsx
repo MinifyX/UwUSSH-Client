@@ -55,6 +55,7 @@ import {
   type UpdateInfo,
   type Workspace,
 } from './lib/session';
+import { useAppAppearance } from './lib/appearance';
 import { language, t } from './lib/i18n';
 import { shortcutFor, terminalKey } from './lib/keymap';
 import { platform } from './lib/platform';
@@ -202,6 +203,7 @@ const NO_TAB = '';
 
 export function App() {
   const settings = useSettings();
+  useAppAppearance(settings);
 
   // ── Tabs ──────────────────────────────────────────────────────────────────
   const [tabs, setTabs] = useState<Tab[]>([]);

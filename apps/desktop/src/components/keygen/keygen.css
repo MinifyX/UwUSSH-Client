@@ -123,5 +123,5 @@
 }
 
 .field-hint[data-tone='warning'] {
-  color: var(--uwu-alarm);
+  color: var(--uwu-warning-ink);
 }

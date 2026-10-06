@@ -7,16 +7,21 @@
  * on every change.
  */
 
+import {
+  isFontChoice,
+  type ContrastSetting,
+  type FontChoice,
+  type MotionSetting,
+  type ThemeSetting,
+} from '@uwusuite/design';
 import { useSyncExternalStore } from 'react';
 import pkg from '../../package.json';
-import { language, t } from './i18n';
+import { t } from './i18n';
 import type { Workspace } from './session';
 
-export type ThemeSetting = 'system' | 'light' | 'dark';
+export type { ContrastSetting, FontChoice, MotionSetting, ThemeSetting };
 /** German or English; "system" follows the language Windows prefers. */
 export type LanguageSetting = 'system' | 'de' | 'en';
-/** Animations: follow the system's reduced-motion setting, or override it. */
-export type MotionSetting = 'system' | 'on' | 'off';
 export type CursorStyle = 'block' | 'bar' | 'underline';
 /** What opens by itself when UwUSSH starts: nothing, a local shell, or chosen hosts. */
 export type StartupSetting = 'nothing' | 'shell' | 'hosts';
@@ -47,8 +52,12 @@ export type HighlightSettings = {
 
 export type Settings = {
   language: LanguageSetting;
+  /** Theme, contrast and motion go onto <html> through @uwusuite/design's useAppearance (lib/appearance.ts). */
   theme: ThemeSetting;
+  contrast: ContrastSetting;
   motion: MotionSetting;
+  /** The interface font (@uwusuite/design's applyUiFont). The terminal's font is its own. */
+  font: FontChoice;
   fontSize: number;
   cursorStyle: CursorStyle;
   cursorBlink: boolean;
@@ -91,7 +100,9 @@ export const HIGHLIGHT_COLORS: readonly HighlightColor[] = [
 export const DEFAULT_SETTINGS: Settings = {
   language: 'system',
   theme: 'dark',
+  contrast: 'system',
   motion: 'system',
+  font: 'uwu',
   fontSize: 13,
   cursorStyle: 'block',
   cursorBlink: true,
@@ -162,7 +173,10 @@ export function sanitize(raw: unknown): Settings {
   return {
     language: oneOf(input.language, ['system', 'de', 'en'] as const, d.language),
     theme: oneOf(input.theme, ['system', 'light', 'dark'] as const, d.theme),
+    contrast: oneOf(input.contrast, ['system', 'normal', 'high'] as const, d.contrast),
     motion: oneOf(input.motion, ['system', 'on', 'off'] as const, d.motion),
+    // A font that is no longer offered falls back to UwU Sans.
+    font: isFontChoice(input.font) ? input.font : d.font,
     fontSize,
     cursorStyle: oneOf(input.cursorStyle, ['block', 'bar', 'underline'] as const, d.cursorStyle),
     cursorBlink: bool(input.cursorBlink, d.cursorBlink),
@@ -278,29 +292,4 @@ export function workspaceName(workspace: Workspace, settings: Settings): string 
   const own = settings.workspaceNames[workspace].trim();
   if (own) return own;
   return workspace === 'private' ? t('Privat') : t('Business');
-}
-
-const darkQuery = () => window.matchMedia('(prefers-color-scheme: dark)');
-const reducedQuery = () => window.matchMedia('(prefers-reduced-motion: reduce)');
-
-/** Whether animations should play right now, by setting and system. */
-export function motionAllowed(): boolean {
-  const { motion } = current;
-  return motion === 'on' || (motion === 'system' && !reducedQuery().matches);
-}
-
-/** Puts theme and motion on <html>, now and whenever the setting or the system changes. */
-export function applyAppearance() {
-  const apply = () => {
-    const { theme } = current;
-    const dark = theme === 'dark' || (theme === 'system' && darkQuery().matches);
-    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-    document.documentElement.lang = language(current);
-    if (motionAllowed()) delete document.documentElement.dataset.motion;
-    else document.documentElement.dataset.motion = 'reduced';
-  };
-  apply();
-  subscribeSettings(apply);
-  darkQuery().addEventListener('change', apply);
-  reducedQuery().addEventListener('change', apply);
 }

@@ -1,0 +1,298 @@
+/*
+ * Shared pieces of the window: buttons, forms, checkboxes, dialogs, icons, tooltips. Built from @uwusuite/design tokens.
+ */
+
+.spacer {
+  flex: 1;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ── Buttons ───────────────────────────────────────────── */
+
+/*
+ * TRANSITIONAL: the old app-wide button look, only for buttons that are not
+ * @uwusuite/design's Button/IconButton yet (those carry .rounded-full). Goes
+ * away once every button is a package button or has a class of its own.
+ */
+
+:where(button:not(.rounded-full)) {
+  font: inherit;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 7px 14px;
+  border-radius: var(--uwu-radius-control);
+  border: 1px solid var(--uwu-border);
+  background: var(--uwu-surface);
+  color: var(--uwu-ink);
+  cursor: pointer;
+}
+
+:where(button:not(.rounded-full)):hover:not(:disabled) {
+  background: var(--uwu-elevated);
+}
+
+:where(button:not(.rounded-full)):disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+:where(button:not(.rounded-full)).primary {
+  background: var(--uwu-pink-solid);
+  border-color: var(--uwu-pink-solid);
+  color: var(--uwu-on-pink);
+}
+
+:where(button:not(.rounded-full)).primary:hover:not(:disabled) {
+  background: var(--uwu-pink-solid);
+  filter: brightness(1.06);
+}
+
+:where(button:not(.rounded-full)).danger {
+  color: var(--uwu-warning-ink);
+  border-color: color-mix(in srgb, var(--uwu-warning-ink) 45%, transparent);
+}
+
+:where(button:not(.rounded-full)).quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--uwu-muted);
+  font-weight: 500;
+  padding: 4px 10px;
+}
+
+.icon-button {
+  padding: 0;
+  width: 26px;
+  height: 26px;
+  display: inline-grid;
+  place-items: center;
+  font-size: 15px;
+  line-height: 1;
+  border-color: transparent;
+  background: transparent;
+  color: var(--uwu-muted);
+}
+
+/* ── Modal ─────────────────────────────────────────────── */
+
+/* The body of a dialog (components/Modal.tsx); the <dialog> itself is the package's. */
+.modal-body {
+  display: grid;
+  gap: 12px;
+}
+
+.dialog-lead {
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* ── Forms ─────────────────────────────────────────────── */
+
+.form {
+  display: grid;
+  gap: 12px;
+}
+
+.form-row {
+  display: flex;
+  gap: 10px;
+}
+
+.field {
+  display: grid;
+  /* Without this a taller neighbour (one with an error line) stretches the
+     rows and pushes this input down. */
+  align-content: start;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.field.grow {
+  flex: 1;
+}
+
+.field.port {
+  width: 88px;
+}
+
+.field > span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--uwu-muted);
+  line-height: 1.45;
+}
+
+.field input {
+  font: inherit;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--uwu-radius-control);
+  border: 1px solid var(--uwu-border);
+  background: var(--uwu-canvas);
+  color: var(--uwu-ink);
+}
+
+.field input[aria-invalid='true'] {
+  border-color: var(--uwu-warning-ink);
+}
+
+.field-error,
+.field-hint {
+  font-style: normal;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.field-error {
+  color: var(--uwu-warning-ink);
+}
+
+.field-hint {
+  margin: 0;
+  color: var(--uwu-muted);
+}
+
+/* Commands in hints must not break at their hyphens. */
+.field-hint code {
+  white-space: nowrap;
+}
+
+.form-error {
+  margin: 0;
+  color: var(--uwu-warning-ink);
+  font-size: 13px;
+}
+
+.segmented {
+  display: inline-flex;
+  padding: 3px;
+  gap: 3px;
+  border-radius: var(--uwu-radius-control);
+  background: var(--uwu-canvas);
+  border: 1px solid var(--uwu-border);
+  width: max-content;
+}
+
+.segmented button {
+  border: 0;
+  background: transparent;
+  padding: 5px 14px;
+  border-radius: 7px;
+  color: var(--uwu-muted);
+}
+
+.segmented button[aria-checked='true'] {
+  background: var(--uwu-surface);
+  color: var(--uwu-ink);
+  box-shadow: 0 1px 2px rgba(20, 16, 22, 0.12);
+}
+
+/* ── Icons ─────────────────────────────────────────────── */
+
+.icon {
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+button > .icon + *,
+button > .icon {
+  vertical-align: middle;
+}
+
+button:has(> .icon):not(.icon-button):not(.host):not(.group-toggle) {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/* ── Checkboxes with an explanation ────────────────────── */
+
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--uwu-radius-control);
+  border: 1px solid var(--uwu-hairline);
+  background: var(--uwu-elevated);
+  cursor: pointer;
+}
+
+.check input {
+  margin: 2px 0 0;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--uwu-pink-solid);
+  flex: none;
+}
+
+.check span {
+  display: grid;
+  gap: 2px;
+}
+
+.check small {
+  color: var(--uwu-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.check.inline {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.check.inline input {
+  margin: 0;
+}
+
+.dialog-scene {
+  width: 180px;
+  justify-self: center;
+  margin: -4px 0 -6px;
+}
+
+/* ── Tooltip: hover and focus, drawn into <body> ──────────────────────────── */
+
+.tooltip {
+  position: fixed;
+  z-index: 1000;
+  max-width: 300px;
+  padding: 10px 12px;
+  border: 1px solid var(--uwu-border);
+  border-radius: var(--uwu-radius-control);
+  background: var(--uwu-surface);
+  color: var(--uwu-ink);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--uwu-ink) 14%, transparent);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+  pointer-events: none;
+  animation: tooltip-in 120ms ease-out;
+}
+
+@keyframes tooltip-in {
+  from {
+    opacity: 0;
+    translate: 0 -2px;
+  }
+}
