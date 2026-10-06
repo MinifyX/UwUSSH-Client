@@ -17,7 +17,11 @@
 //! - [`lock`] — the same through UwULock: signing in, the move from UwUSync,
 //!   the realtime channel
 //! - [`system`] — updates, links, a fresh start for a reloaded page
+//! - [`updates`] — finding, downloading and installing new versions; only in
+//!   builds with the `self-update` feature, which the Mac App Store's is not
 //! - [`links`] — `uwussh://connect/<host id>` links
+//! - [`sandbox_access`] — the Mac App Store sandbox's bookmarks, so folders
+//!   and files the person picked stay reachable after a restart
 //! - [`m0`] — the throughput measurement
 //!
 //! The macOS menu bar is the page's (`setMacMenu` in App.tsx).
@@ -34,10 +38,12 @@ mod keys;
 mod links;
 mod lock;
 mod m0;
+mod sandbox_access;
 mod sessions;
 mod sync;
 mod system;
 mod tunnels;
+#[cfg(feature = "self-update")]
 mod updates;
 
 use parking_lot::Mutex;
@@ -115,7 +121,14 @@ pub fn run() {
     // over and quits before anything else of it runs. A run with a database
     // of its own (UWUSSH_DB, for trying things out and the end-to-end tests)
     // stays a separate window.
-    let builder = if std::env::var_os("UWUSSH_DB").is_none() {
+    //
+    // Not in the Mac App Store build: on a Mac, Launch Services already keeps
+    // an app bundle to one copy and hands a `uwussh://` link to the running
+    // one (the deep-link plugin gets it either way), and the plugin's socket
+    // in /tmp is outside what the sandbox lets the app create.
+    let single_instance =
+        std::env::var_os("UWUSSH_DB").is_none() && !cfg!(all(target_os = "macos", feature = "mas"));
+    let builder = if single_instance {
         builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             links::second_instance(app)
         }))
@@ -123,11 +136,16 @@ pub fn run() {
         builder
     };
 
-    builder
+    let builder = builder
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init());
+    // The updater plugin's own commands are in no capability, so the page
+    // cannot reach them; the feed stays what tauri.conf.json says.
+    #[cfg(feature = "self-update")]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+
+    builder
         .setup(|app| {
             // macOS ends an app without asking the window; this asks the page
             // first (`onMacQuit` in App.tsx, answered through `finish_quit`),
@@ -143,6 +161,7 @@ pub fn run() {
                 }
             }
 
+            #[cfg(feature = "self-update")]
             if updates::apply_pending_on_start(app.handle()) {
                 // The downloaded setup replaces this version and starts UwUSSH again.
                 std::process::exit(0);
@@ -156,6 +175,12 @@ pub fn run() {
                 Some(path) => std::path::PathBuf::from(path),
                 None => app.path().app_data_dir()?.join("uwussh.db"),
             };
+            // Before anything reads a key file or the page lists a folder: the
+            // folders and files the person picked in an earlier run, next to
+            // the database so UWUSSH_DB moves them too.
+            if let Some(directory) = path.parent() {
+                sandbox_access::restore(directory);
+            }
             let store = Store::open(&path)?;
             tracing::info!(path = %path.display(), "store open");
             // A vault this device keeps the key for opens right away, so the
@@ -177,6 +202,7 @@ pub fn run() {
                 picked_folder: Mutex::new(None),
             });
             app.manage(keygen::Generated::default());
+            #[cfg(feature = "self-update")]
             updates::start(app.handle());
             sync::start(app.handle());
             links::setup(app);
@@ -233,6 +259,8 @@ pub fn run() {
             files::local_rename,
             files::local_trash,
             files::local_copy,
+            files::local_pick_folder,
+            files::local_forget_folder,
             files::smb_connect,
             tunnels::list_tunnels,
             tunnels::save_tunnel,
@@ -244,6 +272,8 @@ pub fn run() {
             keys::rename_key,
             keys::delete_key,
             keys::pick_key_file,
+            keys::pick_key_path,
+            keys::grant_ssh_folder,
             keys::import_picked_key,
             keys::forget_picked_key,
             keys::export_key_file,

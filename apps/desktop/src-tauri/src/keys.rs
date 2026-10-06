@@ -8,6 +8,7 @@ use crate::keygen::{save_key_file, Generated, KeygenFailure};
 use crate::{err, AppState, CommandResult};
 use parking_lot::Mutex;
 use serde::Serialize;
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, State};
 use uuid::Uuid;
 use uwussh_keygen::{KeyInfo, PrivateFormat};
@@ -160,7 +161,14 @@ pub(crate) async fn pick_key_file(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Option<PickedKey>, KeyFailure> {
-    let Some(path) = dialogs::open(&app, "Private Key importieren", KEY_FILTER).await else {
+    let Some(path) = dialogs::open(
+        &app,
+        "Private Key importieren",
+        KEY_FILTER,
+        ssh_folder().as_deref(),
+    )
+    .await
+    else {
         return Ok(None);
     };
     if uwussh_core::ssh::is_network_path(&path.display().to_string()) {
@@ -192,6 +200,70 @@ pub(crate) async fn pick_key_file(
         encrypted,
         info,
     }))
+}
+
+/// `~/.ssh`, where the panels for key files start. The real one in the Mac App
+/// Store build too, not the sandbox container's (`uwussh_core::home_dir`).
+fn ssh_folder() -> Option<PathBuf> {
+    uwussh_core::home_dir().map(|home| home.join(".ssh"))
+}
+
+/// `~/…` for a path in the home folder, so a host that syncs to another
+/// computer still finds its key there; any other path as it is.
+fn with_tilde(path: &Path, home: Option<&Path>) -> String {
+    match home.and_then(|home| path.strip_prefix(home).ok()) {
+        Some(rest) if !rest.as_os_str().is_empty() => {
+            format!("~{}{}", std::path::MAIN_SEPARATOR, rest.display())
+        }
+        _ => path.display().to_string(),
+    }
+}
+
+/// Pick the key file a host logs in with, where it is — the host form's
+/// "Key-Datei" field. Nothing is read or copied; the path goes into the field.
+/// In the Mac App Store build this is also what lets the app read the file
+/// later: the panel grants it, and a bookmark keeps it across restarts. A
+/// path typed by hand is only readable there inside a folder granted that way
+/// (`grant_ssh_folder`).
+#[tauri::command]
+pub(crate) async fn pick_key_path(app: AppHandle) -> CommandResult<Option<String>> {
+    let Some(path) = dialogs::open(
+        &app,
+        "Key-Datei wählen",
+        KEY_FILTER,
+        ssh_folder().as_deref(),
+    )
+    .await
+    else {
+        return Ok(None);
+    };
+    let shown = with_tilde(&path, uwussh_core::home_dir().as_deref());
+    if uwussh_core::ssh::is_network_path(&shown) {
+        return Err("keys on network shares are not read".into());
+    }
+    crate::sandbox_access::remember(&path);
+    Ok(Some(shown))
+}
+
+/// Let the app into `~/.ssh` (or another folder of keys and an ssh_config):
+/// a folder panel that starts there. Every build offers it; only the Mac App
+/// Store build needs it, where the sandbox keeps the app out of the home
+/// folder until the person points at the folder once. From then on — kept by
+/// a bookmark — `~/.ssh/config` can be imported and every host whose key file
+/// lies in there connects. Returns the folder as the page shows it.
+#[tauri::command]
+pub(crate) async fn grant_ssh_folder(app: AppHandle) -> CommandResult<Option<String>> {
+    let Some(dir) = dialogs::folder(
+        &app,
+        "SSH-Ordner freigeben (~/.ssh)",
+        ssh_folder().as_deref(),
+    )
+    .await
+    else {
+        return Ok(None);
+    };
+    crate::sandbox_access::remember(&dir);
+    Ok(Some(with_tilde(&dir, uwussh_core::home_dir().as_deref())))
 }
 
 /// The picked key file is no longer wanted: the dialog closed.
@@ -301,4 +373,30 @@ pub(crate) async fn keygen_store(
     })?;
     generated.forget(&token);
     Ok(record)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::with_tilde;
+    use std::path::{Path, MAIN_SEPARATOR as SEP};
+
+    #[test]
+    fn a_key_in_the_home_folder_is_kept_with_a_tilde() {
+        let home = Path::new("/Users/nyu");
+        assert_eq!(
+            with_tilde(&home.join(".ssh").join("id_ed25519"), Some(home)),
+            format!("~{SEP}.ssh{SEP}id_ed25519")
+        );
+        // Elsewhere, or the home folder itself, stays as it is.
+        assert_eq!(
+            with_tilde(Path::new("/Volumes/keys/nas.ppk"), Some(home)),
+            "/Volumes/keys/nas.ppk"
+        );
+        assert_eq!(with_tilde(home, Some(home)), "/Users/nyu");
+        assert_eq!(
+            with_tilde(Path::new("/Users/nyu-old/id"), Some(home)),
+            "/Users/nyu-old/id"
+        );
+        assert_eq!(with_tilde(Path::new("/k"), None), "/k");
+    }
 }

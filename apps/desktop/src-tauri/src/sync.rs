@@ -490,7 +490,19 @@ pub(crate) fn device_name() -> String {
             .filter(|name| !name.is_empty())
     };
     // Apps started from the Dock or a menu get no HOSTNAME. macOS keeps the
-    // name people gave their Mac apart from the network one.
+    // name people gave their Mac apart from the network one. The Mac App
+    // Store build runs no programs, so it asks Foundation for that name.
+    #[cfg(all(target_os = "macos", feature = "mas"))]
+    let from_command = || {
+        // NSHost is deprecated for resolving names; `localizedName` is the
+        // name from System Settings → General → About, all this asks for.
+        #[allow(deprecated)]
+        let host = objc2_foundation::NSHost::currentHost();
+        host.localizedName()
+            .map(|name| name.to_string().trim().to_string())
+            .filter(|name| !name.is_empty())
+    };
+    #[cfg(not(all(target_os = "macos", feature = "mas")))]
     let from_command = || {
         let (program, args): (&str, &[&str]) = if cfg!(target_os = "macos") {
             ("/usr/sbin/scutil", &["--get", "ComputerName"])

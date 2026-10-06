@@ -204,10 +204,16 @@ const OPENSSH: &str = "openssh";
 const FOLDER: &str = "folder";
 
 /// Which sources have something to import on this machine.
+///
+/// In the Mac App Store build Termius is never one: its data lies in another
+/// app's folders, which the sandbox does not open, and its key in the
+/// Keychain belongs to Termius. `~/.ssh/config` is one once the person let
+/// the app into `~/.ssh` (`grant_ssh_folder`) — before that the sandbox
+/// answers as if there were no such file, and the page offers the panel.
 #[tauri::command]
 pub(crate) fn available_imports() -> Vec<&'static str> {
     let mut sources = Vec::new();
-    if termius::is_installed() {
+    if !cfg!(feature = "mas") && termius::is_installed() {
         sources.push(TERMIUS);
     }
     if putty::has_sessions(putty::PUTTY_REGISTRY_PATH) {
@@ -237,7 +243,8 @@ pub(crate) async fn pick_import_folder(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> CommandResult<Option<PickedFolder>> {
-    let Some(dir) = crate::dialogs::folder(&app, "Ordner mit PuTTY- oder KiTTY-Sitzungen").await
+    let Some(dir) =
+        crate::dialogs::folder(&app, "Ordner mit PuTTY- oder KiTTY-Sitzungen", None).await
     else {
         return Ok(None);
     };
@@ -340,6 +347,9 @@ fn needs_vault(set: &ImportSet) -> bool {
 
 fn read_bundle(state: &AppState, source: &str) -> Result<ImportBundle, String> {
     match source {
+        TERMIUS if cfg!(feature = "mas") => {
+            Err("the App Store version of UwUSSH cannot read Termius' data".into())
+        }
         TERMIUS => termius::import_local().map_err(|e| match e {
             TermiusError::NotInstalled => "no Termius data was found for this user".into(),
             other => other.to_string(),

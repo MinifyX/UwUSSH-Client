@@ -47,6 +47,9 @@ pub(crate) async fn spawn_m0_session(
         M0Kind::Synthetic => Ok(state
             .sessions
             .spawn_synthetic(bytes, scenario.flow_control, sink)),
+        // A program on this computer, which the Mac App Store build starts
+        // none of (see `spawn_shell_session`).
+        M0Kind::Pty if cfg!(feature = "mas") => Err(crate::sessions::NO_LOCAL_PROCESSES.into()),
         M0Kind::Pty => {
             let path = flood_file(bytes).map_err(err)?;
             let (program, args) = flood_command(&path);

@@ -13,13 +13,23 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
 # What every download from GitHub is: a copy that looks for its own updates
-# and installs them, with a local shell beside the SSH tabs.
+# and installs them, with a local shell beside the SSH tabs. Without it there
+# is no updater plugin, no update feed, no setup download and no code that
+# could start one (`updates.rs` is not compiled at all).
 default = ["self-update"]
-self-update = []
+self-update = [
+  "dep:base64",
+  "dep:minisign-verify",
+  "dep:semver",
+  "dep:tauri-plugin-updater",
+  "dep:tempfile",
+]
 # The Mac App Store build: `--no-default-features --features mas`. The store
 # updates the app, the sandbox decides what it may open, and the local shell
-# is not offered. See docs/app-store.md.
-mas = []
+# is not offered. Files and folders the person picked come back after a
+# restart through security-scoped bookmarks (`sandbox_access.rs`). See
+# docs/app-store.md.
+mas = ["dep:objc2", "dep:objc2-foundation"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -34,10 +44,7 @@ uwussh-store.workspace = true
 uwussh-sync.workspace = true
 uwussh-vault.workspace = true
 
-base64.workspace = true
-minisign-verify = "0.2"
 parking_lot.workspace = true
-semver = "1"
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2", features = [] }
@@ -48,7 +55,6 @@ tauri-plugin-deep-link = "~2.4.10"
 tauri-plugin-single-instance = { version = "~2.4.5", features = ["deep-link"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
-tauri-plugin-updater = "2"
 tokio.workspace = true
 tracing.workspace = true
 # Local deletes in the file browser go to the recycle bin.
@@ -56,6 +62,14 @@ trash = "5"
 uuid.workspace = true
 zeroize.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# The updater (`self-update`). The downloaded setup is checked against the
+# release key once more, on the bytes on disk, just before it is started — so
+# that check lives here too and not only inside the updater plugin.
+base64 = { workspace = true, optional = true }
+minisign-verify = { version = "0.2", optional = true }
+semver = { version = "1", optional = true }
+tauri-plugin-updater = { version = "2", optional = true }
 # macOS: ⌘Q, the Dock and logging out quit through the page, which asks first
 # while connections are open (lib.rs, App.tsx). Nothing off macOS; the tag
 # matches the @uwusuite/design version in package.json.
@@ -82,6 +96,22 @@ chacha20poly1305.workspace = true
 keyring = { version = "3", features = ["apple-native", "sync-secret-service", "crypto-rust"] }
 rand.workspace = true
 
-# A package update is handed to the package manager from a private scratch folder.
+# A package update is handed to the package manager from a private scratch
+# folder (`self-update`).
 [target.'cfg(target_os = "linux")'.dependencies]
-tempfile = "3"
+tempfile = { version = "3", optional = true }
+
+# The Mac App Store build (`mas`): security-scoped bookmarks and the Mac's name
+# without running `scutil`. The same objc2 crates Tauri itself compiles on a
+# Mac, so they add no new code, only more of their API.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { version = "0.6", optional = true }
+objc2-foundation = { version = "0.3", optional = true, default-features = false, features = [
+  "std",
+  "NSArray",
+  "NSData",
+  "NSError",
+  "NSHost",
+  "NSString",
+  "NSURL",
+] }

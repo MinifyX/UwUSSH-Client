@@ -40,3 +40,38 @@ export function localShellAvailable(): boolean {
 export function updatesAvailableInApp(): boolean {
   return current !== 'app-store';
 }
+
+// ── What the sandbox needs from the page ────────────────────────────────────
+//
+// In the store build the App Sandbox lets the app open only what the person
+// picked in a panel; Rust keeps each pick across restarts with a
+// security-scoped bookmark (src-tauri/src/sandbox_access.rs). The panels work
+// in every build, so the page can offer them everywhere and must in the store.
+
+/** A folder the person added to the file browser's local places. */
+export type PickedPlace = { label: string; path: string; kind: 'picked' };
+
+/**
+ * Let the app into `~/.ssh`: a folder panel that starts there. Afterwards
+ * `available_imports` lists `openssh` (store build) and every host whose key
+ * file lies in there connects. The folder as shown (`~/.ssh`), or `null` when
+ * the panel was cancelled.
+ */
+export function grantSshFolder(): Promise<string | null> {
+  return invoke<string | null>('grant_ssh_folder');
+}
+
+/** The host form's key file, picked in a panel (`~/…` when in the home folder). */
+export function pickKeyPath(): Promise<string | null> {
+  return invoke<string | null>('pick_key_path');
+}
+
+/** A folder for the file browser's local side; listed by `local_places` in the store build. */
+export function pickLocalFolder(): Promise<PickedPlace | null> {
+  return invoke<PickedPlace | null>('local_pick_folder');
+}
+
+/** Takes a picked folder off the local places again (store build). */
+export function forgetLocalFolder(path: string): Promise<void> {
+  return invoke('local_forget_folder', { path });
+}

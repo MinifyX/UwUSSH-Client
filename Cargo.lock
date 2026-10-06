@@ -7180,6 +7180,8 @@ dependencies = [
  "chacha20poly1305",
  "keyring",
  "minisign-verify",
+ "objc2",
+ "objc2-foundation",
  "parking_lot",
  "rand 0.8.8",
  "semver",

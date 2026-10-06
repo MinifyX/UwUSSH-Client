@@ -25,6 +25,7 @@
 //! remote program wait.
 
 use crate::flow::FlowControl;
+use crate::home::home_dir;
 use crate::metrics::{Metrics, MetricsSnapshot};
 use crate::os;
 use crate::sftp::{Elevation, SftpClient, SftpError};
@@ -818,10 +819,6 @@ fn expand_home(path: &str) -> PathBuf {
         (Some(rest), Some(home)) => home.join(rest),
         _ => PathBuf::from(path),
     }
-}
-
-fn home_dir() -> Option<PathBuf> {
-    std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from)
 }
 
 #[cfg(test)]

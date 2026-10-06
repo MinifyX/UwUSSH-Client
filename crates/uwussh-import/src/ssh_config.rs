@@ -229,8 +229,37 @@ fn expand_home(path: &str) -> PathBuf {
     }
 }
 
+/// `HOME`, except inside the macOS App Sandbox (the Mac App Store build),
+/// where `HOME` is the app's container, `~/Library/Containers/<id>/Data`: the
+/// config to import and the keys it names are in the real home. The same rule
+/// as `uwussh_core::home_dir`, which this crate does not depend on.
 fn home_dir() -> Option<PathBuf> {
-    std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from)
+    let home = PathBuf::from(std::env::var_os(if cfg!(windows) {
+        "USERPROFILE"
+    } else {
+        "HOME"
+    })?);
+    if cfg!(target_os = "macos") {
+        if let Some(real) = outside_container(&home) {
+            return Some(real);
+        }
+    }
+    Some(home)
+}
+
+fn outside_container(home: &Path) -> Option<PathBuf> {
+    let names: Vec<_> = home.components().rev().take(4).collect();
+    let [data, _bundle_id, containers, library] = names.as_slice() else {
+        return None;
+    };
+    let is = |part: &std::path::Component, name: &str| part.as_os_str() == name;
+    if !(is(data, "Data") && is(containers, "Containers") && is(library, "Library")) {
+        return None;
+    }
+    home.ancestors()
+        .nth(4)
+        .filter(|real| real.parent().is_some())
+        .map(Path::to_path_buf)
 }
 
 impl Importer for SshConfigImporter {
@@ -334,6 +363,23 @@ fn strip_quotes(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Inside the Mac App Store sandbox `HOME` is the container; `~` in a
+    /// config means the real home.
+    #[test]
+    fn inside_the_sandbox_the_home_is_the_real_one() {
+        assert_eq!(
+            outside_container(Path::new(
+                "/Users/nyu/Library/Containers/app.uwussh.desktop/Data"
+            )),
+            Some(PathBuf::from("/Users/nyu"))
+        );
+        assert_eq!(outside_container(Path::new("/Users/nyu")), None);
+        assert_eq!(
+            outside_container(Path::new("/Library/Containers/x/Data")),
+            None
+        );
+    }
 
     const SAMPLE: &str = r#"
 # homelab

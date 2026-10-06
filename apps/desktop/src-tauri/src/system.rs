@@ -1,6 +1,7 @@
 //! App-level commands: updates, links out of the app, and a fresh start for a
 //! page that (re)loaded.
 
+#[cfg(feature = "self-update")]
 use crate::updates::{self, Channel, UpdateInfo};
 use crate::{AppState, CommandResult};
 use tauri::{AppHandle, State};
@@ -22,28 +23,71 @@ pub(crate) async fn close_all_sessions(state: State<'_, AppState>) -> Result<usi
     Ok(state.sessions.close_all())
 }
 
+// The update commands exist in every build, so a page that asks anyway gets
+// an answer instead of an unknown command. Without `self-update` (the Mac App
+// Store build, where the store updates the app) they find nothing and install
+// nothing; the page hides its update UI there (`updatesAvailableInApp()`).
+
 #[tauri::command]
 pub(crate) fn set_update_channel(app: AppHandle, channel: Channel) {
+    #[cfg(feature = "self-update")]
     updates::set_channel(&app, channel);
+    #[cfg(not(feature = "self-update"))]
+    let _ = (app, channel);
 }
 
 /// A downloaded update waiting for a restart, if any.
 #[tauri::command]
 pub(crate) fn update_status(app: AppHandle) -> Option<UpdateInfo> {
-    updates::ready(&app)
+    #[cfg(feature = "self-update")]
+    return updates::ready(&app);
+    #[cfg(not(feature = "self-update"))]
+    {
+        let _ = app;
+        None
+    }
 }
 
 #[tauri::command]
 pub(crate) async fn check_for_updates(app: AppHandle) -> CommandResult<Option<UpdateInfo>> {
-    updates::check(&app).await
+    #[cfg(feature = "self-update")]
+    return updates::check(&app).await;
+    #[cfg(not(feature = "self-update"))]
+    {
+        let _ = app;
+        Ok(None)
+    }
 }
 
 /// Async: a Linux package waits for the password prompt and the package
 /// manager, which must not hold up the main thread.
 #[tauri::command]
 pub(crate) async fn install_update(app: AppHandle) -> CommandResult<()> {
-    updates::install_now(&app).await
+    #[cfg(feature = "self-update")]
+    return updates::install_now(&app).await;
+    #[cfg(not(feature = "self-update"))]
+    {
+        let _ = app;
+        Err("this copy of UwUSSH is updated by the App Store".into())
+    }
 }
+
+/// What the update commands take and give in a build without an updater: the
+/// same channel names, and an update that never exists.
+#[cfg(not(feature = "self-update"))]
+mod no_updates {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "lowercase")]
+    pub(crate) enum Channel {
+        Stable,
+        Beta,
+    }
+
+    #[derive(serde::Serialize)]
+    pub(crate) enum UpdateInfo {}
+}
+#[cfg(not(feature = "self-update"))]
+use no_updates::{Channel, UpdateInfo};
 
 /// The project pages the app links to. The page names one; it never hands in
 /// an address of its own.

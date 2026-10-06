@@ -12,6 +12,7 @@
 //! testable without a window.
 
 pub mod flow;
+pub mod home;
 pub mod metrics;
 pub mod os;
 pub mod pty;
@@ -23,6 +24,7 @@ pub mod synthetic;
 pub mod tunnel;
 
 pub use flow::FlowControl;
+pub use home::home_dir;
 pub use metrics::{Metrics, MetricsSnapshot};
 pub use session::{FilesError, SessionId, SessionManager};
 pub use sftp::{CancelToken, Elevation, Entry, EntryKind, SftpError};
