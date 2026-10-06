@@ -111,7 +111,7 @@ await a.waitFor(
 );
 
 // Close settings, import a host through ssh_config.
-await a.click('.settings-close');
+await a.click('.uwu-modal header button[aria-label="Schließen"]');
 await a.click('.sidebar-head [aria-label="Importieren"]');
 await a.waitFor(`document.querySelector('.import-sources')`, { what: 'source picker' });
 await a.click('.import-source', 'OpenSSH');
@@ -193,7 +193,7 @@ await b.waitFor(
 check('the second device is paired', (await invoke(b, 'sync_status')).paired);
 await b.screenshot(`${SHOTS}e3-joined.png`);
 
-await b.click('.settings-close');
+await b.click('.uwu-modal header button[aria-label="Schließen"]');
 await b.waitFor(
   `[...document.querySelectorAll('.host-name')].some(e => e.textContent === 'dev-sshd')`,
   {
@@ -243,13 +243,13 @@ check('revoking with the wrong password is refused', true);
 await a.click('.modal[data-tone="warning"] input[type=password]');
 await a.type(MASTER);
 await a.key('Enter');
-await a.waitFor(`document.querySelector('.sync-devices .import-warning')`, {
+await a.waitFor(`document.querySelector('.sync-devices .sync-revoked')`, {
   what: 'revoked',
   timeout: 20_000,
 });
 check(
   'revoking says honestly what the device still knows',
-  (await a.text('.sync-devices .import-warning')).includes('Master-Passwort'),
+  (await a.text('.sync-devices .sync-revoked')).includes('Master-Passwort'),
 );
 await a.screenshot(`${SHOTS}e4-revoked.png`);
 

@@ -1,3 +1,4 @@
+import { Button, Hint, StatusDot, type StatusState } from '@uwusuite/design';
 import { useEffect, useState, type ReactNode } from 'react';
 import { locale, t, useLanguage } from '../lib/i18n';
 import { asSyncFailure, lockAppSyncOff, type SyncFailure, type SyncStatus } from '../lib/sync';
@@ -119,7 +120,7 @@ export function PassDetails({ status }: { status: SyncStatus }) {
     line = t('Synchronisiert gerade…');
   } else if (last?.error) {
     line = (
-      <span className="field-error">
+      <span className="text-warning-ink">
         {t('Letzter Versuch {when} fehlgeschlagen: {reason}', {
           when: ago(last.atMs),
           reason: last.error,
@@ -142,7 +143,7 @@ export function PassDetails({ status }: { status: SyncStatus }) {
     <>
       <p className="setting-description">{line}</p>
       {status.withheld.records > 0 && (
-        <p className="setting-description field-error" role="alert">
+        <Hint tone="warning" role="alert" className="mt-1">
           {t(
             'Der Server liefert nicht den neuesten Stand – er hält Daten zurück oder spielt alte Versionen ein.',
           )}{' '}
@@ -155,7 +156,7 @@ export function PassDetails({ status }: { status: SyncStatus }) {
             t(
               'Host-Schlüsseln aus dem Sync wird bis dahin nicht vertraut – beim nächsten Verbinden fragt UwUSSH wieder nach.',
             )}
-        </p>
+        </Hint>
       )}
       {status.pending > 0 && !locked && (
         <p className="setting-description">
@@ -165,22 +166,59 @@ export function PassDetails({ status }: { status: SyncStatus }) {
         </p>
       )}
       {report && report.apply.rejected > 0 && (
-        <p className="setting-description field-error">
+        <Hint tone="warning" className="mt-1">
           {t(
             '{n} Einträge vom Server ließen sich nicht öffnen und wurden verworfen. Das sollte nie passieren – prüfe den Server.',
             { n: report.apply.rejected },
           )}
-        </p>
+        </Hint>
       )}
     </>
   );
 }
 
-/** The state dot before "Verbunden mit …". */
-export function syncDot(status: SyncStatus): 'paused' | 'error' | 'ok' {
-  if (status.vault !== 'unlocked') return 'paused';
+/**
+ * The state dot before "Verbunden mit …" (@uwusuite/design's StatusDot):
+ * grey while paused, amber when something needs attention, pink while a pass
+ * runs, mint otherwise. The text next to it says the same.
+ */
+export function syncDot(status: SyncStatus): StatusState {
+  if (status.vault !== 'unlocked') return 'offline';
   if (status.last?.error || status.withheld.records > 0 || status.lock.needsSignIn) return 'error';
-  return 'ok';
+  if (status.running) return 'connecting';
+  return 'online';
+}
+
+/**
+ * One line of the sync pages, laid out like the package's SettingRow, but
+ * with room for several lines of state under the label (SettingRow's
+ * description is a single paragraph). `setting-row` stays as the end-to-end
+ * tests' hook.
+ */
+export function SyncRow({
+  label,
+  dot,
+  children,
+  control,
+}: {
+  label: ReactNode;
+  /** A state dot before the label. */
+  dot?: StatusState;
+  children?: ReactNode;
+  control?: ReactNode;
+}) {
+  return (
+    <div className="setting-row flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-hairline py-3.5 last:border-b-0">
+      <div className="flex min-w-[220px] flex-1 flex-col gap-0.5">
+        <p className="flex items-center gap-2 text-body font-semibold">
+          {dot && <StatusDot state={dot} />}
+          <span className="min-w-0 break-words">{label}</span>
+        </p>
+        {children}
+      </div>
+      {control && <div className="flex shrink-0 flex-wrap items-center gap-2">{control}</div>}
+    </div>
+  );
 }
 
 /** A question that needs the master password to go ahead. */
@@ -228,18 +266,18 @@ export function PasswordConfirm({
       onCancel={onCancel}
       footer={
         <>
-          <span className="spacer" />
-          <button data-autofocus onClick={onCancel} disabled={busy}>
+          <Button data-autofocus onClick={onCancel} disabled={busy}>
             {t('Abbrechen')}
-          </button>
-          <button
-            className={tone === 'danger' ? 'danger' : 'primary'}
+          </Button>
+          <Button
+            variant={tone === 'danger' ? 'danger' : 'primary'}
             data-secondary
+            busy={busy}
             disabled={!password || busy}
             onClick={() => void submit()}
           >
             {busy ? t('Einen Moment…') : action}
-          </button>
+          </Button>
         </>
       }
     >

@@ -1,4 +1,5 @@
 import { listen } from '@tauri-apps/api/event';
+import { Button, Card, Hint, Icon, ICONS, Segmented, Tag } from '@uwusuite/design';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { t, useLanguage } from '../lib/i18n';
 import {
@@ -22,7 +23,6 @@ import {
   type Offer,
   type SyncStatus,
 } from '../lib/sync';
-import { Icon } from './Icon';
 import { LockOverview, LockSignInForm, MoveDone } from './LockSync';
 import { Modal } from './Modal';
 import { NyuScene } from './nyu/scenes';
@@ -34,6 +34,7 @@ import {
   PassDetails,
   PasswordConfirm,
   syncDot,
+  SyncRow,
   useAppSyncOff,
 } from './SyncParts';
 import { VaultDialog } from './VaultDialog';
@@ -142,24 +143,15 @@ export function SyncSettings() {
     return (
       <div className="sync-intro">
         <NyuScene name="welcome" className="sync-scene" />
-        <div className="segmented" role="radiogroup" aria-label={t('Synchronisieren über')}>
-          {(
-            [
-              ['uwulock', 'UwULock'],
-              ['uwusync', 'UwUSync'],
-            ] as const
-          ).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              role="radio"
-              aria-checked={backend === value}
-              onClick={() => setBackend(value)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <Segmented
+          label={t('Synchronisieren über')}
+          value={backend}
+          onChange={setBackend}
+          options={[
+            { value: 'uwulock', label: 'UwULock' },
+            { value: 'uwusync', label: 'UwUSync' },
+          ]}
+        />
         {backend === 'uwulock' ? (
           <>
             <p className="dialog-lead">
@@ -169,7 +161,7 @@ export function SyncSettings() {
             </p>
             <div className="sync-choices">
               <button className="sync-choice" onClick={() => setMode('lock')}>
-                <Icon name="lock" size={20} />
+                <Icon icon={ICONS.vault} size="lg" />
                 <span>
                   <b>{t('Mit UwULock anmelden')}</b>
                   <small>
@@ -195,7 +187,7 @@ export function SyncSettings() {
             </p>
             <div className="sync-choices">
               <button className="sync-choice" onClick={() => setMode('connect')}>
-                <Icon name="network" size={20} />
+                <Icon icon={ICONS.server} size="lg" />
                 <span>
                   <b>{t('Server verbinden')}</b>
                   <small>
@@ -206,7 +198,7 @@ export function SyncSettings() {
                 </span>
               </button>
               <button className="sync-choice" onClick={() => setMode('join')}>
-                <Icon name="plus" size={20} />
+                <Icon icon={ICONS.link} size="lg" />
                 <span>
                   <b>{t('Mit einem Gerät koppeln')}</b>
                   <small>
@@ -350,13 +342,13 @@ function ConnectForm({
         </p>
       )}
       <div className="sync-actions">
-        <button type="button" data-secondary onClick={onBack} disabled={busy}>
+        <Button data-secondary onClick={onBack} disabled={busy}>
           {t('Zurück')}
-        </button>
+        </Button>
         <span className="spacer" />
-        <button type="submit" className="primary" disabled={!ready}>
+        <Button type="submit" variant="primary" busy={busy} disabled={!ready}>
           {busy ? t('Verbinde…') : t('Verbinden')}
-        </button>
+        </Button>
       </div>
     </form>
   );
@@ -398,7 +390,7 @@ function RecoveryKit({
               'Dein Tresor braucht ab jetzt das Master-Passwort und diesen Code. Deine Geräte merken sich den Code – aber sind alle Geräte weg und der Code auch, sind die Daten weg. Später zeigt ihn jedes gekoppelte Gerät unter Sync → Recovery-Kit noch einmal.',
             )}
       </p>
-      <div className="sync-kit-card">
+      <Card className="sync-kit-card">
         <code className="sync-kit-code">{kit.recoveryCode}</code>
         <dl>
           <dt>{t('Server')}</dt>
@@ -414,16 +406,17 @@ function RecoveryKit({
             </>
           )}
         </dl>
-        <button
+        <Button
+          size="sm"
+          icon={copied ? ICONS.done : ICONS.copy}
           onClick={() => {
             void copy(text);
             setCopied(true);
           }}
         >
-          <Icon name={copied ? 'check' : 'copy'} size={15} />
           {copied ? t('Kopiert') : t('Kopieren')}
-        </button>
-      </div>
+        </Button>
+      </Card>
       {/* Asked for again, the kit was saved once already: no gate. */}
       {!again && (
         <label className="check">
@@ -438,9 +431,9 @@ function RecoveryKit({
       )}
       <div className="sync-actions">
         <span className="spacer" />
-        <button className="primary" disabled={!saved && !again} onClick={onDone}>
+        <Button variant="primary" disabled={!saved && !again} onClick={onDone}>
           {t('Fertig')}
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -535,7 +528,7 @@ function JoinForm({
             <input
               value={server}
               spellCheck={false}
-              placeholder="https://nas.lan:8443"
+              placeholder="https://sync.example.com:8443"
               onChange={(e) => setServer(e.target.value)}
             />
           </label>
@@ -579,13 +572,13 @@ function JoinForm({
         </p>
       )}
       <div className="sync-actions">
-        <button type="button" data-secondary onClick={onBack} disabled={busy}>
+        <Button data-secondary onClick={onBack} disabled={busy}>
           {t('Zurück')}
-        </button>
+        </Button>
         <span className="spacer" />
-        <button type="submit" className="primary" disabled={!ready}>
+        <Button type="submit" variant="primary" busy={busy} disabled={!ready}>
           {busy ? t('Kopple…') : t('Koppeln')}
-        </button>
+        </Button>
       </div>
       {unlocking && (
         <VaultDialog
@@ -663,70 +656,67 @@ function Paired({
 
   return (
     <>
-      <div className="setting-row">
-        <div className="setting-text">
-          <p className="setting-label">
-            <span className="sync-dot" data-state={syncDot(status)} />
-            {t('Verbunden mit {server}', { server: status.serverUrl ?? '' })}
-          </p>
-          <PassDetails status={status} />
-          {status.tlsFingerprint && (
-            <p className="setting-description">
-              {t('Gepinnt:')} <code className="sync-fingerprint">{status.tlsFingerprint}</code>
-            </p>
-          )}
-        </div>
-        <div className="setting-control">
-          {locked ? (
-            <button onClick={() => setUnlocking(true)}>
-              <Icon name="unlock" size={15} />
+      <SyncRow
+        label={t('Verbunden mit {server}', { server: status.serverUrl ?? '' })}
+        dot={syncDot(status)}
+        control={
+          locked ? (
+            <Button size="sm" icon={ICONS.unlocked} onClick={() => setUnlocking(true)}>
               {t('Entsperren')}
-            </button>
+            </Button>
           ) : (
-            <button
+            <Button
+              size="sm"
+              icon={ICONS.refresh}
               onClick={() => {
                 void syncNow().then(() => window.setTimeout(onChanged, 400));
               }}
               disabled={status.running}
             >
-              <Icon name="refresh" size={15} />
               {t('Jetzt synchronisieren')}
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div className="setting-row">
-        <div className="setting-text">
-          <p className="setting-label">{t('Gerät hinzufügen')}</p>
+            </Button>
+          )
+        }
+      >
+        <PassDetails status={status} />
+        {status.tlsFingerprint && (
           <p className="setting-description">
-            {t(
-              'Zeigt einen Code für zehn Minuten. Das neue Gerät gibt ihn unter Sync → Mit einem Gerät koppeln ein.',
-            )}
+            {t('Gepinnt:')} <code className="sync-fingerprint">{status.tlsFingerprint}</code>
           </p>
-          {joined && (
-            <p className="setting-result" role="status">
-              {t('{name} ist beigetreten ✧', { name: joined })}
-            </p>
-          )}
-        </div>
-        <div className="setting-control">
-          <button
+        )}
+      </SyncRow>
+
+      <SyncRow
+        label={t('Gerät hinzufügen')}
+        control={
+          <Button
+            size="sm"
+            icon={ICONS.add}
             onClick={() => {
               setJoined(null);
               setAdding(true);
             }}
             disabled={locked}
           >
-            <Icon name="plus" size={15} />
             {t('Gerät hinzufügen…')}
-          </button>
-        </div>
-      </div>
+          </Button>
+        }
+      >
+        <p className="setting-description">
+          {t(
+            'Zeigt einen Code für zehn Minuten. Das neue Gerät gibt ihn unter Sync → Mit einem Gerät koppeln ein.',
+          )}
+        </p>
+        {joined && (
+          <p className="setting-result text-success-ink" role="status">
+            {t('{name} ist beigetreten ✧', { name: joined })}
+          </p>
+        )}
+      </SyncRow>
 
       <div className="sync-devices">
         <p className="setting-label">{t('Geräte')}</p>
-        {devicesError && <p className="setting-description field-error">{devicesError}</p>}
+        {devicesError && <p className="setting-description text-warning-ink">{devicesError}</p>}
         {locked && (
           <p className="setting-description">{t('Die Liste kommt, wenn der Tresor offen ist.')}</p>
         )}
@@ -734,11 +724,11 @@ function Paired({
           <ul className="sync-device-list">
             {devices.map((device) => (
               <li key={device.id} data-revoked={device.revokedMs ? true : undefined}>
-                <Icon name="network" size={16} />
+                <Icon icon={ICONS.computer} className="text-muted" />
                 <span className="sync-device-text">
                   <b>
                     {device.name}
-                    {device.current && <span className="rule-tag">{t('dieses Gerät')}</span>}
+                    {device.current && <Tag tone="pink">{t('dieses Gerät')}</Tag>}
                   </b>
                   <small>
                     {device.revokedMs
@@ -750,99 +740,104 @@ function Paired({
                 </span>
                 <span className="spacer" />
                 {!device.current && !device.revokedMs && (
-                  <button className="quiet" onClick={() => setRevoking(device)}>
+                  <Button size="sm" variant="ghost" onClick={() => setRevoking(device)}>
                     {t('Widerrufen…')}
-                  </button>
+                  </Button>
                 )}
               </li>
             ))}
           </ul>
         )}
         {revoked && (
-          <p className="import-warning" role="status">
+          <Hint tone="warning" className="sync-revoked" role="status">
             {t(
               '{name} kommt nicht mehr an den Server. Was es schon heruntergeladen hat, kennt es aber weiter: ändere das Master-Passwort und die Passwörter wichtiger Hosts, wenn das Gerät in falsche Hände geraten ist.',
               { name: revoked },
             )}
-          </p>
+          </Hint>
         )}
       </div>
 
-      <div className="setting-row">
-        <div className="setting-text">
-          <p className="setting-label">{t('Recovery-Kit')}</p>
-          <p className="setting-description">
-            {t(
-              'Der Code, den dein Tresor neben dem Master-Passwort braucht. Dieses Gerät zeigt ihn nach dem Master-Passwort noch einmal.',
-            )}
-          </p>
-        </div>
-        <div className="setting-control">
-          <button onClick={() => setAskingKit(true)}>
-            <Icon name="key" size={15} />
+      <SyncRow
+        label={t('Recovery-Kit')}
+        control={
+          <Button size="sm" icon={ICONS.secret} onClick={() => setAskingKit(true)}>
             {t('Anzeigen…')}
-          </button>
-        </div>
-      </div>
-
-      <div className="setting-row">
-        <div className="setting-text">
-          <p className="setting-label">{t('Zu UwULock umziehen')}</p>
-          <p className="setting-description">
-            {moveServerOff
-              ? APP_SYNC_OFF()
-              : status.lock.moveStartedMs
-                ? t(
-                    'Ein Umzug hat {when} begonnen und ist nicht fertig geworden. Bis er fertig ist, synchronisiert dieses Gerät weiter über UwUSync.',
-                    { when: ago(status.lock.moveStartedMs) },
-                  )
-                : t(
-                    'Hosts, Keys und Passwörter ziehen mit einem Klick auf einen UwULock-Server um. UwUSSH prüft die Kopie, bevor es wechselt – auf UwUSync bleibt alles, wie es ist.',
-                  )}
-          </p>
-        </div>
-        <div className="setting-control">
-          {status.lock.moveStartedMs && (
-            <button
-              className="quiet"
-              disabled={forgettingMove}
-              onClick={() => {
-                setForgettingMove(true);
-                void lockForgetMove().finally(() => {
-                  setForgettingMove(false);
-                  onChanged();
-                });
-              }}
-            >
-              {t('Verwerfen')}
-            </button>
+          </Button>
+        }
+      >
+        <p className="setting-description">
+          {t(
+            'Der Code, den dein Tresor neben dem Master-Passwort braucht. Dieses Gerät zeigt ihn nach dem Master-Passwort noch einmal.',
           )}
-          <button
-            onClick={() => setMoving(true)}
-            disabled={locked || moveServerOff}
-            title={moveServerOff ? APP_SYNC_OFF() : undefined}
-          >
-            <Icon name="export" size={15} />
-            {status.lock.moveStartedMs ? t('Fortsetzen…') : t('Umziehen…')}
-          </button>
-        </div>
-      </div>
+        </p>
+      </SyncRow>
 
-      <div className="setting-row">
-        <div className="setting-text">
-          <p className="setting-label">{t('Trennen')}</p>
-          <p className="setting-description">
-            {t(
-              'Dieses Gerät synchronisiert nicht mehr. Hosts und Tresor bleiben hier, das Master-Passwort allein öffnet ihn wieder.',
+      <SyncRow
+        label={t('Zu UwULock umziehen')}
+        control={
+          <>
+            {status.lock.moveStartedMs && (
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={forgettingMove}
+                onClick={() => {
+                  setForgettingMove(true);
+                  void lockForgetMove().finally(() => {
+                    setForgettingMove(false);
+                    onChanged();
+                  });
+                }}
+              >
+                {t('Verwerfen')}
+              </Button>
             )}
-          </p>
-        </div>
-        <div className="setting-control">
-          <button className="danger" onClick={() => setLeaving(true)}>
+            <Button
+              size="sm"
+              icon={ICONS.export}
+              onClick={() => setMoving(true)}
+              disabled={locked || moveServerOff}
+              title={moveServerOff ? APP_SYNC_OFF() : undefined}
+            >
+              {status.lock.moveStartedMs ? t('Fortsetzen…') : t('Umziehen…')}
+            </Button>
+          </>
+        }
+      >
+        <p className="setting-description">
+          {moveServerOff
+            ? APP_SYNC_OFF()
+            : status.lock.moveStartedMs
+              ? t(
+                  'Ein Umzug hat {when} begonnen und ist nicht fertig geworden. Bis er fertig ist, synchronisiert dieses Gerät weiter über UwUSync.',
+                  { when: ago(status.lock.moveStartedMs) },
+                )
+              : t(
+                  'Hosts, Keys und Passwörter ziehen mit einem Klick auf einen UwULock-Server um. UwUSSH prüft die Kopie, bevor es wechselt – auf UwUSync bleibt alles, wie es ist.',
+                )}
+        </p>
+      </SyncRow>
+
+      <SyncRow
+        label={t('Trennen')}
+        control={
+          <Button
+            size="sm"
+            variant="danger"
+            icon={ICONS.disconnect}
+            onClick={() => setLeaving(true)}
+          >
             {t('Trennen…')}
-          </button>
-        </div>
-      </div>
+          </Button>
+        }
+      >
+        <p className="setting-description">
+          {t(
+            'Dieses Gerät synchronisiert nicht mehr. Hosts und Tresor bleiben hier, das Master-Passwort allein öffnet ihn wieder.',
+          )}
+        </p>
+      </SyncRow>
 
       {adding && (
         <PasswordConfirm
@@ -980,19 +975,16 @@ function AddDevice({ offer, onClose }: { offer: Offer; onClose: (joined: string 
       title={t('Gerät hinzufügen')}
       onCancel={cancel}
       footer={
-        <>
-          <span className="spacer" />
-          <button data-secondary onClick={cancel}>
-            {error ? t('Schließen') : t('Abbrechen')}
-          </button>
-        </>
+        <Button data-secondary onClick={cancel}>
+          {error ? t('Schließen') : t('Abbrechen')}
+        </Button>
       }
     >
       <NyuScene name="connecting" className="dialog-scene" />
       <p className="dialog-lead">
         {t('Auf dem neuen Gerät: Einstellungen → Sync → Mit einem Gerät koppeln.')}
       </p>
-      <div className="sync-offer">
+      <Card className="sync-offer gap-1 p-4">
         <span className="setting-description">{t('Zum Abtippen')}</span>
         <code className="sync-kit-code">{offer.spoken}</code>
         <span className="setting-description">
@@ -1004,16 +996,17 @@ function AddDevice({ offer, onClose }: { offer: Offer; onClose: (joined: string 
             </>
           )}
         </span>
-      </div>
-      <button
+      </Card>
+      <Button
+        className="justify-self-start"
+        icon={copied ? ICONS.done : ICONS.copy}
         onClick={() => {
           void copy(offer.pasteable);
           setCopied(true);
         }}
       >
-        <Icon name={copied ? 'check' : 'copy'} size={15} />
         {copied ? t('Langen Code kopiert') : t('Langen Code zum Einfügen kopieren')}
-      </button>
+      </Button>
       {!error && (
         <p className="field-hint" role="status">
           {t('Warte auf das andere Gerät… noch {m}:{s}', { m: minutes, s: seconds })}

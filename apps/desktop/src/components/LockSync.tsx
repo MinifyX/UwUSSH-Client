@@ -1,3 +1,4 @@
+import { Button, Hint, ICONS, Select } from '@uwusuite/design';
 import { useState } from 'react';
 import { t, useLanguage } from '../lib/i18n';
 import {
@@ -14,7 +15,6 @@ import {
   type SyncStatus,
   type TwoFactorMethod,
 } from '../lib/sync';
-import { Icon } from './Icon';
 import { NyuScene } from './nyu/scenes';
 import {
   ago,
@@ -23,6 +23,7 @@ import {
   PassDetails,
   PasswordConfirm,
   syncDot,
+  SyncRow,
   useAppSyncOff,
 } from './SyncParts';
 import { VaultDialog } from './VaultDialog';
@@ -180,8 +181,7 @@ export function LockSignInForm({
               )}
         </p>
         <div className="sync-actions">
-          <button
-            type="button"
+          <Button
             data-secondary
             onClick={() => {
               setSpaceChange(null);
@@ -189,11 +189,11 @@ export function LockSignInForm({
             }}
           >
             {t('Abbrechen')}
-          </button>
+          </Button>
           <span className="spacer" />
-          <button type="button" className="primary" onClick={agree}>
+          <Button variant="primary" onClick={agree}>
             {spaceChange.now ? t('Neuen Schlüssel übernehmen') : t('Neu anlegen')}
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -266,8 +266,7 @@ export function LockSignInForm({
           {usable.length > 1 && (
             <label className="field">
               <span>{t('Weg')}</span>
-              <select
-                className="select"
+              <Select
                 value={chosen?.provider ?? ''}
                 onChange={(e) => {
                   setProvider(Number(e.target.value));
@@ -279,7 +278,7 @@ export function LockSignInForm({
                     {methodName(method)}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
           )}
           {usable.length === 1 && chosen && <p className="field-hint">{methodName(chosen)}</p>}
@@ -297,10 +296,15 @@ export function LockSignInForm({
             </label>
           )}
           {chosen?.kind === 'email' && (
-            <button type="button" onClick={() => void sendMail()} disabled={busy}>
-              <Icon name={mailed ? 'check' : 'refresh'} size={15} />
+            <Button
+              size="sm"
+              className="justify-self-start"
+              icon={mailed ? ICONS.done : ICONS.send}
+              onClick={() => void sendMail()}
+              disabled={busy}
+            >
               {mailed ? t('Code ist unterwegs') : t('Code per E-Mail schicken')}
-            </button>
+            </Button>
           )}
           <label className="check">
             <input
@@ -332,8 +336,7 @@ export function LockSignInForm({
         </p>
       )}
       <div className="sync-actions">
-        <button
-          type="button"
+        <Button
           data-secondary
           onClick={() => {
             if (methods) {
@@ -344,11 +347,12 @@ export function LockSignInForm({
           disabled={busy}
         >
           {t('Zurück')}
-        </button>
+        </Button>
         <span className="spacer" />
-        <button
+        <Button
           type="submit"
-          className="primary"
+          variant="primary"
+          busy={busy}
           disabled={!ready}
           title={appSyncOff ? APP_SYNC_OFF() : undefined}
         >
@@ -359,7 +363,7 @@ export function LockSignInForm({
             : mode === 'move'
               ? t('Umziehen')
               : t('Anmelden')}
-        </button>
+        </Button>
       </div>
       {unlocking && (
         <VaultDialog
@@ -424,12 +428,12 @@ export function MoveDone({
         {t('Der Tresor hier öffnet ab jetzt mit dem Master-Passwort deines UwULock-Kontos.')}
       </p>
       {report.unreadable > 0 && (
-        <p className="import-warning">
+        <Hint tone="warning">
           {t(
             '{n} Einträge auf UwUSync ließen sich mit dem Schlüssel dieses Geräts nicht öffnen und sind nicht umgezogen.',
             { n: report.unreadable },
           )}
-        </p>
+        </Hint>
       )}
       {leftBehind && outcome.lastDevice ? (
         // UwUSync keeps its last device (it refuses to remove it): nothing
@@ -442,9 +446,9 @@ export function MoveDone({
           </p>
           <div className="sync-actions">
             <span className="spacer" />
-            <button className="primary" disabled={busy} onClick={() => void leave(false)}>
+            <Button variant="primary" disabled={busy} onClick={() => void leave(false)}>
               {t('Fertig')}
-            </button>
+            </Button>
           </div>
         </>
       ) : leftBehind ? (
@@ -460,21 +464,21 @@ export function MoveDone({
             </p>
           )}
           <div className="sync-actions">
-            <button data-secondary disabled={busy} onClick={() => void leave(false)}>
+            <Button data-secondary disabled={busy} onClick={() => void leave(false)}>
               {t('Eingetragen lassen')}
-            </button>
+            </Button>
             <span className="spacer" />
-            <button className="primary" disabled={busy} onClick={() => void leave(true)}>
+            <Button variant="primary" busy={busy} disabled={busy} onClick={() => void leave(true)}>
               {t('Bei UwUSync austragen')}
-            </button>
+            </Button>
           </div>
         </>
       ) : (
         <div className="sync-actions">
           <span className="spacer" />
-          <button className="primary" onClick={onDone}>
+          <Button variant="primary" onClick={onDone}>
             {t('Fertig')}
-          </button>
+          </Button>
         </div>
       )}
     </div>
@@ -506,98 +510,95 @@ export function LockOverview({ status, onChanged }: { status: SyncStatus; onChan
 
   return (
     <>
-      <div className="setting-row">
-        <div className="setting-text">
-          <p className="setting-label">
-            <span className="sync-dot" data-state={syncDot(status)} />
-            {t('Verbunden mit UwULock {server}', { server: lock.serverUrl ?? '' })}
-          </p>
-          {lock.email && <p className="setting-description">{lock.email}</p>}
-          {lock.needsSignIn ? (
-            <p className="setting-description field-error" role="alert">
-              {t(
-                'Die Anmeldung ist abgelaufen oder wurde beendet. Bis du dich neu anmeldest, bleiben Änderungen auf diesem Gerät.',
-              )}
-            </p>
-          ) : lock.switchedOff ? (
-            <p className="setting-description" role="status">
-              {t(
-                'Dieser UwULock-Server hat den App-Sync abgeschaltet. Änderungen bleiben auf diesem Gerät; ist der Sync wieder an, gleicht UwUSSH alles ab – ohne neue Anmeldung.',
-              )}
-            </p>
-          ) : (
-            <>
-              <PassDetails status={status} />
-              {!locked && (
-                <p className="setting-description">
-                  {lock.live
-                    ? t('Live: Änderungen anderer Geräte kommen sofort an.')
-                    : lock.liveRefused
-                      ? t(
-                          'Der Server bietet keine Live-Verbindung an – UwUSSH fragt regelmäßig nach.',
-                        )
-                      : t('Ohne Live-Verbindung – UwUSSH fragt jede Minute nach.')}
-                </p>
-              )}
-            </>
-          )}
-        </div>
-        <div className="setting-control">
-          {lock.needsSignIn ? (
-            <button className="primary" onClick={() => setSigningIn(true)}>
-              <Icon name="lock" size={15} />
+      <SyncRow
+        label={t('Verbunden mit UwULock {server}', { server: lock.serverUrl ?? '' })}
+        dot={syncDot(status)}
+        control={
+          lock.needsSignIn ? (
+            <Button
+              size="sm"
+              variant="primary"
+              icon={ICONS.signIn}
+              onClick={() => setSigningIn(true)}
+            >
               {t('Neu anmelden…')}
-            </button>
+            </Button>
           ) : locked ? (
-            <button onClick={() => setUnlocking(true)}>
-              <Icon name="unlock" size={15} />
+            <Button size="sm" icon={ICONS.unlocked} onClick={() => setUnlocking(true)}>
               {t('Entsperren')}
-            </button>
+            </Button>
           ) : (
-            <button
+            <Button
+              size="sm"
+              icon={ICONS.refresh}
               onClick={() => {
                 void syncNow().then(() => window.setTimeout(onChanged, 400));
               }}
               disabled={status.running}
             >
-              <Icon name="refresh" size={15} />
               {t('Jetzt synchronisieren')}
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div className="setting-row">
-        <div className="setting-text">
-          <p className="setting-label">{t('Geräte')}</p>
-          <p className="setting-description">
+            </Button>
+          )
+        }
+      >
+        {lock.email && <p className="setting-description">{lock.email}</p>}
+        {lock.needsSignIn ? (
+          <Hint tone="warning" role="alert" className="mt-1">
             {t(
-              'Ein weiteres Gerät meldet sich einfach mit demselben UwULock-Konto an. Deine Geräte siehst und entfernst du im UwULock-Web-Tresor.',
+              'Die Anmeldung ist abgelaufen oder wurde beendet. Bis du dich neu anmeldest, bleiben Änderungen auf diesem Gerät.',
+            )}
+          </Hint>
+        ) : lock.switchedOff ? (
+          <p className="setting-description" role="status">
+            {t(
+              'Dieser UwULock-Server hat den App-Sync abgeschaltet. Änderungen bleiben auf diesem Gerät; ist der Sync wieder an, gleicht UwUSSH alles ab – ohne neue Anmeldung.',
             )}
           </p>
-          {lock.signedInMs && (
-            <p className="setting-description">
-              {t('Angemeldet {when}.', { when: ago(lock.signedInMs) })}
-            </p>
-          )}
-        </div>
-      </div>
-
-      <div className="setting-row">
-        <div className="setting-text">
-          <p className="setting-label">{t('Abmelden')}</p>
-          <p className="setting-description">
-            {t(
-              'Dieses Gerät synchronisiert nicht mehr. Hosts und Tresor bleiben hier, das Master-Passwort deines UwULock-Kontos öffnet ihn weiter.',
+        ) : (
+          <>
+            <PassDetails status={status} />
+            {!locked && (
+              <p className="setting-description">
+                {lock.live
+                  ? t('Live: Änderungen anderer Geräte kommen sofort an.')
+                  : lock.liveRefused
+                    ? t(
+                        'Der Server bietet keine Live-Verbindung an – UwUSSH fragt regelmäßig nach.',
+                      )
+                    : t('Ohne Live-Verbindung – UwUSSH fragt jede Minute nach.')}
+              </p>
             )}
+          </>
+        )}
+      </SyncRow>
+
+      <SyncRow label={t('Geräte')}>
+        <p className="setting-description">
+          {t(
+            'Ein weiteres Gerät meldet sich einfach mit demselben UwULock-Konto an. Deine Geräte siehst und entfernst du im UwULock-Web-Tresor.',
+          )}
+        </p>
+        {lock.signedInMs && (
+          <p className="setting-description">
+            {t('Angemeldet {when}.', { when: ago(lock.signedInMs) })}
           </p>
-        </div>
-        <div className="setting-control">
-          <button className="danger" onClick={() => setLeaving(true)}>
+        )}
+      </SyncRow>
+
+      <SyncRow
+        label={t('Abmelden')}
+        control={
+          <Button size="sm" variant="danger" icon={ICONS.signOut} onClick={() => setLeaving(true)}>
             {t('Abmelden…')}
-          </button>
-        </div>
-      </div>
+          </Button>
+        }
+      >
+        <p className="setting-description">
+          {t(
+            'Dieses Gerät synchronisiert nicht mehr. Hosts und Tresor bleiben hier, das Master-Passwort deines UwULock-Kontos öffnet ihn weiter.',
+          )}
+        </p>
+      </SyncRow>
 
       {leaving && (
         <PasswordConfirm
