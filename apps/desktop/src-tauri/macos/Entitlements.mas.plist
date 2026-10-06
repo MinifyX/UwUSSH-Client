@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The Mac App Store build's entitlements. scripts/build-mas.mjs adds the two
+  that name the team, com.apple.application-identifier and
+  com.apple.developer.team-identifier, from APPLE_TEAM_ID at signing time.
+
+  - app-sandbox: required for the store.
+  - network.client: what the app is for — SSH and SFTP connections to the
+    person's servers, the sync with their own UwUSync or UwULock server, the
+    AI command assistant's provider when they set one up (also Ollama on
+    their own machine or network).
+  - network.server: local port forwarding (Tunnels, `-L`) listens on a port of
+    this Mac and carries what connects there through SSH
+    (uwussh-core/src/tunnel.rs binds a TcpListener, by default on
+    127.0.0.1). The sandbox refuses that bind without this. Remote forwards
+    (`-R`) listen on the server and need nothing here.
+  - files.user-selected.read-write: everything the person picks in an open or
+    save panel — key files a host uses, the ~/.ssh folder for the import,
+    exports and backups, keys saved from UwUKeygen, folders for the file
+    browser where SFTP downloads land and uploads start.
+  - files.downloads.read-write: the file browser's one place that needs no
+    panel; SFTP downloads go there by default.
+  - files.bookmarks.app-scope: security-scoped bookmarks, so the picks above
+    survive a restart (src-tauri/src/sandbox_access.rs).
+
+  Deliberately absent: keychain-access-groups (the device key lives in the
+  login keychain as this app's own item, which a sandboxed app may create and
+  read without it), anything that starts or controls other programs (no local
+  shell, no osascript; see docs/app-store.md), camera, microphone, contacts,
+  location, printing, USB, Bluetooth.
+-->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.app-sandbox</key>
+  <true/>
+  <key>com.apple.security.network.client</key>
+  <true/>
+  <key>com.apple.security.network.server</key>
+  <true/>
+  <key>com.apple.security.files.user-selected.read-write</key>
+  <true/>
+  <key>com.apple.security.files.downloads.read-write</key>
+  <true/>
+  <key>com.apple.security.files.bookmarks.app-scope</key>
+  <true/>
+</dict>
+</plist>

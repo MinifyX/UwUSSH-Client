@@ -94,4 +94,9 @@ jobs:
 
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      # The Mac App Store build's feature set (no updater, sandbox access),
+      # with its macOS-only parts left out: catches a change that breaks it
+      # early and cheaply. mas.yml builds the real one on a Mac.
+      - if: runner.os == 'Linux'
+        run: cargo clippy -p uwussh-desktop --no-default-features --features mas --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked --no-fail-fast
