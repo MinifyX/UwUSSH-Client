@@ -270,4 +270,3 @@ button:has(> .icon):not(.icon-button):not(.host):not(.group-toggle) {
   justify-self: center;
   margin: -4px 0 -6px;
 }
-
