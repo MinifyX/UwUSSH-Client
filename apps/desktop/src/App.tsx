@@ -1225,6 +1225,22 @@ export function App() {
   const performRef = useRef(perform);
   performRef.current = perform;
 
+  /**
+   * On a Mac a menu accelerator and the page's own keydown can both see the
+   * same ⌘ key. Whichever comes first acts; the other is dropped, so ⌘T opens
+   * one shell and not two.
+   */
+  const lastShortcut = useRef({ key: '', at: 0 });
+  const once = (action: ShortcutAction) => {
+    const key = JSON.stringify(action);
+    const now = performance.now();
+    if (lastShortcut.current.key === key && now - lastShortcut.current.at < 150) return;
+    lastShortcut.current = { key, at: now };
+    performRef.current(action);
+  };
+  const onceRef = useRef(once);
+  onceRef.current = once;
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (modalRef.current || event.type !== 'keydown') return;
@@ -1251,7 +1267,7 @@ export function App() {
       if (action.kind === 'select-all' && !inTerminal(event.target)) return;
       event.preventDefault();
       event.stopPropagation();
-      performRef.current(action);
+      onceRef.current(action);
     };
     // Capture phase: the terminal must not see the app's own shortcuts.
     window.addEventListener('keydown', onKey, true);
@@ -1265,7 +1281,7 @@ export function App() {
    * ⌘K are handled on a Mac.
    */
   const fromMenu = (action: ShortcutAction) => () => {
-    if (!modalRef.current) performRef.current(action);
+    if (!modalRef.current) onceRef.current(action);
   };
 
   // ⌘W with no tab open, and "Fenster schließen": the window hides, the
