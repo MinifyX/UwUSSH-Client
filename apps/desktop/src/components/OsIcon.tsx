@@ -8,9 +8,9 @@
  * readable on a dark sidebar.
  */
 
+import { NYU } from '@uwusuite/design';
 import type { ReactNode } from 'react';
 import { N_, t, useLanguage } from '../lib/i18n';
-import { NYU } from './nyu/Nyu';
 
 export type OsId =
   | 'ubuntu'
@@ -74,7 +74,7 @@ const UNKNOWN_LABEL = N_('Unbekanntes System');
 
 // All drawing happens on a 40 × 40 canvas. The outline is 2.4 units, which is
 // 1.1–1.2 px at list size (18–20 px) and grows with the icon like a sticker.
-const INK = NYU.outline;
+const INK = NYU.ink;
 const WHITE = NYU.paper;
 const LINE = 2.4;
 const THIN = 1.8;
@@ -137,7 +137,7 @@ function Face({
   return (
     <g>
       {blush && (
-        <g fill={NYU.blush} opacity={0.5}>
+        <g fill={NYU.blushSolid} opacity={0.5}>
           <ellipse cx={x - gap / 2 - 1.6} cy={y + 2.4} rx={1.6} ry={1.05} />
           <ellipse cx={x + gap / 2 + 1.6} cy={y + 2.4} rx={1.6} ry={1.05} />
         </g>
@@ -238,7 +238,7 @@ const ICONS: Record<OsId, Icon> = {
     tile: '#8E5BB5',
     glyph: (
       <g {...outlined} strokeWidth={1.6}>
-        {[NYU.star, '#8FE0B0', '#9ED8FF', NYU.body].map((fill, i) => (
+        {[NYU.star, '#8FE0B0', NYU.tear, NYU.body].map((fill, i) => (
           <path key={fill} d={BLADE} fill={fill} transform={`rotate(${i * 90} 20 23.5)`} />
         ))}
         <circle cx={20} cy={23.5} r={1.4} fill={INK} stroke="none" />

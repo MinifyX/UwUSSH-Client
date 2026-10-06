@@ -4,11 +4,10 @@
  * production build only bundles index.html.
  */
 
-import '@fontsource-variable/manrope';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { OS_IDS, OS_LABELS, OsIcon, type OsId } from '../components/OsIcon';
-import '../components/nyu/nyu.css';
+import '../styles/index.css';
 
 // `?sizes=64,96` swaps in other sizes for a closer look at the drawings.
 const SIZES = new URLSearchParams(location.search)
@@ -19,8 +18,10 @@ const SIZES = new URLSearchParams(location.search)
 const CELL = Math.max(42, ...SIZES.map((size) => size + 2));
 
 const GROUNDS = [
-  { name: 'Light', background: '#FFF7FA', ink: '#1C1420', muted: '#716672' },
-  { name: 'Dark', background: '#1A1320', ink: '#F8F2F6', muted: '#B3A8B3' },
+  // @uwusuite/design's --uwu-canvas, --uwu-ink and --uwu-muted in light and dark. The page
+  // shows both at once, and the package switches themes on <html> only, so they are copied.
+  { name: 'Light', background: '#f8f4f6', ink: '#1c1420', muted: '#716672' },
+  { name: 'Dark', background: '#141016', ink: '#f8f2f6', muted: '#b3a8b3' },
 ] as const;
 
 const ENTRIES: (OsId | null)[] = [...OS_IDS, null];
@@ -70,7 +71,7 @@ function Sheet({ ground }: { ground: (typeof GROUNDS)[number] }) {
         >
           <OsIcon os={os} size={20} title="" />
           <span style={{ fontWeight: 600 }}>{['prox-1', 'web-02', 'pi-hole', 'router'][i]}</span>
-          <span style={{ color: ground.muted, fontSize: 13 }}>root@10.0.0.{i + 2}</span>
+          <span style={{ color: ground.muted, fontSize: 13 }}>root@192.0.2.{i + 2}</span>
         </div>
       ))}
     </section>
@@ -84,7 +85,6 @@ function Preview() {
         display: 'flex',
         gap: 16,
         padding: 16,
-        fontFamily: "'Manrope Variable', 'Segoe UI', sans-serif",
       }}
     >
       {GROUNDS.map((ground) => (

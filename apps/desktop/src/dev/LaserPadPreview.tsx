@@ -5,19 +5,18 @@
  * the starting state for screenshots, e.g. ?theme=light&motion=reduced&target=6000.
  */
 
-import '@fontsource-variable/manrope';
+import { Button, Segmented as SuiteSegmented } from '@uwusuite/design';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { NyuLaserPad } from '../components/keygen/NyuLaserPad';
-import '../components/nyu/nyu.css';
-import '../styles/app.css';
-import '../styles/tokens.css';
+import '../styles/index.css';
 
 type Theme = 'light' | 'dark';
 const TARGETS = [600, 6000] as const;
 
 const params = new URLSearchParams(window.location.search);
 
+/** A labelled choice; values may be numbers, the package's Segmented takes strings. */
 function Segmented<T extends string | number>({
   label,
   value,
@@ -32,18 +31,15 @@ function Segmented<T extends string | number>({
   return (
     <div className="field">
       <span>{label}</span>
-      <div className="segmented" role="radiogroup" aria-label={label}>
-        {options.map((option) => (
-          <button
-            key={String(option.value)}
-            role="radio"
-            aria-checked={option.value === value}
-            onClick={() => onChange(option.value)}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
+      <SuiteSegmented
+        label={label}
+        value={String(value)}
+        options={options.map((option) => ({ value: String(option.value), label: option.label }))}
+        onChange={(next) => {
+          const option = options.find((o) => String(o.value) === next);
+          if (option) onChange(option.value);
+        }}
+      />
     </div>
   );
 }
@@ -97,14 +93,13 @@ function LaserPadPreview() {
       }}
     >
       <section
-        className="modal"
-        aria-labelledby="modal-title"
-        style={{ width: 'min(520px, calc(100vw - 48px))' }}
+        aria-labelledby="preview-title"
+        className="grid w-[min(520px,calc(100vw-48px))] rounded-dialog border border-line bg-surface text-ink shadow-float"
       >
-        <h2 id="modal-title" className="modal-title">
+        <h2 id="preview-title" className="px-6 pt-5 pb-2 text-section font-bold">
           Neuer SSH-Schlüssel
         </h2>
-        <div className="modal-body">
+        <div className="modal-body px-6 pt-1 pb-5">
           <p className="dialog-lead">
             Für einen guten Schlüssel braucht Nyu ein bisschen Zufall. Lass sie den Laserpunkt
             jagen!
@@ -122,18 +117,17 @@ function LaserPadPreview() {
             }
           />
         </div>
-        <div className="modal-footer">
-          <span style={{ color: 'var(--uwu-muted)', fontSize: 13 }} data-testid="bytes">
+        <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-hairline px-6 py-4">
+          <span className="mr-auto text-meta text-muted" data-testid="bytes">
             {bytes} / {target} Bytes · {Math.round(progress * 100)} %
           </span>
-          <span className="spacer" />
-          <button className="quiet" onClick={reset}>
+          <Button variant="ghost" onClick={reset}>
             Nochmal
-          </button>
-          <button className="primary" disabled={progress < 1}>
+          </Button>
+          <Button variant="primary" disabled={progress < 1}>
             Schlüssel erzeugen
-          </button>
-        </div>
+          </Button>
+        </footer>
       </section>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, justifyContent: 'center' }}>
