@@ -9,6 +9,10 @@ const EDGE = 8;
  * drawn into <body> so a scrolling sidebar can't clip it, and kept inside the
  * window. While it shows, a `title` on the element around it is held back,
  * so the two never show at once.
+ *
+ * @uwusuite/design's `Tooltip` only takes a string; this one holds a few
+ * lines with a heading (the password-login warning), and looks like the
+ * package's: an ink bubble with the float shadow.
  */
 export function Tooltip({
   content,
@@ -82,7 +86,7 @@ export function Tooltip({
             ref={tipRef}
             id={id}
             role="tooltip"
-            className="tooltip"
+            className="pointer-events-none fixed z-[var(--uwu-z-tooltip)] w-max max-w-[min(300px,calc(100vw-16px))] animate-fade rounded-lg bg-ink px-3 py-2 text-caption leading-relaxed font-normal text-canvas shadow-float"
             style={
               place
                 ? { left: place.left, top: place.top }
