@@ -1,3 +1,4 @@
+import { Button, ICONS } from '@uwusuite/design';
 import { useEffect, useRef, useState } from 'react';
 import { t, useLanguage } from '../../lib/i18n';
 import {
@@ -66,25 +67,16 @@ export function KeygenDialog({
         size="wide"
         onCancel={guard.request}
       >
-        <div className="keygen-dialog">
-          <KeygenPanel
-            comment={comment}
-            onStore={store}
-            storeLabel={storeLabel}
-            onStep={setStep}
-            onStored={(key) => {
-              onStored?.(key);
-              onClose();
-            }}
-          />
-        </div>
-        <button
-          className="settings-close icon-button"
-          onClick={guard.request}
-          aria-label={t('Schließen')}
-        >
-          ×
-        </button>
+        <KeygenPanel
+          comment={comment}
+          onStore={store}
+          storeLabel={storeLabel}
+          onStep={setStep}
+          onStored={(key) => {
+            onStored?.(key);
+            onClose();
+          }}
+        />
       </Modal>
       {guard.dialog}
       {vault && (
@@ -192,20 +184,27 @@ export function KeyImportDialog({
         onCancel={guard.request}
         footer={
           <>
-            <button data-secondary onClick={() => void pick()} disabled={busy}>
+            <Button
+              variant="ghost"
+              data-secondary
+              className="mr-auto"
+              onClick={() => void pick()}
+              disabled={busy}
+            >
               {t('Andere Datei…')}
-            </button>
-            <span className="spacer" />
-            <button data-secondary onClick={guard.request} disabled={busy}>
+            </Button>
+            <Button data-secondary onClick={guard.request} disabled={busy}>
               {t('Abbrechen')}
-            </button>
-            <button
-              className="primary"
-              disabled={!picked || busy || (picked.encrypted && !passphrase)}
+            </Button>
+            <Button
+              variant="primary"
+              icon={ICONS.vault}
+              busy={busy}
+              disabled={!picked || (picked.encrypted && !passphrase)}
               onClick={() => void submit()}
             >
               {t('In den Tresor legen')}
-            </button>
+            </Button>
           </>
         }
       >

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "UwUKeygen",
+        "width": 720,
+        "height": 860,
+        "minWidth": 520,
+        "minHeight": 600,
+        "center": true,
+        "decorations": true,
+        "titleBarStyle": "Visible",
+        "shadow": true,
+        "resizable": true
+      }
+    ]
+  }
+}

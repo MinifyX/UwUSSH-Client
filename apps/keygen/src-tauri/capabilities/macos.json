@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "macos",
+  "description": "macOS only: the menu bar (setMacMenu) and closing the window after the close question. The page draws no title bar there, so it doesn't get the title bar's window controls (desktop.json).",
+  "platforms": ["macOS"],
+  "windows": ["main"],
+  "permissions": ["core:menu:default", "core:window:allow-close"]
+}
