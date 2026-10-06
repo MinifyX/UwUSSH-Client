@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';
+import { AppLabels } from './components/AppLabels';
 import { prepareDocument } from './lib/appearance';
 import { loadFlavor } from './lib/flavor';
 import './styles/index.css';
@@ -16,7 +17,9 @@ if (!root) throw new Error('#root missing from index.html');
 void loadFlavor().then(() =>
   ReactDOM.createRoot(root).render(
     <React.StrictMode>
-      <App />
+      <AppLabels>
+        <App />
+      </AppLabels>
     </React.StrictMode>,
   ),
 );

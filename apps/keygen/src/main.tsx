@@ -1,3 +1,4 @@
+import { AppLabels } from '@desktop/components/AppLabels';
 import { prepareDocument } from '@desktop/lib/appearance';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -10,6 +11,8 @@ prepareDocument();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <AppLabels>
+      <App />
+    </AppLabels>
   </StrictMode>,
 );
