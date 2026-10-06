@@ -463,7 +463,7 @@ mod tests {
 
     fn handover() -> Handover {
         Handover {
-            server_url: "https://nas.lan:8443".into(),
+            server_url: "https://nas.example:8443".into(),
             tls_fingerprint: Some("SHA256:abc".into()),
             account_id: Uuid::now_v7(),
             account_key: Some(crate::http::encode_base64(
@@ -529,7 +529,7 @@ mod tests {
     #[test]
     fn a_handover_from_a_build_before_manifests_still_reads() {
         let older = serde_json::json!({
-            "server_url": "https://nas.lan:8443",
+            "server_url": "https://nas.example:8443",
             "tls_fingerprint": null,
             "account_id": Uuid::now_v7(),
             "account_key": null,
@@ -592,13 +592,13 @@ mod tests {
         let offer = offer(
             "K7M4Q",
             "tiger-radio-kiwi",
-            "https://nas.lan:8443",
+            "https://nas.example:8443",
             Some("SHA256:abc"),
         );
         assert_eq!(offer.spoken, "K7M4Q-tiger-radio-kiwi");
 
         let target = parse_offer(&offer.pasteable).unwrap();
-        assert_eq!(target.server_url, "https://nas.lan:8443");
+        assert_eq!(target.server_url, "https://nas.example:8443");
         assert_eq!(target.tls_fingerprint.as_deref(), Some("SHA256:abc"));
         assert_eq!(target.id, "K7M4Q");
         assert_eq!(target.words, "tiger-radio-kiwi");

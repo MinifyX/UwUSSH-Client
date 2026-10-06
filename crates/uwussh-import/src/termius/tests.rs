@@ -235,7 +235,7 @@ fn homelab() -> Fixture {
                         SYNCED,
                         &[
                             ("label", Sealed("web")),
-                            ("address", Sealed("10.0.0.5")),
+                            ("address", Sealed("192.0.2.5")),
                             ("group", Null),
                             ("ssh_config", Ref(10)),
                             ("os_name", Plain("debian")),
@@ -251,7 +251,7 @@ fn homelab() -> Fixture {
                         &[
                             (
                                 "content",
-                                Sealed(r#"{"label":"pve-1","address":"pve-1.lan","version":1}"#),
+                                Sealed(r#"{"label":"pve-1","address":"pve-1.example","version":1}"#),
                             ),
                             ("group", Ref(2)),
                             ("ssh_config", Ref(11)),
@@ -265,7 +265,7 @@ fn homelab() -> Fixture {
                         "DELETED",
                         &[
                             ("label", Sealed("gone")),
-                            ("address", Sealed("10.0.0.99")),
+                            ("address", Sealed("192.0.2.99")),
                             ("ssh_config", Ref(10)),
                         ],
                     ),
@@ -277,7 +277,7 @@ fn homelab() -> Fixture {
                         SYNCED,
                         &[
                             ("label", Sealed("broken-port")),
-                            ("address", Sealed("10.0.0.7")),
+                            ("address", Sealed("192.0.2.7")),
                             ("ssh_config", Ref(12)),
                         ],
                     ),
@@ -297,7 +297,7 @@ fn homelab() -> Fixture {
                         SYNCED,
                         &[
                             ("label", SealedWith(TEAM_KEY, "team-box")),
-                            ("address", SealedWith(TEAM_KEY, "10.1.0.1")),
+                            ("address", SealedWith(TEAM_KEY, "203.0.113.1")),
                         ],
                     ),
                 ),
@@ -323,7 +323,7 @@ fn homelab() -> Fixture {
                         70,
                         SYNCED,
                         &[
-                            ("hostnames", Sealed("10.0.0.5")),
+                            ("hostnames", Sealed("192.0.2.5")),
                             (
                                 "key",
                                 Sealed("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA== web"),
@@ -337,7 +337,7 @@ fn homelab() -> Fixture {
                         71,
                         SYNCED,
                         &[
-                            ("hostnames", Sealed("[pve-1.lan]:2222,pve-1")),
+                            ("hostnames", Sealed("[pve-1.example]:2222,pve-1")),
                             ("key", Sealed("ecdsa-sha2-nistp256 AAAAE2VjZHNh")),
                         ],
                     ),
@@ -409,7 +409,7 @@ fn hosts_arrive_with_address_port_group_and_login() {
     assert_eq!(names, ["web", "pve-1"]);
 
     let web = &bundle.hosts[0];
-    assert_eq!((web.address.as_str(), web.port), ("10.0.0.5", 22));
+    assert_eq!((web.address.as_str(), web.port), ("192.0.2.5", 22));
     assert_eq!(web.group_path, None);
     assert_eq!(web.username.as_deref(), Some("uwu"));
     assert_eq!(web.tags, ["prod"]);
@@ -427,7 +427,7 @@ fn a_host_inherits_port_and_login_from_its_groups() {
     let bundle = import_homelab("inherit");
     let pve = bundle.hosts.iter().find(|h| h.name == "pve-1").unwrap();
 
-    assert_eq!(pve.address, "pve-1.lan", "read from the content copy");
+    assert_eq!(pve.address, "pve-1.example", "read from the content copy");
     assert_eq!(pve.group_path.as_deref(), Some("Homelab/Proxmox"));
     assert_eq!(pve.port, 2222, "from the Homelab group's ssh config");
     assert_eq!(pve.username.as_deref(), Some("root"));
@@ -488,8 +488,8 @@ fn known_host_keys_come_along_per_host_and_port() {
     assert_eq!(
         entries,
         [
-            ("10.0.0.5", 22, "ssh-ed25519"),
-            ("pve-1.lan", 2222, "ecdsa-sha2-nistp256"),
+            ("192.0.2.5", 22, "ssh-ed25519"),
+            ("pve-1.example", 2222, "ecdsa-sha2-nistp256"),
             ("pve-1", 22, "ecdsa-sha2-nistp256"),
         ]
     );

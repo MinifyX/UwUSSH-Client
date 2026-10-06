@@ -978,7 +978,7 @@ mod tests {
 
     #[test]
     fn an_smb_server_is_a_plain_name() {
-        for good in ["nas", "nas.lan", "192.168.1.20", "files-01.example.org"] {
+        for good in ["nas", "nas.example", "192.0.2.20", "files-01.example.org"] {
             assert!(smb_server_name(good), "{good}");
         }
         for bad in [

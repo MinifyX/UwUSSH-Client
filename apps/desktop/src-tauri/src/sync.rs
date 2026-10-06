@@ -1019,18 +1019,18 @@ mod tests {
         assert!(target_of(&spoken, None, None).is_none());
         assert!(target_of(&spoken, Some("  "), None).is_none());
         let target =
-            target_of(&spoken, Some("https://nas.lan:8443"), Some(" SHA256:abc ")).unwrap();
+            target_of(&spoken, Some("https://nas.example:8443"), Some(" SHA256:abc ")).unwrap();
         assert_eq!(target.id, "K7M4Q");
         assert_eq!(target.words, words);
         assert_eq!(target.tls_fingerprint.as_deref(), Some("SHA256:abc"));
-        assert!(target_of("K7M4Q-not-our-words", Some("https://nas.lan"), None).is_none());
+        assert!(target_of("K7M4Q-not-our-words", Some("https://nas.example"), None).is_none());
     }
 
     #[test]
     fn a_pasted_code_brings_its_own_server() {
-        let offer = pairing::offer("K7M4Q", &pairing::words(), "https://nas.lan:8443", None);
+        let offer = pairing::offer("K7M4Q", &pairing::words(), "https://nas.example:8443", None);
         let target = target_of(&offer.pasteable, None, None).unwrap();
-        assert_eq!(target.server_url, "https://nas.lan:8443");
+        assert_eq!(target.server_url, "https://nas.example:8443");
     }
 
     #[test]

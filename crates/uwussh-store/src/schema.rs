@@ -670,7 +670,7 @@ mod tests {
         conn.execute(
             "INSERT INTO hosts (id, vault_id, name, address, port,
                                 hlc_wall_ms, hlc_counter, hlc_device)
-             VALUES (?1, ?2, 'nas', 'nas.lan', 22, 0, 0, 1)",
+             VALUES (?1, ?2, 'nas', 'nas.example', 22, 0, 0, 1)",
             [Uuid::now_v7().to_string(), Uuid::now_v7().to_string()],
         )
         .unwrap();
@@ -709,7 +709,7 @@ mod tests {
             conn.execute(
                 "INSERT INTO hosts (id, vault_id, name, address, port, group_path,
                                     hlc_wall_ms, hlc_counter, hlc_device)
-                 VALUES (?1, 'v', ?2, '10.0.0.1', 22, ?3, 0, 0, 1)",
+                 VALUES (?1, 'v', ?2, '192.0.2.1', 22, ?3, 0, 0, 1)",
                 params![Uuid::now_v7().to_string(), name, group],
             )
             .unwrap();
@@ -763,9 +763,9 @@ mod tests {
                          ('gone', 'v', '', 'old', 'password', 'orphan', 0, 0, 1, 1);
              INSERT INTO hosts (id, vault_id, name, address, port, identity_id,
                                 hlc_wall_ms, hlc_counter, hlc_device, deleted)
-                  VALUES ('a', 'v', 'a', '10.0.0.1', 22, 'shared', 0, 0, 1, 1),
-                         ('b', 'v', 'b', '10.0.0.2', 22, 'shared', 0, 0, 1, 0),
-                         ('c', 'v', 'c', '10.0.0.3', 22, 'gone', 0, 0, 1, 1);",
+                  VALUES ('a', 'v', 'a', '192.0.2.1', 22, 'shared', 0, 0, 1, 1),
+                         ('b', 'v', 'b', '192.0.2.2', 22, 'shared', 0, 0, 1, 0),
+                         ('c', 'v', 'c', '192.0.2.3', 22, 'gone', 0, 0, 1, 1);",
         )
         .unwrap();
         conn.pragma_update(None, "user_version", 2).unwrap();
@@ -815,10 +815,10 @@ mod tests {
                   VALUES ('g-home', 'v', 'private', 'Homelab', 0, 1, 0, 1);
              INSERT INTO hosts (id, vault_id, name, address, port, group_path, workspace,
                                 hlc_wall_ms, hlc_counter, hlc_device, deleted)
-                  VALUES ('a', 'v', 'a', '10.0.0.1', 22, 'Homelab',  'private', 1, 0, 1, 0),
-                         ('b', 'v', 'b', '10.0.0.2', 22, 'Clients',  'business', 1, 0, 1, 0),
-                         ('c', 'v', 'c', '10.0.0.3', 22, NULL,       'private', 1, 0, 1, 0),
-                         ('d', 'v', 'd', '10.0.0.4', 22, 'Homelab',  'private', 1, 0, 1, 1);",
+                  VALUES ('a', 'v', 'a', '192.0.2.1', 22, 'Homelab',  'private', 1, 0, 1, 0),
+                         ('b', 'v', 'b', '192.0.2.2', 22, 'Clients',  'business', 1, 0, 1, 0),
+                         ('c', 'v', 'c', '192.0.2.3', 22, NULL,       'private', 1, 0, 1, 0),
+                         ('d', 'v', 'd', '192.0.2.4', 22, 'Homelab',  'private', 1, 0, 1, 1);",
         )
         .unwrap();
         conn.pragma_update(None, "user_version", 3).unwrap();

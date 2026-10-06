@@ -304,7 +304,7 @@ mod tests {
     fn a_key_in_use_cannot_be_deleted_and_an_unused_one_leaves_nothing() {
         let store = unlocked();
         let key = store.add_key(key_draft("laptop")).unwrap();
-        let mut host = draft("pve", "10.0.0.6");
+        let mut host = draft("pve", "192.0.2.6");
         host.auth = AuthMethod::Key;
         host.key_id = Some(key.id);
         let host = store.save_host(host).unwrap();

@@ -233,7 +233,7 @@ mod tests {
         let host = from_session_values(
             "prox-1",
             &values(&[
-                ("HostName", "10.0.0.12"),
+                ("HostName", "192.0.2.12"),
                 ("PortNumber", "22"),
                 ("UserName", "root"),
             ]),
@@ -241,7 +241,7 @@ mod tests {
         );
 
         assert_eq!(host.name, "prox-1");
-        assert_eq!(host.address, "10.0.0.12");
+        assert_eq!(host.address, "192.0.2.12");
         assert_eq!(host.port, 22);
         assert_eq!(host.username.as_deref(), Some("root"));
     }
@@ -317,12 +317,12 @@ mod tests {
         };
         write(
             "prox-1",
-            "10.0.0.12",
+            "192.0.2.12",
             2222,
             "root",
             Some(r"C:\keys\homelab.ppk"),
         );
-        write("homelab%2Fweb", "10.0.0.5", 22, "deploy", None);
+        write("homelab%2Fweb", "192.0.2.5", 22, "deploy", None);
         // A session with no host name is reported, not imported.
         let (empty, _) = hkcu.create_subkey(format!("{base}\\broken")).unwrap();
         empty.set_value("UserName", &"nobody").unwrap();
@@ -331,7 +331,7 @@ mod tests {
         hkcu.delete_subkey_all(&base).unwrap();
 
         let prox = result.hosts.iter().find(|h| h.name == "prox-1").unwrap();
-        assert_eq!(prox.address, "10.0.0.12");
+        assert_eq!(prox.address, "192.0.2.12");
         assert_eq!(prox.port, 2222, "PortNumber is a DWORD");
         assert_eq!(prox.username.as_deref(), Some("root"));
         assert_eq!(prox.key_path.as_deref(), Some(r"C:\keys\homelab.ppk"));

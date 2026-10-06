@@ -454,7 +454,7 @@ mod tests {
     fn a_setup_code_reads_back_as_what_the_server_printed() {
         // Exactly what `uwusync-server invite` writes.
         let body = serde_json::json!({
-            "u": "https://nas.lan:8443",
+            "u": "https://nas.example:8443",
             "f": "SHA256:abc",
             "i": "K7M4Q-9PQ2R-T5XYZ"
         })
@@ -462,7 +462,7 @@ mod tests {
         let code = format!("uwu1_{}", http::encode_base64(&body));
 
         let setup = parse_setup(&code).unwrap();
-        assert_eq!(setup.server_url, "https://nas.lan:8443");
+        assert_eq!(setup.server_url, "https://nas.example:8443");
         assert_eq!(setup.tls_fingerprint.as_deref(), Some("SHA256:abc"));
         assert_eq!(setup.invite, "K7M4Q-9PQ2R-T5XYZ");
 

@@ -456,7 +456,7 @@ check(
 
 // ── Keyword highlighting ────────────────────────────────────────────────────
 await page.eval(`window.__uwusshDriver.term.focus()`);
-await page.type('error 10.0.0.12 active');
+await page.type('error 192.0.2.12 active');
 await page.key('Enter');
 await page.waitFor(terminalHas('command not found'), { what: 'unknown command output' });
 await page.waitFor(`window.__uwusshDriver.highlighter.entries.size > 0`, {
@@ -624,7 +624,7 @@ await invoke('save_host', {
   draft: {
     id: null,
     name: 'nas',
-    address: '10.99.0.5',
+    address: '198.51.100.5',
     port: 22,
     username: 'root',
     auth: 'password',

@@ -384,13 +384,13 @@ mod tests {
     const SAMPLE: &str = r#"
 # homelab
 Host prox-1
-    HostName 10.0.0.12
+    HostName 192.0.2.12
     User root
     Port 22
     IdentityFile ~/.ssh/id_ed25519
 
 Host db-01
-    HostName db-01.internal
+    HostName db-01.example
     User lorin
     ProxyJump edge-bastion
     Port 2222
@@ -494,7 +494,7 @@ Host edge-bastion
 
         std::fs::write(
             dir.join("config"),
-            "Host top\n  HostName 10.0.0.1\n\nInclude config.d/*.conf\n",
+            "Host top\n  HostName 192.0.2.1\n\nInclude config.d/*.conf\n",
         )
         .unwrap();
         std::fs::write(
@@ -504,7 +504,7 @@ Host edge-bastion
         .unwrap();
         std::fs::write(
             confd.join("20-home.conf"),
-            "Host nas\n  HostName 10.0.0.9\n",
+            "Host nas\n  HostName 192.0.2.9\n",
         )
         .unwrap();
         // Not matched by *.conf, so it must not be imported.

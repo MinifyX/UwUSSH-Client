@@ -237,13 +237,13 @@ mod tests {
         {
             let store = Store::open(&path).unwrap();
             store
-                .save_host(hosts::tests::draft("prox-1", "10.0.0.12"))
+                .save_host(hosts::tests::draft("prox-1", "192.0.2.12"))
                 .unwrap();
         }
         let store = Store::open(&path).unwrap();
         let hosts = store.list_hosts().unwrap();
         assert_eq!(hosts.len(), 1);
-        assert_eq!(hosts[0].address, "10.0.0.12");
+        assert_eq!(hosts[0].address, "192.0.2.12");
 
         drop(store);
         for suffix in ["", "-wal", "-shm"] {
@@ -259,7 +259,7 @@ mod tests {
         let path = folder.join("uwussh.db");
         let store = Store::open(&path).unwrap();
         store
-            .save_host(hosts::tests::draft("a", "10.0.0.1"))
+            .save_host(hosts::tests::draft("a", "192.0.2.1"))
             .unwrap();
         let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode(&folder), 0o700);

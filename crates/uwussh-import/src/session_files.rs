@@ -331,10 +331,10 @@ mod tests {
     #[test]
     fn reads_a_kitty_session_file() {
         let values = parse_session_file(
-            "HostName\\10.0.0.12\\\r\nPortNumber\\2222\\\r\nUserName\\root\\\r\nPublicKeyFile\\C:\\keys\\nas.ppk\\\r\n",
+            "HostName\\192.0.2.12\\\r\nPortNumber\\2222\\\r\nUserName\\root\\\r\nPublicKeyFile\\C:\\keys\\nas.ppk\\\r\n",
         )
         .unwrap();
-        assert_eq!(values["HostName"], "10.0.0.12");
+        assert_eq!(values["HostName"], "192.0.2.12");
         assert_eq!(values["PortNumber"], "2222");
         assert_eq!(
             values["PublicKeyFile"], r"C:\keys\nas.ppk",
@@ -358,7 +358,7 @@ mod tests {
 "PortNumber"=dword:00000016
 
 [HKEY_CURRENT_USER\Software\SimonTatham\PuTTY\Sessions\homelab%2Fprox-1]
-"HostName"="10.0.0.12"
+"HostName"="192.0.2.12"
 "PortNumber"=dword:000008ae
 "UserName"="root"
 "PublicKeyFile"="C:\\keys\\home \"lab\".ppk"
@@ -366,7 +366,7 @@ mod tests {
   03,04
 
 [HKEY_CURRENT_USER\Software\9bis.com\KiTTY\Sessions\web]
-"HostName"="web.lan"
+"HostName"="web.example"
 "#;
         let sessions = parse_reg(reg);
         assert_eq!(sessions.len(), 3);
@@ -381,14 +381,14 @@ mod tests {
 
     #[test]
     fn reads_utf16_with_a_bom() {
-        let text = "Windows Registry Editor Version 5.00\r\n[HKEY_CURRENT_USER\\Software\\SimonTatham\\PuTTY\\Sessions\\bür%C3%B6]\r\n\"HostName\"=\"b.lan\"\r\n";
+        let text = "Windows Registry Editor Version 5.00\r\n[HKEY_CURRENT_USER\\Software\\SimonTatham\\PuTTY\\Sessions\\bür%C3%B6]\r\n\"HostName\"=\"b.example\"\r\n";
         let mut bytes = vec![0xFF, 0xFE];
         for unit in text.encode_utf16() {
             bytes.extend_from_slice(&unit.to_le_bytes());
         }
         let sessions = parse_reg(&text_of(&bytes));
         assert_eq!(sessions.len(), 1);
-        assert_eq!(sessions[0].1["HostName"], "b.lan");
+        assert_eq!(sessions[0].1["HostName"], "b.example");
     }
 
     #[test]
@@ -399,7 +399,7 @@ mod tests {
         std::fs::create_dir_all(&sessions).unwrap();
         std::fs::write(
             sessions.join("My%20NAS"),
-            "HostName\\nas.lan\\\nUserName\\lorin\\\n",
+            "HostName\\nas.example\\\nUserName\\lorin\\\n",
         )
         .unwrap();
         std::fs::write(sessions.join("Default%20Settings"), "PortNumber\\22\\\n").unwrap();
@@ -407,7 +407,7 @@ mod tests {
         std::fs::write(sessions.join("readme.txt"), "hello").unwrap();
         std::fs::write(
             dir.join("putty.reg"),
-            "REGEDIT4\n[HKEY_CURRENT_USER\\Software\\SimonTatham\\PuTTY\\Sessions\\pi]\n\"HostName\"=\"pi.lan\"\n",
+            "REGEDIT4\n[HKEY_CURRENT_USER\\Software\\SimonTatham\\PuTTY\\Sessions\\pi]\n\"HostName\"=\"pi.example\"\n",
         )
         .unwrap();
 

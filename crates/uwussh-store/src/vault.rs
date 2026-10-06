@@ -434,7 +434,7 @@ mod tests {
         create(&store);
         // A password, sealed under the vault as it is now.
         let host = store
-            .save_host(crate::hosts::tests::draft("nas", "10.0.0.9"))
+            .save_host(crate::hosts::tests::draft("nas", "192.0.2.9"))
             .unwrap();
         store
             .set_host_password(

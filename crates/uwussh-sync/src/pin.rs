@@ -276,7 +276,7 @@ mod tests {
         assert_ne!(fingerprint, other_fingerprint);
 
         let verifier = PinnedServer::new(&fingerprint);
-        let name = ServerName::try_from("nas.lan").unwrap();
+        let name = ServerName::try_from("nas.example").unwrap();
         let now = UnixTime::now();
 
         assert!(verifier
@@ -307,7 +307,7 @@ mod tests {
             .verify_server_cert(
                 &CertificateDer::from(der),
                 &[],
-                &ServerName::try_from("nas.lan").unwrap(),
+                &ServerName::try_from("nas.example").unwrap(),
                 &[],
                 UnixTime::now()
             )

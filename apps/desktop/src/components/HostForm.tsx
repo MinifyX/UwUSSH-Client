@@ -315,7 +315,7 @@ export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, o
               <input
                 value={address}
                 onChange={edit('address', setAddress)}
-                placeholder={t('10.0.0.12 oder prox-1.lan')}
+                placeholder={t('192.0.2.12 oder prox-1.example')}
                 aria-invalid={Boolean(errors.address)}
                 autoComplete="off"
                 spellCheck={false}

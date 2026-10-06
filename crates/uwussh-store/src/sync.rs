@@ -1655,7 +1655,7 @@ mod tests {
         let store = Store::open_in_memory().unwrap();
         let account_key = AccountKey::generate();
         let enrolment = Enrolment {
-            server_url: "https://nas.lan:8443".into(),
+            server_url: "https://nas.example:8443".into(),
             account_id: uuid::Uuid::now_v7(),
             device_id: uuid::Uuid::now_v7(),
             tls_fingerprint: Some("SHA256:abc".into()),
@@ -1666,7 +1666,7 @@ mod tests {
 
         let state = store.sync_state().unwrap();
         assert!(state.paired());
-        assert_eq!(state.server_url.as_deref(), Some("https://nas.lan:8443"));
+        assert_eq!(state.server_url.as_deref(), Some("https://nas.example:8443"));
         assert_eq!(state.tls_fingerprint.as_deref(), Some("SHA256:abc"));
         assert_eq!(state.account_id, Some(enrolment.account_id));
         assert!(state.paired_ms.is_some());

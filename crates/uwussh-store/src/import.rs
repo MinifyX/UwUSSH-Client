@@ -580,7 +580,7 @@ mod tests {
             hosts: vec![
                 HostInput {
                     name: "web".into(),
-                    address: "10.0.0.5".into(),
+                    address: "192.0.2.5".into(),
                     port: 22,
                     group_path: Some("Homelab".into()),
                     identity: Some(1),
@@ -589,7 +589,7 @@ mod tests {
                 },
                 HostInput {
                     name: "pve".into(),
-                    address: "10.0.0.6".into(),
+                    address: "192.0.2.6".into(),
                     port: 2222,
                     group_path: Some("Homelab/Proxmox".into()),
                     identity: Some(0),
@@ -598,7 +598,7 @@ mod tests {
                 },
             ],
             known_hosts: vec![KnownHostInput {
-                address: "10.0.0.5".into(),
+                address: "192.0.2.5".into(),
                 port: 22,
                 algorithm: "ssh-ed25519".into(),
                 public_key: "AAAAC3NzaC1lZDI1NTE5".into(),
@@ -632,11 +632,11 @@ mod tests {
         let hosts = store.list_hosts().unwrap();
         assert_eq!(hosts.len(), 2);
         let web = hosts.iter().find(|h| h.name == "web").unwrap();
-        assert_eq!((web.address.as_str(), web.port), ("10.0.0.5", 22));
+        assert_eq!((web.address.as_str(), web.port), ("192.0.2.5", 22));
         assert_eq!(web.username, "uwu");
         assert_eq!(web.group_path.as_deref(), Some("Homelab"));
 
-        assert!(store.known_host("10.0.0.5", 22).unwrap().is_some());
+        assert!(store.known_host("192.0.2.5", 22).unwrap().is_some());
     }
 
     #[test]
@@ -661,7 +661,7 @@ mod tests {
         let outcome = store.import(hostile).unwrap();
         assert_eq!(outcome.hosts_skipped, 2);
         assert_eq!(outcome.known_hosts_added, 0);
-        assert!(store.known_host("10.0.0.5", 22).unwrap().is_none());
+        assert!(store.known_host("192.0.2.5", 22).unwrap().is_none());
         assert!(store.known_host("db.corp", 22).unwrap().is_none());
     }
 
@@ -760,7 +760,7 @@ mod tests {
         let mut set = sample();
         set.hosts.push(HostInput {
             name: "web as root".into(),
-            address: "10.0.0.5".into(),
+            address: "192.0.2.5".into(),
             port: 22,
             group_path: None,
             identity: Some(0),
@@ -827,7 +827,7 @@ mod tests {
         let store = unlocked_store();
         store
             .trust_host_key(
-                "10.0.0.5",
+                "192.0.2.5",
                 22,
                 "ssh-ed25519",
                 "SHA256:mine",
@@ -842,7 +842,7 @@ mod tests {
         );
         assert_eq!(
             store
-                .known_host("10.0.0.5", 22)
+                .known_host("192.0.2.5", 22)
                 .unwrap()
                 .unwrap()
                 .fingerprint,
@@ -895,7 +895,7 @@ mod tests {
             hosts: vec![
                 HostInput {
                     name: "keyed".into(),
-                    address: "10.0.0.1".into(),
+                    address: "192.0.2.1".into(),
                     port: 22,
                     group_path: None,
                     identity: Some(0),
@@ -904,7 +904,7 @@ mod tests {
                 },
                 HostInput {
                     name: "asked".into(),
-                    address: "10.0.0.2".into(),
+                    address: "192.0.2.2".into(),
                     port: 22,
                     group_path: None,
                     identity: Some(1),
