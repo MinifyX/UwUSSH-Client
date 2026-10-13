@@ -144,21 +144,27 @@ export type Device = {
   current: boolean;
 };
 
-/** One server this device syncs with: a store of its own. The id is opaque. */
+/**
+ * One store of its own on this device: a server it syncs with, or a team on
+ * such a server. The id is opaque.
+ */
 export type SpaceInfo = {
   id: string;
   main: boolean;
-  kind: 'server';
-  /** The server's host name, '' while it is connected to none. */
+  kind: 'server' | 'team';
+  /** The server's host name, '' while it is connected to none; a team's name. */
   label: string;
   /** Its vault could not be opened with the main server's key. */
   locked: boolean;
+  /** Nothing may be written into it: a team this account only reads. */
   readOnly: boolean;
+  /** A team: the server it lives on. */
+  parent?: string;
   status: SyncStatus;
 };
 
 export type SpacesStatus = {
-  /** The main server first. */
+  /** The main server first; each server is followed by its teams. */
   spaces: SpaceInfo[];
   /** Where new entries of each workspace go. */
   defaults: { private: string; business: string };

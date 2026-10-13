@@ -1483,3 +1483,70 @@
     white-space: nowrap;
   }
 }
+
+/* ── Teams ───────────────────────────────────────────────────────────────── */
+
+/* A member key's fingerprint, in rows to read out and compare. */
+.team-fingerprint {
+  display: grid;
+  gap: 2px;
+  justify-items: start;
+  font: 500 12.5px/1.5 var(--uwu-mono);
+  letter-spacing: 0.04em;
+  user-select: all;
+}
+
+.team-fingerprint[data-large] {
+  gap: 4px;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.team-code-card {
+  display: grid;
+  gap: 8px;
+}
+
+.team-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.sync-device-text b:has(.team-name) {
+  flex-wrap: wrap;
+}
+
+.team-note {
+  padding: 10px 0 0;
+}
+
+.team-invite-new {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.team-code-input {
+  font-family: var(--uwu-mono);
+  letter-spacing: 0.04em;
+}
+
+/* The hosts whose logins should change after a member went. */
+.team-hosts {
+  display: grid;
+  gap: 4px;
+  max-height: 220px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.team-hosts li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}

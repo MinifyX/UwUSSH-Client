@@ -158,3 +158,11 @@
   justify-self: center;
   margin: -4px 0 -6px;
 }
+
+/* The fields of a form as one group, so one `disabled` reaches them all. */
+.form-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}

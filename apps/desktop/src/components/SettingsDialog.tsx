@@ -21,6 +21,8 @@ import pkg from '../../package.json';
 import { invoke } from '@tauri-apps/api/core';
 import { customRegex, HIGHLIGHT_HEX } from '../lib/highlight';
 import { locale, N_, t, useLanguage } from '../lib/i18n';
+import { useTeamServers } from '../lib/teamCommands';
+import { teamsVisible } from '../lib/teams';
 import {
   passphraseNote,
   asKeyFailure,
@@ -69,6 +71,7 @@ import { AssistSettings } from './AssistSettings';
 import { KeyboardSettings } from './KeyboardSettings';
 import { ExportDialog } from './ExportDialog';
 import { SyncSettings } from './SyncSettings';
+import { TeamSettings } from './TeamSettings';
 import { KeyImportDialog, KeygenDialog } from './keygen/KeyDialogs';
 import { Modal } from './Modal';
 import { VaultDialog } from './VaultDialog';
@@ -81,6 +84,7 @@ export type SettingsSection =
   | 'vault'
   | 'assist'
   | 'sync'
+  | 'teams'
   | 'data'
   | 'updates'
   | 'about';
@@ -93,6 +97,7 @@ const SECTIONS: { id: SettingsSection; label: string }[] = [
   { id: 'vault', label: N_('Tresor & Keys') },
   { id: 'assist', label: N_('KI') },
   { id: 'sync', label: N_('Sync') },
+  { id: 'teams', label: N_('Teams') },
   { id: 'data', label: N_('Import & Export') },
   { id: 'updates', label: N_('Updates') },
   { id: 'about', label: N_('Über UwUSSH') },
@@ -1210,10 +1215,17 @@ export function SettingsDialog({
   useLanguage();
   // The App Store build updates through the App Store: no Updates section.
   const updates = updatesAvailableInApp();
-  const sections = SECTIONS.filter((s) => updates || s.id !== 'updates');
-  const [section, setSection] = useState<SettingsSection>(
+  // Teams have a page only with a server that knows them and has them on.
+  const [teamList, refreshTeams] = useTeamServers();
+  const teams = teamsVisible(teamList);
+  const sections = SECTIONS.filter(
+    (s) => (updates || s.id !== 'updates') && (teams || s.id !== 'teams'),
+  );
+  const [picked, setSection] = useState<SettingsSection>(
     initial === 'updates' && !updates ? 'about' : initial,
   );
+  // The last such server went while the page was open: back to where it was connected.
+  const section = picked === 'teams' && !teams ? 'sync' : picked;
   return (
     <Modal title={t('Einstellungen')} size="wide" onCancel={onClose}>
       <div className="settings">
@@ -1237,6 +1249,7 @@ export function SettingsDialog({
           {section === 'vault' && <Vault onChanged={onChanged} />}
           {section === 'assist' && <AssistSettings />}
           {section === 'sync' && <SyncSettings />}
+          {section === 'teams' && <TeamSettings servers={teamList} refresh={refreshTeams} />}
           {section === 'data' && <Data onImport={onImport} />}
           {section === 'updates' && updates && (
             <Updates

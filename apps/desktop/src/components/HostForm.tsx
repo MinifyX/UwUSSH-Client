@@ -1,4 +1,4 @@
-import { Button, Icon, IconButton, ICONS, Segmented } from '@uwusuite/design';
+import { Button, Hint, Icon, IconButton, ICONS, Segmented, Select } from '@uwusuite/design';
 import { useRef, useEffect, useState, type FormEvent } from 'react';
 import { pickKeyPath } from '../lib/flavor';
 import { N_, t } from '../lib/i18n';
@@ -18,13 +18,14 @@ import { useSettings, workspaceName } from '../lib/settings';
 import {
   chosenSpace,
   draftSpace,
-  hasTwoServers,
+  hasPlaces,
   moveBlocker,
   movesHost,
   spaceName,
   takesEntries,
 } from '../lib/spaces';
 import { spacesStatus, type SpacesStatus } from '../lib/sync';
+import { filingGroups, hasTeams, hostReadOnly, teamOfHost } from '../lib/teams';
 import { KeyImportDialog, KeygenDialog } from './keygen/KeyDialogs';
 import { Modal } from './Modal';
 import { VaultDialog } from './VaultDialog';
@@ -118,11 +119,17 @@ export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, o
       .catch(() => undefined);
   }, []);
 
-  const twoServers = servers !== null && hasTwoServers(servers);
+  // A second server or a team: only then does the dialog ask where a host goes.
+  const twoServers = servers !== null && hasPlaces(servers);
+  const teams = hasTeams(servers);
   const server = twoServers ? chosenSpace(servers, host, space, pickedServer) : null;
-  // A stored host moves only while both servers are open.
-  const serverBlocker = twoServers && host ? moveBlocker(servers) : null;
+  // A stored host moves only while the vaults it moves between are open.
+  const serverBlocker = twoServers && host ? moveBlocker(servers, host) : null;
   const moving = movesHost(host, server);
+  // In a team this account only reads: the host opens, but nothing in it changes.
+  const readOnly = hostReadOnly(servers, host);
+  const ownTeam = teamOfHost(servers, host);
+  const chosenTeam = servers?.spaces.find((entry) => entry.id === server && entry.kind === 'team');
 
   // What the form holds, compared with what it opened with: closing a form
   // that changed asks first. A key only counts when the host uses keys, since
@@ -311,268 +318,342 @@ export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, o
   return (
     <>
       <Modal
-        title={host ? t('{name} bearbeiten', { name: host.name }) : t('Neuer Host')}
+        title={
+          readOnly && host
+            ? host.name
+            : host
+              ? t('{name} bearbeiten', { name: host.name })
+              : t('Neuer Host')
+        }
         onCancel={guard.request}
         footer={
-          <>
-            {host && (
-              <Button
-                variant="danger"
-                icon={ICONS.delete}
-                data-secondary
-                onClick={remove}
-                disabled={busy}
-              >
-                {confirmDelete ? t('Wirklich löschen') : t('Löschen')}
+          readOnly ? (
+            <Button variant="primary" data-autofocus onClick={onCancel}>
+              {t('Schließen')}
+            </Button>
+          ) : (
+            <>
+              {host && (
+                <Button
+                  variant="danger"
+                  icon={ICONS.delete}
+                  data-secondary
+                  onClick={remove}
+                  disabled={busy}
+                >
+                  {confirmDelete ? t('Wirklich löschen') : t('Löschen')}
+                </Button>
+              )}
+              <span className="spacer" />
+              <Button data-secondary onClick={guard.request} disabled={busy}>
+                {t('Abbrechen')}
               </Button>
-            )}
-            <span className="spacer" />
-            <Button data-secondary onClick={guard.request} disabled={busy}>
-              {t('Abbrechen')}
-            </Button>
-            <Button variant="primary" onClick={() => void submit()} disabled={busy}>
-              {t('Speichern')}
-            </Button>
-          </>
+              <Button variant="primary" onClick={() => void submit()} disabled={busy}>
+                {t('Speichern')}
+              </Button>
+            </>
+          )
         }
       >
         <form className="form" onSubmit={submit}>
-          <div className="form-row">
-            <label className="field grow">
-              <span>{t('Adresse')}</span>
-              <input
-                value={address}
-                onChange={edit('address', setAddress)}
-                placeholder={t('192.0.2.12 oder prox-1.example')}
-                aria-invalid={Boolean(errors.address)}
-                autoComplete="off"
-                spellCheck={false}
-              />
-              {errors.address && <em className="field-error">{t(errors.address)}</em>}
-            </label>
-            <label className="field port">
-              <span>{t('Port')}</span>
-              <input
-                value={port}
-                onChange={edit('port', setPort)}
-                inputMode="numeric"
-                aria-invalid={Boolean(errors.port)}
-              />
-              {errors.port && <em className="field-error">{t(errors.port)}</em>}
-            </label>
-          </div>
+          {readOnly && (
+            <Hint tone="info">
+              {t('In {team} darfst du nur lesen – dieser Host lässt sich hier nicht ändern.', {
+                team: ownTeam?.label.trim() || t('diesem Team'),
+              })}
+            </Hint>
+          )}
+          {/* One switch for every field: a host this account only reads. */}
+          <fieldset className="form form-fields" disabled={readOnly}>
+            <div className="form-row">
+              <label className="field grow">
+                <span>{t('Adresse')}</span>
+                <input
+                  value={address}
+                  onChange={edit('address', setAddress)}
+                  placeholder={t('192.0.2.12 oder prox-1.example')}
+                  aria-invalid={Boolean(errors.address)}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                {errors.address && <em className="field-error">{t(errors.address)}</em>}
+              </label>
+              <label className="field port">
+                <span>{t('Port')}</span>
+                <input
+                  value={port}
+                  onChange={edit('port', setPort)}
+                  inputMode="numeric"
+                  aria-invalid={Boolean(errors.port)}
+                />
+                {errors.port && <em className="field-error">{t(errors.port)}</em>}
+              </label>
+            </div>
 
-          <div className="form-row">
-            <label className="field grow">
-              <span>{t('Benutzer')}</span>
-              <input
-                value={username}
-                onChange={edit('username', setUsername)}
-                placeholder="root"
-                aria-invalid={Boolean(errors.username)}
-                autoComplete="off"
-                spellCheck={false}
-              />
-              {errors.username && <em className="field-error">{t(errors.username)}</em>}
-            </label>
-            <label className="field grow">
-              <span>{t('Name')}</span>
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder={address || t('wie die Adresse')}
-                autoComplete="off"
-              />
-            </label>
-          </div>
+            <div className="form-row">
+              <label className="field grow">
+                <span>{t('Benutzer')}</span>
+                <input
+                  value={username}
+                  onChange={edit('username', setUsername)}
+                  placeholder="root"
+                  aria-invalid={Boolean(errors.username)}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                {errors.username && <em className="field-error">{t(errors.username)}</em>}
+              </label>
+              <label className="field grow">
+                <span>{t('Name')}</span>
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder={address || t('wie die Adresse')}
+                  autoComplete="off"
+                />
+              </label>
+            </div>
 
-          <fieldset className="field">
-            <span>{t('Anmeldung')}</span>
-            <Segmented
-              label={t('Anmeldung')}
-              value={auth}
-              onChange={setAuth}
-              options={[
-                { value: 'password', label: t('Passwort') },
-                { value: 'key', label: t('SSH-Key') },
-              ]}
-            />
-          </fieldset>
-
-          {auth === 'password' &&
-            passwordBlock(
-              t('Passwort'),
-              t(
-                'Gespeichert wird es verschlüsselt im Tresor – UwUSSH verbindet dann ohne zu fragen und tippt es auf Wunsch für sudo.',
-              ),
-            )}
-
-          {auth === 'key' && (
-            <div className="key-choice">
+            <fieldset className="field">
+              <span>{t('Anmeldung')}</span>
               <Segmented
-                label={t('Woher der Key kommt')}
-                value={keySource}
-                onChange={setKeySource}
+                label={t('Anmeldung')}
+                value={auth}
+                onChange={setAuth}
                 options={[
-                  { value: 'vault', label: t('Aus dem Tresor') },
-                  { value: 'file', label: t('Key-Datei') },
+                  { value: 'password', label: t('Passwort') },
+                  { value: 'key', label: t('SSH-Key') },
                 ]}
               />
+            </fieldset>
 
-              {keySource === 'vault' ? (
-                <>
-                  <label className="field">
-                    <span>{t('Key')}</span>
-                    <select
-                      className="select"
-                      value={keyId}
-                      onChange={edit('keyId', setKeyId)}
-                      aria-invalid={Boolean(errors.keyId)}
-                    >
-                      <option value="">
-                        {keys.length === 0 ? t('Noch keine Keys im Tresor') : t('Key wählen…')}
-                      </option>
-                      {keys.map((key) => (
-                        <option key={key.id} value={key.id}>
-                          {key.label} · {key.keyType.replace(/^ssh-|^ecdsa-sha2-/, '')}
-                        </option>
-                      ))}
-                    </select>
-                    {errors.keyId && <em className="field-error">{t(errors.keyId)}</em>}
-                  </label>
-                  <div className="key-buttons">
-                    <Button size="sm" icon={ICONS.generate} onClick={() => setKeygen(true)}>
-                      {t('Neuen Key erzeugen…')}
-                    </Button>
-                    <Button size="sm" icon={ICONS.import} onClick={() => setKeyImport(true)}>
-                      {t('Key-Datei importieren…')}
-                    </Button>
-                    {selectedKey && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        icon={copied ? ICONS.done : ICONS.copy}
-                        onClick={() =>
-                          void keyPublicLine(selectedKey.id)
-                            .then(copy)
-                            .then(() => {
-                              setCopied(true);
-                              window.setTimeout(() => setCopied(false), 1600);
-                            })
-                            .catch(() => setVault(true))
-                        }
-                        title={t('Für ~/.ssh/authorized_keys auf dem Server')}
-                      >
-                        {copied ? t('Kopiert') : t('Public Key kopieren')}
-                      </Button>
-                    )}
-                  </div>
-                </>
-              ) : (
-                <>
-                  <label className="field">
-                    <span>{t('Key-Datei')}</span>
-                    <input
-                      value={keyPath}
-                      onChange={edit('keyPath', setKeyPath)}
-                      placeholder="~/.ssh/id_ed25519"
-                      aria-invalid={Boolean(errors.keyPath)}
-                      autoComplete="off"
-                      spellCheck={false}
-                    />
-                    {errors.keyPath ? (
-                      <em className="field-error">{t(errors.keyPath)}</em>
-                    ) : (
-                      <em className="field-hint">
-                        {t('OpenSSH, PEM oder PuTTY-.ppk. Die Datei bleibt, wo sie ist.')}
-                      </em>
-                    )}
-                  </label>
-                  <div className="key-buttons">
-                    <Button size="sm" icon={ICONS.file} onClick={pickKeyFile}>
-                      {t('Datei wählen…')}
-                    </Button>
-                  </div>
-                </>
-              )}
-
-              {passwordBlock(
-                t('Passwort für sudo'),
+            {auth === 'password' &&
+              passwordBlock(
+                t('Passwort'),
                 t(
-                  'Optional. Wenn sudo im Terminal fragt, tippt UwUSSH es auf Knopfdruck ein – und nutzt es für Dateien als root.',
+                  'Gespeichert wird es verschlüsselt im Tresor – UwUSSH verbindet dann ohne zu fragen und tippt es auf Wunsch für sudo.',
                 ),
               )}
-            </div>
-          )}
 
-          <div className="form-row">
-            {settings.workspaces && (
-              <fieldset className="field">
-                <span>{t('Bereich')}</span>
+            {auth === 'key' && (
+              <div className="key-choice">
                 <Segmented
-                  label={t('Bereich')}
-                  value={space}
-                  onChange={setSpace}
-                  options={(['private', 'business'] as const).map((id) => ({
-                    value: id,
-                    label: workspaceName(id, settings),
+                  label={t('Woher der Key kommt')}
+                  value={keySource}
+                  onChange={setKeySource}
+                  options={[
+                    { value: 'vault', label: t('Aus dem Tresor') },
+                    { value: 'file', label: t('Key-Datei') },
+                  ]}
+                />
+
+                {keySource === 'vault' ? (
+                  <>
+                    <label className="field">
+                      <span>{t('Key')}</span>
+                      <select
+                        className="select"
+                        value={keyId}
+                        onChange={edit('keyId', setKeyId)}
+                        aria-invalid={Boolean(errors.keyId)}
+                      >
+                        <option value="">
+                          {keys.length === 0 ? t('Noch keine Keys im Tresor') : t('Key wählen…')}
+                        </option>
+                        {keys.map((key) => (
+                          <option key={key.id} value={key.id}>
+                            {key.label} · {key.keyType.replace(/^ssh-|^ecdsa-sha2-/, '')}
+                          </option>
+                        ))}
+                      </select>
+                      {errors.keyId && <em className="field-error">{t(errors.keyId)}</em>}
+                    </label>
+                    <div className="key-buttons">
+                      <Button size="sm" icon={ICONS.generate} onClick={() => setKeygen(true)}>
+                        {t('Neuen Key erzeugen…')}
+                      </Button>
+                      <Button size="sm" icon={ICONS.import} onClick={() => setKeyImport(true)}>
+                        {t('Key-Datei importieren…')}
+                      </Button>
+                      {selectedKey && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          icon={copied ? ICONS.done : ICONS.copy}
+                          onClick={() =>
+                            void keyPublicLine(selectedKey.id)
+                              .then(copy)
+                              .then(() => {
+                                setCopied(true);
+                                window.setTimeout(() => setCopied(false), 1600);
+                              })
+                              .catch(() => setVault(true))
+                          }
+                          title={t('Für ~/.ssh/authorized_keys auf dem Server')}
+                        >
+                          {copied ? t('Kopiert') : t('Public Key kopieren')}
+                        </Button>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <label className="field">
+                      <span>{t('Key-Datei')}</span>
+                      <input
+                        value={keyPath}
+                        onChange={edit('keyPath', setKeyPath)}
+                        placeholder="~/.ssh/id_ed25519"
+                        aria-invalid={Boolean(errors.keyPath)}
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                      {errors.keyPath ? (
+                        <em className="field-error">{t(errors.keyPath)}</em>
+                      ) : (
+                        <em className="field-hint">
+                          {t('OpenSSH, PEM oder PuTTY-.ppk. Die Datei bleibt, wo sie ist.')}
+                        </em>
+                      )}
+                    </label>
+                    <div className="key-buttons">
+                      <Button size="sm" icon={ICONS.file} onClick={pickKeyFile}>
+                        {t('Datei wählen…')}
+                      </Button>
+                    </div>
+                  </>
+                )}
+
+                {passwordBlock(
+                  t('Passwort für sudo'),
+                  t(
+                    'Optional. Wenn sudo im Terminal fragt, tippt UwUSSH es auf Knopfdruck ein – und nutzt es für Dateien als root.',
+                  ),
+                )}
+              </div>
+            )}
+
+            <div className="form-row">
+              {settings.workspaces && (
+                <fieldset className="field">
+                  <span>{t('Bereich')}</span>
+                  <Segmented
+                    label={t('Bereich')}
+                    value={space}
+                    onChange={setSpace}
+                    options={(['private', 'business'] as const).map((id) => ({
+                      value: id,
+                      label: workspaceName(id, settings),
+                    }))}
+                  />
+                </fieldset>
+              )}
+              <label className="field grow">
+                <span>{t('Gruppe')}</span>
+                <input
+                  value={groupPath}
+                  onChange={edit('groupPath', setGroupPath)}
+                  placeholder={t('optional, z. B. homelab')}
+                  autoComplete="off"
+                  list="host-form-groups"
+                  aria-invalid={Boolean(errors.groupPath)}
+                />
+                <datalist id="host-form-groups">
+                  {groupNames.map((groupName) => (
+                    <option key={groupName} value={groupName} />
+                  ))}
+                </datalist>
+                {errors.groupPath && <em className="field-error">{t(errors.groupPath)}</em>}
+              </label>
+            </div>
+
+            {twoServers && server && teams && (
+              <label className="field">
+                <span>{t('Ablage')}</span>
+                <Select
+                  value={server}
+                  onChange={(event) => setPickedServer(event.target.value)}
+                  disabled={serverBlocker !== null}
+                >
+                  {filingGroups(servers).flatMap((place) =>
+                    place.options.map((option) => {
+                      const label =
+                        option.kind === 'team'
+                          ? `\u2003${option.name}`
+                          : place.name
+                            ? t('Persönlich · {server}', { server: place.name })
+                            : t('Persönlich');
+                      const why =
+                        option.id === server || option.blocked === null
+                          ? ''
+                          : option.blocked === 'read-only'
+                            ? ` (${t('nur lesen')})`
+                            : ` (${t('gesperrt')})`;
+                      return (
+                        <option key={option.id} value={option.id} disabled={why !== ''}>
+                          {label + why}
+                        </option>
+                      );
+                    }),
+                  )}
+                </Select>
+                {serverBlocker ? (
+                  <em className="field-hint">
+                    {t('{server} ist gesperrt. Solange bleibt dieser Host, wo er ist.', {
+                      server: spaceName(serverBlocker) || t('Nicht verbunden'),
+                    })}
+                  </em>
+                ) : chosenTeam && (moving || !host) ? (
+                  <em className="field-hint">
+                    {t('Alle in {team} sehen diesen Host – mit Anmeldung, Key und Passwort.', {
+                      team: chosenTeam.label.trim(),
+                    })}
+                  </em>
+                ) : moving ? (
+                  <em className="field-hint">
+                    {t(
+                      'Zieht beim Speichern um – mit Anmeldung, Key, Passwort, Tunneln und dem bekannten Host-Schlüssel.',
+                    )}
+                  </em>
+                ) : null}
+              </label>
+            )}
+
+            {twoServers && server && !teams && (
+              <fieldset className="field">
+                <span>{t('Server')}</span>
+                <Segmented
+                  label={t('Server')}
+                  value={server}
+                  onChange={setPickedServer}
+                  disabled={serverBlocker !== null}
+                  options={servers.spaces.map((entry) => ({
+                    value: entry.id,
+                    label: spaceName(entry) || t('Nicht verbunden'),
+                    disabled: !takesEntries(entry) && entry.id !== server,
                   }))}
                 />
+                {serverBlocker ? (
+                  <em className="field-hint">
+                    {t(
+                      '{server} ist gesperrt. Entsperre ihn unter Einstellungen → Sync, um Hosts umzuziehen.',
+                      { server: spaceName(serverBlocker) || t('Nicht verbunden') },
+                    )}
+                  </em>
+                ) : moving ? (
+                  <em className="field-hint">
+                    {t(
+                      'Zieht beim Speichern um – mit Anmeldung, Key, Passwort, Tunneln und dem bekannten Host-Schlüssel.',
+                    )}
+                  </em>
+                ) : null}
               </fieldset>
             )}
-            <label className="field grow">
-              <span>{t('Gruppe')}</span>
-              <input
-                value={groupPath}
-                onChange={edit('groupPath', setGroupPath)}
-                placeholder={t('optional, z. B. homelab')}
-                autoComplete="off"
-                list="host-form-groups"
-                aria-invalid={Boolean(errors.groupPath)}
-              />
-              <datalist id="host-form-groups">
-                {groupNames.map((groupName) => (
-                  <option key={groupName} value={groupName} />
-                ))}
-              </datalist>
-              {errors.groupPath && <em className="field-error">{t(errors.groupPath)}</em>}
-            </label>
-          </div>
 
-          {twoServers && server && (
-            <fieldset className="field">
-              <span>{t('Server')}</span>
-              <Segmented
-                label={t('Server')}
-                value={server}
-                onChange={setPickedServer}
-                disabled={serverBlocker !== null}
-                options={servers.spaces.map((entry) => ({
-                  value: entry.id,
-                  label: spaceName(entry) || t('Nicht verbunden'),
-                  disabled: !takesEntries(entry) && entry.id !== server,
-                }))}
-              />
-              {serverBlocker ? (
-                <em className="field-hint">
-                  {t(
-                    '{server} ist gesperrt. Entsperre ihn unter Einstellungen → Sync, um Hosts umzuziehen.',
-                    { server: spaceName(serverBlocker) || t('Nicht verbunden') },
-                  )}
-                </em>
-              ) : moving ? (
-                <em className="field-hint">
-                  {t(
-                    'Zieht beim Speichern um – mit Anmeldung, Key, Passwort, Tunneln und dem bekannten Host-Schlüssel.',
-                  )}
-                </em>
-              ) : null}
-            </fieldset>
-          )}
-
-          {errors.form && <p className="form-error">{errors.form}</p>}
-          {/* Enter in any field submits. */}
-          <button type="submit" hidden />
+            {errors.form && <p className="form-error">{errors.form}</p>}
+            {/* Enter in any field submits. */}
+            <button type="submit" hidden />
+          </fieldset>
         </form>
       </Modal>
 

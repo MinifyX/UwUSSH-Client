@@ -12,6 +12,7 @@ import {
   hasTwoServers,
   mainSpace,
   otherSpace,
+  serverSpaces,
   spaceName,
 } from '../lib/spaces';
 import {
@@ -171,13 +172,15 @@ export function SyncSettings({ offerSecond = true }: { offerSecond?: boolean }) 
     );
   }
 
-  const target = (id: string | null) => spaces.spaces.find((space) => space.id === id) ?? null;
+  const target = (id: string | null) =>
+    serverSpaces(spaces).find((space) => space.id === id) ?? null;
   const toMain = target(makingMain);
   const toRemove = target(removing);
 
   return (
     <div className="sync-spaces">
-      {spaces.spaces.map((space) => (
+      {/* Teams are spaces too; they have their own page. */}
+      {serverSpaces(spaces).map((space) => (
         <section key={space.id} className="sync-space" aria-label={spaceTitle(space)}>
           <header className="sync-space-head">
             <Icon icon={ICONS.server} className="text-muted" />
@@ -334,7 +337,7 @@ function DefaultServers({ spaces, onChanged }: { spaces: SpacesStatus; onChanged
                 value={spaces.defaults[workspace]}
                 onChange={(event) => choose(workspace, event.target.value)}
               >
-                {spaces.spaces.map((space) => (
+                {serverSpaces(spaces).map((space) => (
                   <option key={space.id} value={space.id} disabled={space.readOnly}>
                     {spaceTitle(space)}
                   </option>

@@ -9,8 +9,18 @@
 import type { Workspace } from './session';
 import type { SpaceInfo, SpacesStatus, SyncStatus } from './sync';
 
+/** The servers alone: a team is a space too, but never one of "the two servers". */
+export function serverSpaces(status: SpacesStatus): SpaceInfo[] {
+  return status.spaces.filter((space) => space.kind !== 'team');
+}
+
 /** A second server is connected: only then do the pages say "server" at all. */
 export function hasTwoServers(status: SpacesStatus | null): boolean {
+  return status !== null && serverSpaces(status).length > 1;
+}
+
+/** There is more than one place a host can live: a second server, or a team. */
+export function hasPlaces(status: SpacesStatus | null): boolean {
   return status !== null && status.spaces.length > 1;
 }
 
@@ -33,31 +43,32 @@ export function spaceName(space: SpaceInfo): string {
 }
 
 export function mainSpace(status: SpacesStatus): SpaceInfo | null {
-  return status.spaces.find((space) => space.main) ?? status.spaces[0] ?? null;
+  const servers = serverSpaces(status);
+  return servers.find((space) => space.main) ?? servers[0] ?? null;
 }
 
 /** The server that stays when `id` goes. */
 export function otherSpace(status: SpacesStatus, id: string): SpaceInfo | null {
-  return status.spaces.find((space) => space.id !== id) ?? null;
+  return serverSpaces(status).find((space) => space.id !== id) ?? null;
 }
 
 /** Where a new entry of this workspace goes; the main server if the default is gone. */
 export function defaultSpace(status: SpacesStatus, workspace: Workspace): string | null {
   const wanted = status.defaults[workspace];
-  if (status.spaces.some((space) => space.id === wanted)) return wanted;
+  if (serverSpaces(status).some((space) => space.id === wanted)) return wanted;
   return mainSpace(status)?.id ?? null;
 }
 
-/** A server takes entries only while its vault is open and it may be written. */
+/** A server or team takes entries only while its vault is open and it may be written. */
 export function takesEntries(space: SpaceInfo): boolean {
   return !space.locked && !space.readOnly;
 }
 
 /**
- * The server the host dialog shows as chosen. Someone who picked one keeps
- * it; a stored host shows where it lives; a new one follows the default of
- * the workspace it is being filed under – or the other server while that
- * one cannot take it.
+ * The server (or team) the host dialog shows as chosen. Someone who picked
+ * one keeps it; a stored host shows where it lives; a new one follows the
+ * default of the workspace it is being filed under – or the other server
+ * while that one cannot take it. A new host never lands in a team unasked.
  */
 export function chosenSpace(
   status: SpacesStatus,
@@ -71,7 +82,7 @@ export function chosenSpace(
   if (host && stored) return find(picked)?.id ?? stored.id;
   const wanted = find(picked) ?? find(defaultSpace(status, workspace));
   if (wanted && takesEntries(wanted)) return wanted.id;
-  return status.spaces.find(takesEntries)?.id ?? wanted?.id ?? null;
+  return serverSpaces(status).find(takesEntries)?.id ?? wanted?.id ?? null;
 }
 
 /** Saving would move a stored host to another server. */
@@ -80,20 +91,29 @@ export function movesHost(host: { space: string } | null, chosen: string | null)
 }
 
 /**
- * What `save_host` gets as `space`: nothing with one server (the backend
- * files it as before), the chosen server with two.
+ * What `save_host` gets as `space`: nothing with one server and no team (the
+ * backend files it as before), the chosen place otherwise.
  */
 export function draftSpace(status: SpacesStatus | null, chosen: string | null): string | undefined {
-  if (!hasTwoServers(status) || chosen === null) return undefined;
+  if (!hasPlaces(status) || chosen === null) return undefined;
   return chosen;
 }
 
 /**
  * The server that keeps a stored host from moving, if any: a move needs both
  * vaults open, since the host's secrets are sealed again under the other one.
+ * With teams there are more places than two, and each closed one is simply
+ * not on offer; only the host's own place, locked, keeps it where it is.
  */
-export function moveBlocker(status: SpacesStatus): SpaceInfo | null {
-  return status.spaces.find((space) => !takesEntries(space)) ?? null;
+export function moveBlocker(
+  status: SpacesStatus,
+  host: { space: string } | null = null,
+): SpaceInfo | null {
+  if (status.spaces.every((space) => space.kind !== 'team')) {
+    return status.spaces.find((space) => !takesEntries(space)) ?? null;
+  }
+  const own = status.spaces.find((space) => space.id === host?.space);
+  return own?.locked ? own : null;
 }
 
 /**
@@ -108,10 +128,11 @@ export function asksOwnPassword(space: SpaceInfo, status: SpacesStatus): boolean
 
 /** Making this server the main one needs both vaults open and a server behind it. */
 export function canMakeMain(space: SpaceInfo, status: SpacesStatus): boolean {
-  if (space.main || space.readOnly) return false;
+  if (space.kind === 'team' || space.main || space.readOnly) return false;
   if (space.status.backend === 'none') return false;
-  if (status.spaces.some((other) => other.locked)) return false;
-  return status.spaces.every((other) => other.status.vault === 'unlocked');
+  const servers = serverSpaces(status);
+  if (servers.some((other) => other.locked)) return false;
+  return servers.every((other) => other.status.vault === 'unlocked');
 }
 
 /** Entries can be taken over to the remaining server only while both are open. */
