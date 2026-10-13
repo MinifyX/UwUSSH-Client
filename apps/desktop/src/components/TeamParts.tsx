@@ -1,10 +1,14 @@
-import { Button } from '@uwusuite/design';
+import { Button, Hint } from '@uwusuite/design';
 import { useCallback, useState, type ReactNode } from 'react';
 import { N_, t, useLanguage } from '../lib/i18n';
+import type { SpaceRef } from '../lib/sync';
+import { useSpaces } from '../lib/teamCommands';
 import {
   asTeamFailure,
+  failureCase,
   fingerprintRows,
   inviteRemaining,
+  teamsOnServer,
   type TeamFailure,
   type TeamRole,
 } from '../lib/teams';
@@ -23,7 +27,9 @@ export const ROLE_NAMES: Record<TeamRole, string> = {
 
 /** A failure in words the person can act on. */
 export function teamFailureText(failure: TeamFailure): string {
-  switch (failure.kind) {
+  switch (failureCase(failure)) {
+    case 'identity-changed':
+      return t('Der Schlüssel dieses Mitglieds hat sich geändert. Bitte neu vergleichen.');
     case 'vault-locked':
       return t('Der Tresor ist gesperrt.');
     case 'offline':
@@ -42,9 +48,35 @@ export function teamFailureText(failure: TeamFailure): string {
       );
     case 'unsupported':
       return t('Dieser Server kann keine Teams.');
-    default:
-      return failure.message || t('Das hat nicht geklappt.');
+    case 'error':
+      return failure.message
+        ? t('Das hat nicht geklappt: {reason}', { reason: failure.message })
+        : t('Das hat nicht geklappt.');
   }
+}
+
+/**
+ * In the question before a server is disconnected or signed out of: its
+ * teams go from this device with it. Nothing without teams.
+ */
+export function TeamsGoNote({ server }: { server: SpaceRef }) {
+  useLanguage();
+  const teams = teamsOnServer(useSpaces(), server);
+  if (teams.length === 0) return null;
+  const names = teams.map((team) => team.label.trim()).join(', ');
+  return (
+    <Hint tone="warning">
+      {teams.length === 1
+        ? t(
+            'Auch das Team {team} verschwindet von diesem Gerät. Auf dem Server bleibt es bestehen.',
+            { team: names },
+          )
+        : t(
+            'Auch die Teams dieses Servers verschwinden von diesem Gerät: {teams}. Auf dem Server bleiben sie bestehen.',
+            { teams: names },
+          )}
+    </Hint>
+  );
 }
 
 /** "noch 6 Tage", or that it has run out. */
@@ -87,20 +119,32 @@ export function useTeamRun() {
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState<(() => void) | null>(null);
 
-  const run = useCallback(async <T,>(action: () => Promise<T>, done?: (value: T) => void) => {
-    setBusy(true);
-    setError(null);
-    try {
-      const value = await action();
-      done?.(value);
-    } catch (raw) {
-      const failure = asTeamFailure(raw);
-      if (failure.kind === 'vault-locked') setRetry(() => () => void run(action, done));
-      else setError(teamFailureText(failure));
-    } finally {
-      setBusy(false);
-    }
-  }, []);
+  const run = useCallback(
+    async <T,>(
+      action: () => Promise<T>,
+      done?: (value: T) => void,
+      /** Told what went wrong, next to the sentence shown for it. */
+      failed?: (failure: TeamFailure) => void,
+    ) => {
+      setBusy(true);
+      setError(null);
+      try {
+        const value = await action();
+        done?.(value);
+      } catch (raw) {
+        const failure = asTeamFailure(raw);
+        if (failure.kind === 'vault-locked') {
+          setRetry(() => () => void run(action, done, failed));
+        } else {
+          setError(teamFailureText(failure));
+          failed?.(failure);
+        }
+      } finally {
+        setBusy(false);
+      }
+    },
+    [],
+  );
 
   const dialog = retry && (
     <VaultDialog

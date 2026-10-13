@@ -11,6 +11,8 @@ export type MenuItem =
       disabled?: boolean;
       onSelect: () => void;
     }
+  /** A line of text, not an action: why entries above it are off. */
+  | { note: string }
   | 'separator';
 
 type Props = {
@@ -87,6 +89,13 @@ export function ContextMenu({ x, y, items, onClose, label }: Props) {
       {items.map((item, index) =>
         item === 'separator' ? (
           <hr key={`separator-${index}`} className="mx-2 my-1 border-hairline" />
+        ) : 'note' in item ? (
+          <p
+            key={`note-${index}`}
+            className="m-0 max-w-[280px] px-3 pt-1 pb-1.5 text-meta text-muted break-words"
+          >
+            {item.note}
+          </p>
         ) : (
           <button
             key={item.label}

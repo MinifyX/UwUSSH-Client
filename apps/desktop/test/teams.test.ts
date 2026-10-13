@@ -18,8 +18,10 @@ import type { SpaceInfo, SpacesStatus, SyncStatus } from '../src/lib/sync.ts';
 import {
   asTeamFailure,
   assignableRoles,
+  failureCase,
   filingGroups,
   fingerprintRows,
+  groupReadOnly,
   hasTeams,
   hostReadOnly,
   inviteRemaining,
@@ -30,7 +32,9 @@ import {
   sortMembers,
   teamOfHost,
   teamServers,
+  teamsOnServer,
   teamsVisible,
+  tunnelHosts,
   type TeamRole,
   type TeamServer,
 } from '../src/lib/teams.ts';
@@ -303,4 +307,74 @@ test('failures: the known kinds pass, anything else is an error with its text', 
     message: 'why',
   });
   assert.deepEqual(asTeamFailure('boom'), { kind: 'error', message: 'boom' });
+});
+
+test('a wrong fingerprint on confirm is its own case, every other failure its kind', () => {
+  assert.equal(
+    failureCase({ kind: 'error', message: 'team: identity-changed for account 7' }),
+    'identity-changed',
+  );
+  assert.equal(failureCase({ kind: 'error', message: 'identity-changed' }), 'identity-changed');
+  assert.equal(failureCase({ kind: 'error', message: 'disk full' }), 'error');
+  assert.equal(failureCase({ kind: 'error' }), 'error');
+  // Only an `error` carries it: the other kinds keep their own sentence.
+  assert.equal(failureCase({ kind: 'offline', message: 'identity-changed' }), 'offline');
+  assert.equal(
+    failureCase(asTeamFailure({ kind: 'error', message: 'identity-changed' })),
+    'identity-changed',
+  );
+});
+
+test('a group with a read-only host cannot be renamed, moved or dissolved', () => {
+  const locked = readOnlySpaces(TEAMS);
+  const hosts = [
+    { space: 'a', workspace: 'private', groupPath: 'Web' },
+    { space: 'ops', workspace: 'private', groupPath: 'Web' },
+    { space: 'audit', workspace: 'private', groupPath: 'Audit' },
+    { space: 'a', workspace: 'business', groupPath: 'Audit' },
+    { space: 'audit', workspace: 'business', groupPath: null },
+  ];
+  assert.equal(groupReadOnly(hosts, locked, 'private', 'Web'), false);
+  assert.equal(groupReadOnly(hosts, locked, 'private', 'Audit'), true);
+  // The same name in the other workspace is another group.
+  assert.equal(groupReadOnly(hosts, locked, 'business', 'Audit'), false);
+  // Workspaces off: the list shows both as one group.
+  assert.equal(groupReadOnly(hosts, locked, null, 'Audit'), true);
+  assert.equal(groupReadOnly(hosts, locked, null, 'Web'), false);
+  assert.equal(groupReadOnly(hosts, locked, 'private', 'Empty'), false);
+  assert.equal(groupReadOnly(hosts, readOnlySpaces(null), 'private', 'Audit'), false);
+});
+
+test('tunnels are added and changed only on hosts that can be written', () => {
+  const hosts = [
+    { id: '1', space: 'a' },
+    { id: '2', space: 'audit' },
+    { id: '3', space: 'ops' },
+  ];
+  assert.deepEqual(
+    tunnelHosts(hosts, readOnlySpaces(TEAMS)).map((host) => host.id),
+    ['1', '3'],
+  );
+  assert.equal(tunnelHosts(hosts, readOnlySpaces(null)).length, 3);
+  assert.deepEqual(tunnelHosts([hosts[1]], readOnlySpaces(TEAMS)), []);
+});
+
+test('the teams that go from this device with their server', () => {
+  const ids = (server: string | undefined, from: SpacesStatus | null = TEAMS) =>
+    teamsOnServer(from, server).map((entry) => entry.id);
+  assert.deepEqual(ids('a'), ['ops', 'audit']);
+  assert.deepEqual(ids('b'), ['lab']);
+  // No id: the main server, as every sync command means it.
+  assert.deepEqual(ids(undefined), ['ops', 'audit']);
+  assert.deepEqual(ids('new'), []);
+  assert.deepEqual(ids('a', ONE), []);
+  assert.deepEqual(ids(undefined, null), []);
+  // A team without `parent` belongs to the server listed before it.
+  const loose = status(
+    space('a', { main: true }),
+    space('b'),
+    space('t', { kind: 'team', label: 'Team t' }),
+  );
+  assert.deepEqual(ids('b', loose), ['t']);
+  assert.deepEqual(ids('a', loose), []);
 });

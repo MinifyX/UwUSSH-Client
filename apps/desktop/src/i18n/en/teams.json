@@ -108,5 +108,12 @@
   "Gib diesen Code einer Person. Sie trägt ihn unter Einstellungen → Teams ein, danach bestätigst du sie hier.": "Give this code to one person. They enter it under Settings → Teams, then you confirm them here.",
   "Code kopieren": "Copy code",
   "Der Code ist nur jetzt zu sehen.": "The code is shown only now.",
-  "Team umbenennen": "Rename team"
+  "Team umbenennen": "Rename team",
+  "Der Schlüssel dieses Mitglieds hat sich geändert. Bitte neu vergleichen.": "This member's key has changed. Please compare it again.",
+  "Das hat nicht geklappt: {reason}": "That did not work: {reason}",
+  "Auch das Team {team} verschwindet von diesem Gerät. Auf dem Server bleibt es bestehen.": "The team {team} disappears from this device too. It stays on the server.",
+  "Auch die Teams dieses Servers verschwinden von diesem Gerät: {teams}. Auf dem Server bleiben sie bestehen.": "This server's teams disappear from this device too: {teams}. They stay on the server.",
+  "Enthält Hosts aus einem Team, in dem du nur lesen darfst – die Gruppe lässt sich deshalb nicht ändern.": "Contains hosts from a team you have read-only access to – so the group cannot be changed.",
+  "Klicken zum Auf-/Zuklappen. {reason}": "Click to expand or collapse. {reason}",
+  "{name} gehört zu einem Team, in dem du nur lesen darfst: Seine Tunnel lassen sich starten und stoppen, aber nicht ändern.": "{name} belongs to a team you have read-only access to: its tunnels can be started and stopped, but not changed."
 }

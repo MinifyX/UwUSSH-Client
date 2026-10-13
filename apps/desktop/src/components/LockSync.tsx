@@ -27,6 +27,7 @@ import {
   useAppSyncOff,
   useSpace,
 } from './SyncParts';
+import { TeamsGoNote } from './TeamParts';
 import { VaultDialog } from './VaultDialog';
 
 /** A two-step method, as the person knows it. */
@@ -632,7 +633,9 @@ export function LockOverview({ status, onChanged }: { status: SyncStatus; onChan
             setLeaving(false);
             onChanged();
           }}
-        />
+        >
+          <TeamsGoNote server={space} />
+        </PasswordConfirm>
       )}
       {unlocking && (
         <VaultDialog

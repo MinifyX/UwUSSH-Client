@@ -20,7 +20,7 @@ import {
   workspaceName,
 } from '../lib/settings';
 import { useSpaces } from '../lib/teamCommands';
-import { readOnlySpaces } from '../lib/teams';
+import { groupReadOnly, readOnlySpaces } from '../lib/teams';
 import { ContextMenu, type MenuItem } from './ContextMenu';
 import { Nyu } from './nyu/Nyu';
 import { OsIcon } from './OsIcon';
@@ -101,6 +101,12 @@ function errorText(error: unknown): string {
   return String(error);
 }
 
+/** Why a group cannot be renamed, moved or dissolved. */
+const GROUP_FIXED = () =>
+  t(
+    'Enthält Hosts aus einem Team, in dem du nur lesen darfst – die Gruppe lässt sich deshalb nicht ändern.',
+  );
+
 export function HostList(props: Props) {
   const { hosts, groups, activeId, onlineIds, connectingIds, openIds } = props;
   const settings = useSettings();
@@ -112,6 +118,9 @@ export function HostList(props: Props) {
   // Hosts of a team this account only reads: they connect, but do not move or change.
   const spaces = useSpaces();
   const locked = useMemo(() => readOnlySpaces(spaces), [spaces]);
+  // A group holding such a host stays as it is: renaming, moving or dissolving it would change the host.
+  const groupFixed = (name: string) =>
+    groupReadOnly(hosts, locked, settings.workspaces ? workspace : null, name);
 
   // With workspaces off, everything shows as one list.
   const sections = useMemo(
@@ -285,7 +294,8 @@ export function HostList(props: Props) {
         : [{ label: t('Lokale Shell öffnen'), icon: ICONS.terminal, onSelect: props.onLocalShell }],
     });
 
-  const groupMenu = (x: number, y: number, name: string) =>
+  const groupMenu = (x: number, y: number, name: string) => {
+    const fixed = groupFixed(name);
     setMenu({
       x,
       y,
@@ -298,6 +308,7 @@ export function HostList(props: Props) {
         {
           label: t('Umbenennen'),
           icon: ICONS.edit,
+          disabled: fixed,
           onSelect: () => setEditing({ from: name, value: name }),
         },
         ...(settings.workspaces
@@ -307,6 +318,7 @@ export function HostList(props: Props) {
                   workspace: workspaceName(other, settings),
                 }),
                 icon: other === 'private' ? ICONS.home : ICONS.work,
+                disabled: fixed,
                 onSelect: () => run(() => moveGroup(workspace, name, other, null)),
               },
             ]
@@ -316,10 +328,13 @@ export function HostList(props: Props) {
           label: t('Gruppe auflösen (Hosts bleiben)'),
           icon: ICONS.delete,
           danger: true,
+          disabled: fixed,
           onSelect: () => run(() => deleteGroup(workspace, name)),
         },
+        ...(fixed ? [{ note: GROUP_FIXED() }] : []),
       ],
     });
+  };
 
   const menuKey = (event: ReactKeyboardEvent, open: (x: number, y: number) => void) => {
     if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
@@ -592,6 +607,7 @@ export function HostList(props: Props) {
               const name = section.name;
               const isCollapsed = collapsed(name);
               const nextGroup = groupNames[groupNames.indexOf(name) + 1] ?? '';
+              const fixed = groupFixed(name);
               return (
                 <section
                   key={`${workspace}/${name}`}
@@ -609,7 +625,7 @@ export function HostList(props: Props) {
                     data-group={name}
                     data-next-group={nextGroup}
                     onPointerDown={(event) => {
-                      if ((event.target as HTMLElement).closest('input')) return;
+                      if (fixed || (event.target as HTMLElement).closest('input')) return;
                       dragGroup(event, name);
                     }}
                     onContextMenu={(event) => {
@@ -635,11 +651,17 @@ export function HostList(props: Props) {
                         className="group-toggle"
                         aria-expanded={!isCollapsed}
                         onClick={() => toggle(name)}
-                        onDoubleClick={() => setEditing({ from: name, value: name })}
+                        onDoubleClick={
+                          fixed ? undefined : () => setEditing({ from: name, value: name })
+                        }
                         onKeyDown={(event) => menuKey(event, (x, y) => groupMenu(x, y, name))}
-                        title={t(
-                          'Klicken zum Auf-/Zuklappen, doppelklicken zum Umbenennen, ziehen zum Sortieren',
-                        )}
+                        title={
+                          fixed
+                            ? t('Klicken zum Auf-/Zuklappen. {reason}', { reason: GROUP_FIXED() })
+                            : t(
+                                'Klicken zum Auf-/Zuklappen, doppelklicken zum Umbenennen, ziehen zum Sortieren',
+                              )
+                        }
                       >
                         <Icon icon={ICONS.expand} size="xs" className="group-chevron" />
                         <h3>{name}</h3>

@@ -60,6 +60,7 @@ import {
   useAppSyncOff,
   useSpace,
 } from './SyncParts';
+import { TeamsGoNote } from './TeamParts';
 import { VaultDialog } from './VaultDialog';
 
 /**
@@ -497,6 +498,7 @@ function RemoveDialog({
           </span>
         </label>
       </fieldset>
+      <TeamsGoNote server={space.id} />
       {space.main && other && (
         <Hint tone="warning">
           {t(
@@ -1403,7 +1405,9 @@ function Paired({
             setLeaving(false);
             onChanged();
           }}
-        />
+        >
+          <TeamsGoNote server={space} />
+        </PasswordConfirm>
       )}
       {askingKit && (
         <PasswordConfirm

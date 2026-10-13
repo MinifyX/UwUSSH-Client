@@ -17,6 +17,7 @@ import {
 } from '../lib/teamCommands';
 import {
   asTeamFailure,
+  failureCase,
   assignableRoles,
   INVITE_ROLES,
   may,
@@ -686,7 +687,13 @@ function TeamDetail({
         <ConfirmMember
           server={server.space}
           team={team}
-          member={confirming}
+          // After a reload the key the server names now, not the one from before.
+          member={
+            members?.find(
+              (member) => member.accountId === confirming.accountId && member.state === 'pending',
+            ) ?? confirming
+          }
+          onStale={load}
           onCancel={() => setConfirming(null)}
           onDone={() => {
             setConfirming(null);
@@ -797,17 +804,22 @@ function ConfirmMember({
   server,
   team,
   member,
+  onStale,
   onCancel,
   onDone,
 }: {
   server: string;
   team: TeamInfo;
   member: TeamMember;
+  /** The member's key is another one by now: load the members again. */
+  onStale: () => void;
   onCancel: () => void;
   onDone: () => void;
 }) {
   useLanguage();
-  const [compared, setCompared] = useState(false);
+  // The key that was compared: a new one on screen has to be compared again.
+  const [comparedKey, setComparedKey] = useState<string | null>(null);
+  const compared = comparedKey === member.fingerprint;
   const task = useTeamRun();
   const name = member.displayName;
   return (
@@ -831,6 +843,11 @@ function ConfirmMember({
                   // Exactly the key that was on screen, not whatever the server says now.
                   () => teamConfirm(server, team.id, member.accountId, member.fingerprint),
                   onDone,
+                  (failure) => {
+                    if (failureCase(failure) !== 'identity-changed') return;
+                    setComparedKey(null);
+                    onStale();
+                  },
                 )
               }
             >
@@ -860,7 +877,7 @@ function ConfirmMember({
           <input
             type="checkbox"
             checked={compared}
-            onChange={(event) => setCompared(event.target.checked)}
+            onChange={(event) => setComparedKey(event.target.checked ? member.fingerprint : null)}
           />
           <span>
             <b>{t('Mit {name} verglichen – er stimmt überein', { name })}</b>

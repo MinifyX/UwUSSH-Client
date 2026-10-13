@@ -96,6 +96,25 @@ export function asTeamFailure(error: unknown): TeamFailure {
   return { kind: 'error', message: String(error) };
 }
 
+/** The backend's word, inside an `error`, for a member key that is not the one shown. */
+const IDENTITY_CHANGED = 'identity-changed';
+
+/** What a failure is about: its kind, or one of the errors the pages have words for. */
+export type TeamFailureCase = TeamFailure['kind'] | 'identity-changed';
+
+/**
+ * Confirming hands the team key to exactly the key that was on screen. When
+ * the member's key is another one by now, the backend refuses with an
+ * `error` that names `identity-changed`: the list has to be loaded again and
+ * the new key compared.
+ */
+export function failureCase(failure: TeamFailure): TeamFailureCase {
+  if (failure.kind === 'error' && failure.message?.includes(IDENTITY_CHANGED)) {
+    return 'identity-changed';
+  }
+  return failure.kind;
+}
+
 // ── Whether teams show at all ───────────────────────────────────────────────
 
 /** The servers the Teams page has a section for. */
@@ -304,4 +323,56 @@ export function teamOfHost(
 /** A stored host in a place this account only reads: it opens, but nothing in it changes. */
 export function hostReadOnly(status: SpacesStatus | null, host: { space: string } | null): boolean {
   return host !== null && readOnlySpaces(status).has(host.space);
+}
+
+/**
+ * A group with a host this account only reads: renaming, moving or
+ * dissolving the group would change that host, so the group stays as it is.
+ * `workspace` null: workspaces are off and the list shows both as one.
+ */
+export function groupReadOnly(
+  hosts: readonly { space: string; workspace: string; groupPath: string | null }[],
+  readOnly: ReadonlySet<string>,
+  workspace: string | null,
+  group: string,
+): boolean {
+  return hosts.some(
+    (host) =>
+      host.groupPath === group &&
+      (workspace === null || host.workspace === workspace) &&
+      readOnly.has(host.space),
+  );
+}
+
+/**
+ * The hosts whose tunnels can be added, changed and deleted. A tunnel is
+ * stored with its host, so the ones of a read-only host only start and stop.
+ */
+export function tunnelHosts<T extends { space: string }>(
+  hosts: readonly T[],
+  readOnly: ReadonlySet<string>,
+): T[] {
+  return hosts.filter((host) => !readOnly.has(host.space));
+}
+
+/**
+ * The teams of one server that are open on this device: they go from it
+ * together with the server. `server` undefined means the main one. A team
+ * names its server in `parent`; one that does not belongs to the server
+ * listed before it.
+ */
+export function teamsOnServer(
+  status: SpacesStatus | null,
+  server: string | undefined,
+): SpaceInfo[] {
+  if (!status) return [];
+  const home = server ?? status.spaces.find((space) => space.main && !isTeam(space))?.id;
+  if (home === undefined) return [];
+  const teams: SpaceInfo[] = [];
+  let last: string | null = null;
+  for (const space of status.spaces) {
+    if (!isTeam(space)) last = space.id;
+    else if ((space.parent ?? last) === home) teams.push(space);
+  }
+  return teams;
 }
