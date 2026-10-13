@@ -535,7 +535,7 @@ listener per space (`Syncs` in the app's `sync.rs`).
   registry that does not read is set aside and the app starts with the main
   space alone.
 - **One password.** The second vault's key is kept in that store, sealed by
-  the *main vault's key* and bound to the space's id, so the blob opens for
+  the _main vault's key_ and bound to the space's id, so the blob opens for
   that space only. Opening the main vault (password, or the key the operating
   system keeps) opens the second; locking locks both. The chain is sealed
   again whenever a vault key changes — joining an account, signing in to
