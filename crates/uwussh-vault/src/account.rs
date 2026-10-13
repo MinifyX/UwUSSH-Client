@@ -197,16 +197,19 @@ mod tests {
 
     #[test]
     fn a_typo_is_caught_and_named() {
-        let key = AccountKey::generate();
+        // A fixed key: the check is ten bits, so one random key in a thousand
+        // would have a typo that passes.
+        let key = AccountKey::from_bytes(
+            *b"\x01\x23\x45\x67\x89\xab\xcd\xef\x10\x32\x54\x76\x98\xba\xdc\xfe",
+        );
         let code = key.to_code();
         // Swap two neighbouring symbols, the classic typing mistake.
         let mut symbols: Vec<char> = code.chars().filter(|c| *c != '-').collect();
         symbols.swap(3, 4);
         let typo: String = symbols.into_iter().collect();
-        if typo != code.replace('-', "") {
-            let error = AccountKey::from_code(&typo).expect_err("a typo must not pass");
-            assert!(format!("{error}").contains("typo"), "{error}");
-        }
+        assert_ne!(typo, code.replace('-', ""));
+        let error = AccountKey::from_code(&typo).expect_err("a typo must not pass");
+        assert!(format!("{error}").contains("typo"), "{error}");
 
         assert!(AccountKey::from_code("too short").is_err());
         assert!(AccountKey::from_code(&format!("{code}Z")).is_err());
