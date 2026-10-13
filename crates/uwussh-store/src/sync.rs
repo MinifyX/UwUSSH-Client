@@ -28,8 +28,8 @@ use serde::Serialize;
 use uuid::Uuid;
 use uwussh_proto::{
     resolve, AssistCachePayload, AssistConfigPayload, EntityKind, Envelope, Extra, GroupPayload,
-    Hlc, HostPayload, IdentityPayload, KeyPayload, KnownHostPayload, PortForwardPayload,
-    Resolution, SnippetPayload, Version, MAX_BATCH_BYTES, MAX_BLOB_BYTES,
+    Hlc, HostPayload, IdentityPayload, KeyPayload, KeymapPayload, KnownHostPayload,
+    PortForwardPayload, Resolution, SnippetPayload, Version, MAX_BATCH_BYTES, MAX_BLOB_BYTES,
 };
 use uwussh_vault::{Sealed, UnlockedVault};
 use zeroize::Zeroizing;
@@ -148,6 +148,7 @@ pub(crate) fn table_of(kind: EntityKind) -> Option<&'static str> {
         EntityKind::PortForward => "port_forwards",
         EntityKind::AssistConfig => "assist_config",
         EntityKind::AssistCache => "assist_cache",
+        EntityKind::Keymap => "keymaps",
         // Terminal profiles have no table yet. A newer build's records for
         // them stay on the server, where they do no harm.
         EntityKind::TerminalProfile => return None,
@@ -156,7 +157,7 @@ pub(crate) fn table_of(kind: EntityKind) -> Option<&'static str> {
 
 /// Every table whose rows travel, in the order records must be applied:
 /// whatever a record can point at comes first.
-pub(crate) const SYNCED_KINDS: [EntityKind; 10] = EntityKind::APPLY_ORDER;
+pub(crate) const SYNCED_KINDS: [EntityKind; 11] = EntityKind::APPLY_ORDER;
 
 /// A row waiting to be pushed.
 struct Pending {
@@ -358,9 +359,13 @@ impl Store {
     pub fn pending_count(&self) -> Result<usize> {
         let conn = self.conn.lock();
         let mut total = 0i64;
-        // The assistant's records are left out: a server too old to take them
-        // refuses them on every pass, and "waiting" would never go away.
-        for kind in SYNCED_KINDS.into_iter().filter(|kind| !kind.is_assist()) {
+        // The assistant's records and the keymap are left out: a server too
+        // old to take them refuses them on every pass, and "waiting" would
+        // never go away.
+        for kind in SYNCED_KINDS
+            .into_iter()
+            .filter(|kind| !kind.travels_apart())
+        {
             let Some(table) = table_of(kind) else {
                 continue;
             };
@@ -384,17 +389,18 @@ impl Store {
     pub fn pending_envelopes(&self, limit: usize) -> Result<(Vec<Envelope>, usize)> {
         let kinds: Vec<EntityKind> = SYNCED_KINDS
             .into_iter()
-            .filter(|kind| !kind.is_assist())
+            .filter(|kind| !kind.travels_apart())
             .collect();
         self.pending_of(&kinds, limit)
     }
 
-    /// The command assistant's records waiting to be pushed: its settings and
-    /// cached answers. Kept apart from [`Store::pending_envelopes`] for the
-    /// same reason as the manifest: a server that does not know these kinds
-    /// refuses the request they are in, and that must not hold up the rest.
-    pub fn pending_assist_envelopes(&self, limit: usize) -> Result<(Vec<Envelope>, usize)> {
-        self.pending_of(&EntityKind::ASSIST, limit)
+    /// The records of [`EntityKind::APART`] waiting to be pushed: the command
+    /// assistant's settings and cached answers, and the keymap. Kept apart
+    /// from [`Store::pending_envelopes`] for the same reason as the manifest:
+    /// a server that does not know these kinds refuses the request they are
+    /// in, and that must not hold up the rest.
+    pub fn pending_apart_envelopes(&self, limit: usize) -> Result<(Vec<Envelope>, usize)> {
+        self.pending_of(&EntityKind::APART, limit)
     }
 
     fn pending_of(&self, kinds: &[EntityKind], limit: usize) -> Result<(Vec<Envelope>, usize)> {
@@ -734,17 +740,17 @@ fn pending_rows(
         EntityKind::PortForward => {
             "host_id, name, kind, bind_address, bind_port, target_host, target_port, autostart"
         }
-        EntityKind::AssistConfig => "body",
+        EntityKind::AssistConfig | EntityKind::Keymap => "body",
         EntityKind::AssistCache => {
             "platform, request, normalized, command, explanation, dangerous, created_ms"
         }
         EntityKind::TerminalProfile => return Ok((Vec::new(), 0)),
     };
-    // The assistant's settings are stored as their payload, unknown fields
-    // and all, so there is nothing to keep beside them.
+    // The assistant's settings and a keymap are stored as their payload,
+    // unknown fields and all, so there is nothing to keep beside them.
     let extra = if matches!(
         kind,
-        EntityKind::Secret | EntityKind::Manifest | EntityKind::AssistConfig
+        EntityKind::Secret | EntityKind::Manifest | EntityKind::AssistConfig | EntityKind::Keymap
     ) {
         "NULL"
     } else {
@@ -883,7 +889,7 @@ fn payload_of(
                 extra,
             })
         }
-        EntityKind::AssistConfig => {
+        EntityKind::AssistConfig | EntityKind::Keymap => {
             let body: String = row.get(7)?;
             return Ok(Zeroizing::new(body.into_bytes()));
         }
@@ -1504,6 +1510,44 @@ fn insert_record(
                     clock.device,
                     seq,
                     extra,
+                ],
+            )?;
+        }
+        EntityKind::Keymap => {
+            // Held to what a keymap saved here is held to: whatever
+            // `save_keymap` would have refused is left out, and the rest is
+            // kept. One that needed nothing left out is kept as it came.
+            let arrived: KeymapPayload = from_payload(payload)?;
+            let mut keymap = arrived.clone();
+            crate::keymap::sanitise_synced(&mut keymap);
+            let body = if keymap == arrived {
+                String::from_utf8(payload.to_vec()).ok()
+            } else {
+                tracing::warn!(%env.id, "a keymap with entries no device may save, cut down");
+                serde_json::to_string(&keymap).ok()
+            };
+            let body = body.ok_or(StoreError::Invalid {
+                field: "record",
+                problem: "unreadable",
+            })?;
+            tx.execute(
+                "INSERT INTO keymaps
+                    (id, vault_id, body, hlc_wall_ms, hlc_counter, hlc_device,
+                     deleted, dirty, server_seq)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 0, ?7)
+                 ON CONFLICT (id) DO UPDATE SET
+                    body = excluded.body,
+                    hlc_wall_ms = excluded.hlc_wall_ms, hlc_counter = excluded.hlc_counter,
+                    hlc_device = excluded.hlc_device, deleted = 0, dirty = 0,
+                    server_seq = excluded.server_seq, rev = rev + 1",
+                params![
+                    id,
+                    vault_id,
+                    body,
+                    clock.wall_ms as i64,
+                    clock.counter,
+                    clock.device,
+                    seq,
                 ],
             )?;
         }

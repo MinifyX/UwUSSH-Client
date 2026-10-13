@@ -17,6 +17,7 @@ import {
 import { useSyncExternalStore } from 'react';
 import pkg from '../../package.json';
 import { t } from './i18n';
+import { LAYOUTS } from './keyboardLayouts';
 import type { Workspace } from './session';
 
 export type { ContrastSetting, FontChoice, MotionSetting, ThemeSetting };
@@ -59,6 +60,8 @@ export type Settings = {
   /** The interface font (@uwusuite/design's applyUiFont). The terminal's font is its own. */
   font: FontChoice;
   fontSize: number;
+  /** The terminal's font family, as the system names it; empty is the bundled JetBrains Mono. */
+  terminalFont: string;
   cursorStyle: CursorStyle;
   cursorBlink: boolean;
   scrollback: number;
@@ -82,11 +85,19 @@ export type Settings = {
   workspaceNames: Record<Workspace, string>;
   /** Groups folded away in the host list, as `workspace/name`. */
   collapsedGroups: string[];
+  /** The host list's width in pixels, and whether it is folded away. Per device, never synced. */
+  sidebarWidth: number;
+  sidebarCollapsed: boolean;
+  /** The keyboard the shortcut settings draw: `auto` asks the system, or a layout's id. */
+  keyboardLayout: string;
 };
 
 export const FONT_SIZES = [11, 12, 13, 14, 15, 16, 18, 20] as const;
 export const FONT_SIZE_MIN = 8;
 export const FONT_SIZE_MAX = 32;
+export const SIDEBAR_WIDTH = 268;
+export const SIDEBAR_MIN = 190;
+export const SIDEBAR_MAX = 560;
 export const SCROLLBACK_CHOICES = [1_000, 10_000, 50_000] as const;
 export const HIGHLIGHT_COLORS: readonly HighlightColor[] = [
   'red',
@@ -104,6 +115,7 @@ export const DEFAULT_SETTINGS: Settings = {
   motion: 'system',
   font: 'uwu',
   fontSize: 13,
+  terminalFont: '',
   cursorStyle: 'block',
   cursorBlink: true,
   scrollback: 10_000,
@@ -128,6 +140,9 @@ export const DEFAULT_SETTINGS: Settings = {
   activeWorkspace: 'private',
   workspaceNames: { private: '', business: '' },
   collapsedGroups: [],
+  sidebarWidth: SIDEBAR_WIDTH,
+  sidebarCollapsed: false,
+  keyboardLayout: 'auto',
 };
 
 const KEY = 'uwussh.settings';
@@ -147,6 +162,17 @@ function sanitizeRules(raw: unknown): HighlightRule[] {
     }))
     .filter((rule) => rule.pattern.length > 0)
     .slice(0, 50);
+}
+
+/**
+ * A font family as it goes into CSS: letters, digits, spaces and a few signs.
+ * Quotes, commas and backslashes are out, so a name can never end the quoted
+ * family it is put into.
+ */
+export function fontName(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  const name = raw.trim();
+  return name.length <= 80 && /^[\p{L}\p{N} ._+&()-]+$/u.test(name) ? name : '';
 }
 
 /** Stored values are checked one by one; anything unexpected falls back to its default. */
@@ -178,6 +204,7 @@ export function sanitize(raw: unknown): Settings {
     // A font that is no longer offered falls back to UwU Sans.
     font: isFontChoice(input.font) ? input.font : d.font,
     fontSize,
+    terminalFont: fontName(input.terminalFont),
     cursorStyle: oneOf(input.cursorStyle, ['block', 'bar', 'underline'] as const, d.cursorStyle),
     cursorBlink: bool(input.cursorBlink, d.cursorBlink),
     scrollback: oneOf(
@@ -222,6 +249,14 @@ export function sanitize(raw: unknown): Settings {
           .map((g) => g.slice(0, 120))
           .slice(0, 500)
       : [],
+    sidebarWidth:
+      typeof input.sidebarWidth === 'number' && Number.isFinite(input.sidebarWidth)
+        ? Math.round(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, input.sidebarWidth)))
+        : d.sidebarWidth,
+    sidebarCollapsed: bool(input.sidebarCollapsed, d.sidebarCollapsed),
+    keyboardLayout: LAYOUTS.some((layout) => layout.id === input.keyboardLayout)
+      ? (input.keyboardLayout as string)
+      : d.keyboardLayout,
   };
 }
 

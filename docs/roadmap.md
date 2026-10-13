@@ -217,6 +217,29 @@ The point where I can stop using anything else.
   and the assistant's provider setup. Someone who already has hosts, a vault,
   sync or settings never sees it; Settings → Appearance runs it again. See
   [architecture](architecture.md#first-start).
+- **Your own shortcuts, a sidebar that gets out of the way, a terminal font**
+  (0.3.0-beta.4): Settings → Keyboard draws the keyboard that is plugged in
+  (the layout is detected and can be switched) instead of a list. Click a key
+  or press a combination to bind it; besides the built-in actions a key can
+  connect one host or type a stored text into the terminal, with Enter or
+  without. A combination that is taken moves to the new action, with a
+  warning; so do AltGr characters and keys the terminal needs. The bindings
+  sync, separately for macOS and for Windows/Linux, and the texts are sealed
+  in the vault (`EntityKind::Keymap`, `crates/uwussh-store/src/keymap.rs`).
+  The sidebar is dragged wider or narrower and hides completely (button in
+  the tab bar, Ctrl+Shift+B / ⌘B, or drag below the minimum); the count
+  next to Private and Business no longer wraps. The command assistant keeps
+  the requests of this computer in its popup (click or ↑/↓). Settings →
+  Terminal picks any installed monospace font, with a preview. Width and
+  font stay on the device.
+- **Two servers** (0.3.0-beta.4): Settings → Sync connects a second server,
+  UwUSync or UwULock in any mix. Each server is a store file of its own
+  (`crates/uwussh-store/src/spaces.rs`); the main server's master password
+  opens both vaults, Private and Business each have a default server, the
+  host dialog moves a host to the other server with everything that belongs
+  to it, and shortcuts, stored texts and AI settings live on the main server,
+  which you choose. Disconnecting one either drops its entries from this
+  device or takes them over. See [architecture](architecture.md#two-servers).
 - Accessibility pass, the full Nyu scene set
 
 ## M5 · Homelab
@@ -244,7 +267,12 @@ Where the distance to the commercial clients actually opens up.
 ## M6 · Mobile and teams
 
 - Android and iOS, since Tauri 2 does mobile and `russh` runs there
-- Shared vaults with per-host ACLs
+- ~~Shared vaults~~ — done as **teams** on UwUSync: a team is a vault of its
+  own with owners, admins, editors and readers, joined by invite code and a
+  compared fingerprint, re-keyed when somebody leaves (see "Teams" in
+  `docs/architecture.md`). Roles are per team, not per host; per-host ACLs
+  are still open, as are teams on UwULock, a notice in the interface when a
+  team's key is not accepted, and live updates instead of the minute's pull
 
 ## Open questions
 
@@ -264,5 +292,4 @@ Things I haven't decided, roughly in the order they'll bite:
 5. **File-based sync as a third option** — would Syncthing or Nextcloud as a
    transport, next to "local only" and "own server", be the shortest path for
    most homelabs?
-6. **Shared vaults** — leave them out of v1 entirely, or keep the data model
-   ready? `vault_id` already exists, so keeping the door open costs nothing.
+6. ~~**Shared vaults**~~ — settled: teams, one vault per team, see M6.

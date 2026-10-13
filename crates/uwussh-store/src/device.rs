@@ -44,6 +44,9 @@ pub(crate) fn never_opens(error: &std::io::Error) -> bool {
     error.kind() == std::io::ErrorKind::InvalidData
 }
 
+/// What seals a vault key for keeping: the operating system, or another vault.
+pub(crate) type Protect<'a> = dyn Fn(&[u8]) -> std::io::Result<Vec<u8>> + 'a;
+
 impl Store {
     /// Keep the unlocked vault's key on this device, sealed by `protect`.
     pub fn remember_vault(
@@ -73,6 +76,96 @@ impl Store {
             ],
         )?;
         tracing::info!("vault remembered on this device");
+        Ok(())
+    }
+
+    /// Prepare what [`Self::remember_vault`] would keep — or, without
+    /// `protect`, that nothing is kept — without putting it in place yet.
+    /// [`Self::promote_staged_unlock`] does that, and needs no vault.
+    pub(crate) fn stage_unlock(&self, protect: Option<&Protect>) -> Result<()> {
+        let (forget, vault_id, protected, nonce, blob) = match protect {
+            None => (true, String::new(), Vec::new(), Vec::new(), Vec::new()),
+            Some(protect) => {
+                let (vault_id, key, check) = {
+                    let guard = self.vault.lock();
+                    let vault = guard.as_ref().ok_or(StoreError::VaultLocked)?;
+                    let check =
+                        vault.seal(check_id(vault.vault_id()), EntityKind::Secret, CHECK)?;
+                    (vault.vault_id(), vault.export_key(), check)
+                };
+                let protected =
+                    protect(key.as_ref()).map_err(|e| StoreError::Device(e.to_string()))?;
+                (
+                    false,
+                    vault_id.to_string(),
+                    protected,
+                    check.nonce,
+                    check.blob,
+                )
+            }
+        };
+        self.conn.lock().execute(
+            "INSERT INTO device_unlock_staged
+                (id, forget, vault_id, protected, check_nonce, check_blob, created_ms)
+             VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT (id) DO UPDATE SET
+                forget = excluded.forget,
+                vault_id = excluded.vault_id, protected = excluded.protected,
+                check_nonce = excluded.check_nonce, check_blob = excluded.check_blob,
+                created_ms = excluded.created_ms",
+            params![forget, vault_id, protected, nonce, blob, now_ms() as i64],
+        )?;
+        Ok(())
+    }
+
+    /// Put what was staged in place. Nothing staged, nothing changes: doing
+    /// it twice is doing it once.
+    pub(crate) fn promote_staged_unlock(&self) -> Result<()> {
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        let forget: Option<bool> = tx
+            .query_row(
+                "SELECT forget FROM device_unlock_staged WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?;
+        match forget {
+            None => return Ok(()),
+            Some(true) => {
+                tx.execute("DELETE FROM device_unlock WHERE id = 1", [])?;
+            }
+            Some(false) => {
+                tx.execute(
+                    "INSERT INTO device_unlock
+                        (id, vault_id, protected, check_nonce, check_blob, created_ms)
+                     SELECT 1, vault_id, protected, check_nonce, check_blob, created_ms
+                       FROM device_unlock_staged WHERE id = 1
+                     ON CONFLICT (id) DO UPDATE SET
+                        vault_id = excluded.vault_id, protected = excluded.protected,
+                        check_nonce = excluded.check_nonce, check_blob = excluded.check_blob,
+                        created_ms = excluded.created_ms",
+                    [],
+                )?;
+            }
+        }
+        tx.execute("DELETE FROM device_unlock_staged", [])?;
+        tx.commit()?;
+        crate::vault::truncate_wal(&conn);
+        Ok(())
+    }
+
+    /// Throw away what was staged and never put in place.
+    pub(crate) fn drop_staged_unlock(&self) -> Result<()> {
+        let conn = self.conn.lock();
+        let staged: i64 =
+            conn.query_row("SELECT count(*) FROM device_unlock_staged", [], |row| {
+                row.get(0)
+            })?;
+        if staged > 0 {
+            conn.execute("DELETE FROM device_unlock_staged", [])?;
+            crate::vault::truncate_wal(&conn);
+        }
         Ok(())
     }
 

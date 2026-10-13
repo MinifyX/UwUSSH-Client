@@ -2,6 +2,8 @@ import { Button, IconButton, ICONS, Segmented, Tag } from '@uwusuite/design';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { N_, t, useLanguage } from '../lib/i18n';
 import type { HostRecord } from '../lib/session';
+import { useSpaces } from '../lib/teamCommands';
+import { readOnlySpaces, tunnelHosts } from '../lib/teams';
 import {
   deleteTunnel,
   describeRoute,
@@ -130,6 +132,11 @@ export function TunnelsDialog({ hosts, host, onStart, onClose }: Props) {
   useEffect(load, []);
 
   const hostById = useMemo(() => new Map(hosts.map((h) => [h.id, h])), [hosts]);
+  // Tunnels are stored with their host: in a team this account only reads they
+  // start and stop, but none is added, changed or deleted.
+  const spaces = useSpaces();
+  const writable = useMemo(() => tunnelHosts(hosts, readOnlySpaces(spaces)), [hosts, spaces]);
+  const fixed = (hostId: string) => !writable.some((h) => h.id === hostId);
   const shown = useMemo(() => {
     const visible = tunnels.filter((tunnel) => !only || tunnel.hostId === only);
     const byHost = new Map<string, TunnelRecord[]>();
@@ -190,8 +197,8 @@ export function TunnelsDialog({ hosts, host, onStart, onClose }: Props) {
   };
 
   const newForm = () => {
-    const hostId = only ?? host?.id ?? hosts[0]?.id;
-    if (!hostId) return;
+    const hostId = only ?? writable.find((h) => h.id === host?.id)?.id ?? writable[0]?.id;
+    if (!hostId || fixed(hostId)) return;
     setErrors({});
     setForm({
       id: null,
@@ -280,7 +287,7 @@ export function TunnelsDialog({ hosts, host, onStart, onClose }: Props) {
                 value={form.hostId}
                 onChange={(e) => edit('hostId')(e.target.value)}
               >
-                {hosts.map((h) => (
+                {writable.map((h) => (
                   <option key={h.id} value={h.id}>
                     {h.name}
                   </option>
@@ -411,6 +418,7 @@ export function TunnelsDialog({ hosts, host, onStart, onClose }: Props) {
   // ── The list ──────────────────────────────────────────────────────────────
 
   const onlyHost = only ? hostById.get(only) : undefined;
+  const onlyFixed = only !== null && fixed(only);
   return (
     <Modal
       key="list"
@@ -432,7 +440,7 @@ export function TunnelsDialog({ hosts, host, onStart, onClose }: Props) {
             variant="primary"
             icon={ICONS.add}
             onClick={newForm}
-            disabled={hosts.length === 0}
+            disabled={onlyFixed || writable.length === 0}
           >
             {t('Tunnel hinzufügen')}
           </Button>
@@ -446,6 +454,14 @@ export function TunnelsDialog({ hosts, host, onStart, onClose }: Props) {
           )}
         </p>
         {loadError && <p className="form-error">{loadError}</p>}
+        {onlyFixed && onlyHost && (
+          <p className="sidebar-note">
+            {t(
+              '{name} gehört zu einem Team, in dem du nur lesen darfst: Seine Tunnel lassen sich starten und stoppen, aber nicht ändern.',
+              { name: onlyHost.name },
+            )}
+          </p>
+        )}
 
         {shown.length === 0 ? (
           <p className="sidebar-note">
@@ -456,7 +472,12 @@ export function TunnelsDialog({ hosts, host, onStart, onClose }: Props) {
         ) : (
           shown.map(({ host: owner, tunnels: list }) => (
             <section key={owner.id} className="tunnel-group">
-              {!only && <h3>{owner.name}</h3>}
+              {!only && (
+                <h3 className="flex items-center gap-2">
+                  {owner.name}
+                  {fixed(owner.id) && <Tag>{t('nur lesen')}</Tag>}
+                </h3>
+              )}
               <ul className="tunnel-list">
                 {list.map((tunnel) => {
                   const status = statuses.get(tunnel.id);
@@ -464,6 +485,7 @@ export function TunnelsDialog({ hosts, host, onStart, onClose }: Props) {
                   const running = status?.state === 'running' || status?.state === 'starting';
                   const working = busy.has(tunnel.id);
                   const failure = failures[tunnel.id];
+                  const editable = !fixed(owner.id);
                   const state = working
                     ? 'connecting'
                     : (status?.state ?? (failure ? 'failed' : 'idle'));
@@ -516,7 +538,7 @@ export function TunnelsDialog({ hosts, host, onStart, onClose }: Props) {
                               {t('Starten')}
                             </Button>
                           ))}
-                        {known && (
+                        {known && editable && (
                           <IconButton
                             size="sm"
                             icon={ICONS.edit}
@@ -527,7 +549,7 @@ export function TunnelsDialog({ hosts, host, onStart, onClose }: Props) {
                             }}
                           />
                         )}
-                        {confirmDelete === tunnel.id ? (
+                        {!editable ? null : confirmDelete === tunnel.id ? (
                           <Button
                             variant="danger"
                             size="sm"

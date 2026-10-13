@@ -9,7 +9,6 @@
 use crate::backup::BackupFailure;
 use crate::{err, AppState, CommandResult};
 use serde::Serialize;
-use std::sync::Arc;
 use tauri::State;
 use uwussh_core::public_key_fingerprint;
 use uwussh_import::termius::{self, TermiusError};
@@ -24,7 +23,7 @@ use zeroize::Zeroizing;
 
 #[tauri::command]
 pub(crate) fn vault_status(state: State<'_, AppState>) -> CommandResult<VaultStatus> {
-    state.store.vault_status().map_err(err)
+    state.store().vault_status().map_err(err)
 }
 
 /// The vault's status, and whether this device opens it without the master
@@ -51,14 +50,14 @@ pub(crate) struct VaultState {
 
 #[tauri::command]
 pub(crate) fn vault_state(state: State<'_, AppState>) -> CommandResult<VaultState> {
-    let needs_account_key = state.store.vault_needs_account_key().map_err(err)?;
-    let lock = state.store.lock_state().map_err(err)?;
+    let needs_account_key = state.store().vault_needs_account_key().map_err(err)?;
+    let lock = state.store().lock_state().map_err(err)?;
     Ok(VaultState {
-        status: state.store.vault_status().map_err(err)?,
-        remembered: state.store.vault_is_remembered().map_err(err)?,
+        status: state.store().vault_status().map_err(err)?,
+        remembered: state.store().vault_is_remembered().map_err(err)?,
         needs_recovery_code: needs_account_key
-            && crate::sync::kept_account_key(&state.store).is_none(),
-        stranded: is_stranded(&state.store).map_err(err)?,
+            && crate::sync::kept_account_key(&state.store()).is_none(),
+        stranded: is_stranded(&state.store()).map_err(err)?,
         lock_email: lock.email.filter(|_| lock.active),
     })
 }
@@ -75,6 +74,7 @@ fn is_stranded(store: &Store) -> uwussh_store::Result<bool> {
 /// password again.
 #[tauri::command]
 pub(crate) async fn repair_vault(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     password: String,
     remember: bool,
@@ -98,7 +98,9 @@ pub(crate) async fn repair_vault(
         tracing::info!("a stranded vault has a master password of its own again");
         set_remembered(store, remember)
     })
-    .await
+    .await?;
+    crate::spaces::rechain(&app);
+    Ok(())
 }
 
 /// Keep the vault key for this Windows user (`true`), or stop (`false`).
@@ -116,7 +118,7 @@ async fn with_store<T: Send + 'static>(
     state: &AppState,
     work: impl FnOnce(&Store) -> CommandResult<T> + Send + 'static,
 ) -> CommandResult<T> {
-    let store = Arc::clone(&state.store);
+    let store = state.store();
     tauri::async_runtime::spawn_blocking(move || work(&store))
         .await
         .map_err(err)?
@@ -124,6 +126,7 @@ async fn with_store<T: Send + 'static>(
 
 #[tauri::command]
 pub(crate) async fn create_vault(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     password: String,
     remember: bool,
@@ -136,7 +139,9 @@ pub(crate) async fn create_vault(
         store.create_vault(password.as_bytes()).map_err(err)?;
         set_remembered(store, remember)
     })
-    .await
+    .await?;
+    crate::spaces::rechain(&app);
+    Ok(())
 }
 
 /// Unlock with the master password. `remember` changes whether this device
@@ -146,6 +151,7 @@ pub(crate) async fn create_vault(
 /// for this user; one that lost it gets it typed in from the recovery kit.
 #[tauri::command]
 pub(crate) async fn unlock_vault(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     password: String,
     remember: Option<bool>,
@@ -176,7 +182,10 @@ pub(crate) async fn unlock_vault(
             None => Ok(()),
         }
     })
-    .await
+    .await?;
+    // The main vault's key opens a second server's.
+    crate::spaces::rechain(&app);
+    Ok(())
 }
 
 #[tauri::command]
@@ -184,12 +193,14 @@ pub(crate) fn set_vault_remembered(
     state: State<'_, AppState>,
     remember: bool,
 ) -> CommandResult<()> {
-    set_remembered(&state.store, remember)
+    set_remembered(&state.store(), remember)
 }
 
 #[tauri::command]
-pub(crate) fn lock_vault(state: State<'_, AppState>) {
-    state.store.lock_vault();
+pub(crate) fn lock_vault(app: tauri::AppHandle, state: State<'_, AppState>) {
+    // One password, one lock: every server's vault closes with it.
+    state.spaces.lock_all();
+    crate::spaces::changed(&app);
 }
 
 // ── Import ─────────────────────────────────────────────────────────────────
@@ -336,7 +347,7 @@ pub(crate) fn run_import(
     // A secret that has to be written fails with `vault-locked`, and the page
     // asks for the vault and runs the import again. Hosts that are already
     // there bring no secret, so a second import doesn't ask at all.
-    let outcome = state.store.import(set)?;
+    let outcome = state.spaces.import(set)?;
     Ok(ImportReport::of(outcome, skipped))
 }
 

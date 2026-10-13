@@ -47,6 +47,8 @@ uwussh-proto.workspace = true
 uwussh-store.workspace = true
 uwussh-sync.workspace = true
 uwussh-vault.workspace = true
+# The installed monospace fonts, for Settings → Terminal → Schriftart.
+fontdb = { version = "0.23", default-features = false, features = ["std", "fs", "memmap", "fontconfig"] }
 
 parking_lot.workspace = true
 serde.workspace = true

@@ -3,7 +3,7 @@ import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Button, Icon, IconButton, ICONS } from '@uwusuite/design';
 import { hideWindowOnClose, onMacQuit } from '@uwusuite/design/tauri';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
   HostKeyChanged,
   SecretPrompt,
@@ -61,13 +61,32 @@ import {
 } from './lib/session';
 import { useAppAppearance } from './lib/appearance';
 import { language, t } from './lib/i18n';
-import { shortcutFor, terminalKey, type ShortcutAction } from './lib/keymap';
+import { refreshKeyboard, useKeyboard } from './lib/keyboard';
+import {
+  chordKey,
+  chordOf,
+  chordsFor,
+  menuAccelerator,
+  shortcutFor,
+  terminalKey,
+  type ShortcutAction,
+} from './lib/keymap';
+import { getKeymap, loadKeymap, sendKeymapText, useKeymap } from './lib/keymapStore';
 import { platform } from './lib/platform';
 import { markOnboardingDone, onboardingDecision, onboardingDone } from './lib/onboarding';
-import { getSettings, settingsWereStored, useSettings } from './lib/settings';
+import {
+  DEFAULT_SETTINGS,
+  FONT_SIZE_MAX,
+  FONT_SIZE_MIN,
+  getSettings,
+  settingsWereStored,
+  updateSettings,
+  useSettings,
+} from './lib/settings';
 import { isAppStore, localShellAvailable, pickKeyPath } from './lib/flavor';
 import { setSshMacMenu } from './lib/macMenu';
-import { desktop, keysFor } from './lib/shortcuts';
+import { desktop, keysFor, keysLabel } from './lib/shortcuts';
+import { SidebarGrip } from './components/SidebarGrip';
 import { findLinkedHost } from './lib/links';
 import { syncPassNow, syncStatus, type Withheld } from './lib/sync';
 import {
@@ -284,6 +303,8 @@ export function App() {
   const tabOpen = (id: string) => tabsRef.current.some((tab) => tab.id === id);
 
   const refreshHosts = useCallback(async () => {
+    // The user's keys come from the same store, and change with the same syncs.
+    void loadKeymap();
     try {
       const [loadedHosts, loadedGroups] = await Promise.all([listHosts(), listGroups()]);
       setHosts(loadedHosts);
@@ -896,6 +917,27 @@ export function App() {
     [patchTab],
   );
 
+  /** Types one of the user's texts (a key has it) into a terminal. The backend reads it from the vault. */
+  const typeText = (id: string, textId: string) => {
+    const driver = drivers.current.get(id);
+    const session = driver?.session;
+    if (!driver || !session) return;
+    const type = () => sendKeymapText(session, textId).then(() => driver.term.focus());
+    void type().catch((error) => {
+      const failure = error as { kind?: string };
+      if (failure?.kind === 'vault-locked') {
+        void unlock(id, t('Der Text liegt im Tresor.')).then((opened) => opened && void type());
+      } else {
+        patchTab(id, {
+          notice: {
+            tone: 'error',
+            text: t('Text nicht eingegeben: {error}', { error: String(error) }),
+          },
+        });
+      }
+    });
+  };
+
   // ── Links ─────────────────────────────────────────────────────────────────
 
   /** A link is being followed: the start-up vault prompt and tabs stay away. */
@@ -1066,6 +1108,12 @@ export function App() {
   // Another device changed hosts or groups: the list loads again.
   useEffect(() => {
     const stop = listen('sync:changed', () => void refreshHosts());
+    return () => void stop.then((unlisten) => unlisten());
+  }, [refreshHosts]);
+
+  // A second server came, went or was unlocked: its hosts with it.
+  useEffect(() => {
+    const stop = listen('spaces:changed', () => void refreshHosts());
     return () => void stop.then((unlisten) => unlisten());
   }, [refreshHosts]);
 
@@ -1285,17 +1333,72 @@ export function App() {
       case 'assist':
         if (tab && canAssist(tab) && driver?.session) setAssistFor(tab.id);
         break;
+      case 'move-tab-left':
+      case 'move-tab-right': {
+        const step = action.kind === 'move-tab-left' ? -1 : 1;
+        setTabs((current) => {
+          const from = current.findIndex((candidate) => candidate.id === id);
+          const to = from + step;
+          if (from < 0 || to < 0 || to >= current.length) return current;
+          const next = [...current];
+          [next[from], next[to]] = [next[to]!, next[from]!];
+          return next;
+        });
+        break;
+      }
+      case 'clear-terminal':
+        driver?.term.clear();
+        break;
+      case 'font-bigger':
+      case 'font-smaller': {
+        const size = getSettings().fontSize + (action.kind === 'font-bigger' ? 1 : -1);
+        updateSettings({ fontSize: Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, size)) });
+        break;
+      }
+      case 'font-reset':
+        updateSettings({ fontSize: DEFAULT_SETTINGS.fontSize });
+        break;
+      case 'reconnect':
+        if (id && tab && (tab.status === 'failed' || tab.status === 'ended')) restart(id);
+        break;
+      case 'shortcuts':
+        setSettingsOpen('keyboard');
+        break;
+      case 'toggle-sidebar':
+        updateSettings({ sidebarCollapsed: !getSettings().sidebarCollapsed });
+        break;
+      case 'focus-search':
+        updateSettings({ sidebarCollapsed: false });
+        // The list may have to come back first.
+        requestAnimationFrame(() =>
+          document.querySelector<HTMLInputElement>('.sidebar .search')?.focus(),
+        );
+        break;
+      case 'new-host':
+        setForm({ host: null });
+        break;
+      case 'tunnels':
+        setTunnelsFor({ host: null });
+        break;
+      case 'host': {
+        const host = hostsRef.current.find((candidate) => candidate.id === action.id);
+        if (host) connect(host);
+        break;
+      }
+      case 'text':
+        if (id && tab && canAssist(tab)) typeText(id, action.id);
+        break;
     }
   };
   const performRef = useRef(perform);
   performRef.current = perform;
 
   /**
-   * The actions whose keys belong to the macOS menu bar right now (its
-   * accelerators, see the menu below). Empty until the menu is set, and off
+   * The chords that belong to the macOS menu bar right now (its accelerators,
+   * see the menu below), as `chordKey` writes them. Empty until the menu is set, and off
    * macOS, so the page then handles every shortcut itself.
    */
-  const menuKeys = useRef<ReadonlySet<ShortcutAction['kind']>>(new Set());
+  const menuKeys = useRef<ReadonlySet<string>>(new Set());
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -1307,6 +1410,7 @@ export function App() {
         getSettings(),
         Boolean(driver?.term.hasSelection()),
         platform(),
+        getKeymap().bindings,
       );
       if (!action) {
         // Nothing has the keyboard (a context menu closed, a button that had
@@ -1321,7 +1425,7 @@ export function App() {
       // keyboard — the file list selects its own files.
       if (action.kind === 'copy' && inTextField(event.target)) return;
       if (action.kind === 'select-all' && !inTerminal(event.target)) return;
-      if (menuKeys.current.has(action.kind)) {
+      if (menuKeys.current.has(chordKey(chordOf(event)))) {
         // The menu bar has this key (⌘T, ⌘W, ⌘D, ⌘,, ⇧⌘F, ⇧⌘P, ⌘K). WebKit
         // offers a ⌘ key to the page first and to the menu only when the
         // page leaves it alone, so the page must not take it: the menu acts,
@@ -1353,6 +1457,10 @@ export function App() {
   // sessions and tunnels keep running and the Dock icon brings it back.
   const hideWindow = () => void getCurrentWindow().close();
 
+  const { bindings } = useKeymap();
+  // A shortcut's label says what the connected keyboard has on the key.
+  useKeyboard();
+  useEffect(() => void refreshKeyboard(), []);
   const hasTabs = tabs.length > 0;
   const activeKind = tabs.find((tab) => tab.id === activeId)?.kind ?? null;
   const activeCanType = Boolean(
@@ -1371,15 +1479,15 @@ export function App() {
           ? [
               {
                 text: t('Neue lokale Shell'),
-                accelerator: 'CmdOrCtrl+T',
+                accelerator: menuAccelerator('new-shell', bindings),
                 action: fromMenu({ kind: 'new-shell' }),
               },
             ]
           : []),
         {
           text: t('Neuer Host …'),
-          accelerator: 'CmdOrCtrl+N',
-          action: () => !modalRef.current && setForm({ host: null }),
+          accelerator: menuAccelerator('new-host', bindings),
+          action: fromMenu({ kind: 'new-host' }),
         },
         {
           text: t('Importieren …'),
@@ -1388,19 +1496,20 @@ export function App() {
         'separator',
         {
           text: t('Tab duplizieren'),
-          accelerator: 'CmdOrCtrl+D',
+          accelerator: menuAccelerator('duplicate-tab', bindings),
           enabled: hasTabs,
           action: fromMenu({ kind: 'duplicate-tab' }),
         },
         {
           text: t('Dateien öffnen'),
-          accelerator: 'CmdOrCtrl+Shift+F',
+          accelerator: menuAccelerator('open-files', bindings),
           enabled: hostTab,
           action: fromMenu({ kind: 'open-files' }),
         },
       ],
       closeTab: {
         text: t('Tab schließen'),
+        accelerator: menuAccelerator('close-tab', bindings),
         action: () => {
           if (modalRef.current) return;
           if (activeRef.current) closeTab(activeRef.current);
@@ -1410,24 +1519,42 @@ export function App() {
       closeWindow: { text: t('Fenster schließen'), action: hideWindow },
       menus: [
         {
+          text: t('Darstellung'),
+          items: [
+            {
+              text: settings.sidebarCollapsed
+                ? t('Seitenleiste einblenden')
+                : t('Seitenleiste ausblenden'),
+              accelerator: menuAccelerator('toggle-sidebar', bindings),
+              action: fromMenu({ kind: 'toggle-sidebar' }),
+            },
+            {
+              text: t('Tastenkürzel …'),
+              accelerator: menuAccelerator('shortcuts', bindings),
+              action: fromMenu({ kind: 'shortcuts' }),
+            },
+          ],
+        },
+        {
           text: t('Sitzung'),
           items: [
             {
               text: t('Passwort eintippen'),
-              accelerator: 'CmdOrCtrl+Shift+P',
+              accelerator: menuAccelerator('type-password', bindings),
               enabled: activeCanType,
               action: fromMenu({ kind: 'type-password' }),
             },
             {
               text: t('Befehl aus Worten …'),
-              accelerator: 'CmdOrCtrl+K',
+              accelerator: menuAccelerator('assist', bindings),
               enabled: activeKind === 'ssh' || activeKind === 'shell',
               action: fromMenu({ kind: 'assist' }),
             },
             'separator',
             {
               text: t('Tunnel …'),
-              action: () => !modalRef.current && setTunnelsFor({ host: null }),
+              accelerator: menuAccelerator('tunnels', bindings),
+              action: fromMenu({ kind: 'tunnels' }),
             },
           ],
         },
@@ -1439,23 +1566,36 @@ export function App() {
       ],
     })
       .then(() => {
-        // Every action given an accelerator above, and nothing else.
-        menuKeys.current = new Set<ShortcutAction['kind']>([
-          ...(shell ? (['new-shell'] as const) : []),
+        // Every chord given to the menu as an accelerator above, and nothing
+        // else. ⌘, is the package's own entry and stays the menu's as long as
+        // nothing else has it.
+        const inMenu = [
+          ...(shell ? ['new-shell'] : []),
+          'new-host',
           'close-tab',
-          'settings',
           'duplicate-tab',
           'open-files',
           'type-password',
           'assist',
-        ]);
+          'tunnels',
+          'toggle-sidebar',
+          'shortcuts',
+        ];
+        const keys = new Set<string>();
+        for (const id of inMenu) {
+          const chord = chordsFor(id, 'mac', bindings)[0];
+          if (chord && menuAccelerator(id, bindings)) keys.add(chordKey(chord));
+        }
+        if (chordsFor('settings', 'mac', bindings).some((c) => chordKey(c) === 'meta+Comma'))
+          keys.add('meta+Comma');
+        menuKeys.current = keys;
       })
       .catch(() => {
         // No menu bar: the page keeps every shortcut.
         menuKeys.current = new Set();
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lang, hasTabs, activeKind, activeCanType]);
+  }, [lang, hasTabs, activeKind, activeCanType, bindings, settings.sidebarCollapsed]);
 
   // ── Closing the window and quitting ───────────────────────────────────────
 
@@ -1532,7 +1672,11 @@ export function App() {
       <div ref={backgroundRef} className="background">
         <TitleBar onSettings={() => setSettingsOpen('appearance')} />
 
-        <div className="body">
+        <div
+          className="body"
+          data-sidebar={settings.sidebarCollapsed ? 'collapsed' : undefined}
+          style={{ '--sidebar-width': `${settings.sidebarWidth}px` } as CSSProperties}
+        >
           <HostList
             hosts={hosts}
             groups={groups}
@@ -1555,8 +1699,12 @@ export function App() {
             onError={(text) => setAppNotice({ tone: 'error', text })}
           />
 
+          <SidebarGrip />
+
           <main className="main">
             <TabBar
+              sidebarCollapsed={settings.sidebarCollapsed}
+              onToggleSidebar={() => perform({ kind: 'toggle-sidebar' })}
               tabs={tabs}
               activeId={activeId}
               onSelect={setActiveId}
@@ -1588,7 +1736,7 @@ export function App() {
                       onClick={() => typePassword(activeTab.id)}
                       title={t(
                         'Das Passwort des Hosts ins Terminal tippen ({keys}). Enter kommt nur dazu, wenn gerade etwas nach einer Eingabe fragt.',
-                        { keys: keysFor('type-password') },
+                        { keys: keysLabel('type-password') },
                       )}
                     >
                       {t('Passwort eintippen')}
@@ -1602,7 +1750,7 @@ export function App() {
                     className="toolbar-button"
                     onClick={() => openFilesTab(activeTab.host)}
                     title={t('Dateien dieses Hosts in einem neuen Tab ({keys})', {
-                      keys: keysFor('open-files'),
+                      keys: keysLabel('open-files'),
                     })}
                   >
                     {t('Dateien')}
@@ -1708,7 +1856,7 @@ export function App() {
                         <Button variant="primary" size="sm" onClick={() => typePassword(tab.id)}>
                           {t('Eintippen')}
                         </Button>
-                        <kbd>{keysFor('type-password')}</kbd>
+                        {keysFor('type-password') && <kbd>{keysFor('type-password')}</kbd>}
                         <IconButton
                           size="sm"
                           icon={ICONS.close}
@@ -1913,7 +2061,10 @@ export function App() {
       {dialog?.kind === 'unlock' && (
         <VaultDialog
           reason={dialog.reason}
-          onDone={() => dialog.resolve(true)}
+          onDone={() => {
+            void loadKeymap();
+            dialog.resolve(true);
+          }}
           onCancel={() => dialog.resolve(false)}
         />
       )}

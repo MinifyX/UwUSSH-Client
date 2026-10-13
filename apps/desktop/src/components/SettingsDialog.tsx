@@ -18,8 +18,11 @@ import {
 } from '@uwusuite/design';
 import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react';
 import pkg from '../../package.json';
+import { invoke } from '@tauri-apps/api/core';
 import { customRegex, HIGHLIGHT_HEX } from '../lib/highlight';
 import { locale, N_, t, useLanguage } from '../lib/i18n';
+import { useTeamServers } from '../lib/teamCommands';
+import { teamsVisible } from '../lib/teams';
 import {
   passphraseNote,
   asKeyFailure,
@@ -47,6 +50,7 @@ import {
 import {
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
+  fontName,
   HIGHLIGHT_COLORS,
   SCROLLBACK_CHOICES,
   passwordLoginWarningOn,
@@ -59,12 +63,15 @@ import {
   type HighlightRule,
   type StartupSetting,
 } from '../lib/settings';
+import { terminalFontFamily } from '../lib/driver';
 import { localShellAvailable, updatesAvailableInApp } from '../lib/flavor';
 import { systemName } from '../lib/platform';
-import { allKeysFor, isMac, keysFor, keysForTab, primaryModifier } from '../lib/shortcuts';
+import { isMac, keysLabel, primaryModifier } from '../lib/shortcuts';
 import { AssistSettings } from './AssistSettings';
+import { KeyboardSettings } from './KeyboardSettings';
 import { ExportDialog } from './ExportDialog';
 import { SyncSettings } from './SyncSettings';
+import { TeamSettings } from './TeamSettings';
 import { KeyImportDialog, KeygenDialog } from './keygen/KeyDialogs';
 import { Modal } from './Modal';
 import { VaultDialog } from './VaultDialog';
@@ -72,10 +79,12 @@ import { VaultDialog } from './VaultDialog';
 export type SettingsSection =
   | 'appearance'
   | 'terminal'
+  | 'keyboard'
   | 'highlight'
   | 'vault'
   | 'assist'
   | 'sync'
+  | 'teams'
   | 'data'
   | 'updates'
   | 'about';
@@ -83,10 +92,12 @@ export type SettingsSection =
 const SECTIONS: { id: SettingsSection; label: string }[] = [
   { id: 'appearance', label: N_('Darstellung') },
   { id: 'terminal', label: N_('Terminal') },
+  { id: 'keyboard', label: N_('Tastatur') },
   { id: 'highlight', label: N_('Hervorhebung') },
   { id: 'vault', label: N_('Tresor & Keys') },
   { id: 'assist', label: N_('KI') },
   { id: 'sync', label: N_('Sync') },
+  { id: 'teams', label: N_('Teams') },
   { id: 'data', label: N_('Import & Export') },
   { id: 'updates', label: N_('Updates') },
   { id: 'about', label: N_('Über UwUSSH') },
@@ -325,8 +336,49 @@ function TerminalSettings() {
     { length: FONT_SIZE_MAX - FONT_SIZE_MIN + 1 },
     (_, i) => FONT_SIZE_MIN + i,
   );
+  const [fonts, setFonts] = useState<string[]>([]);
+  useEffect(() => {
+    invoke<string[]>('terminal_fonts')
+      .then((names) => setFonts(names.filter((name) => fontName(name) === name)))
+      .catch(() => setFonts([]));
+  }, []);
+  // A chosen font that is not installed here (any more) stays in the list.
+  const choices =
+    settings.terminalFont && !fonts.includes(settings.terminalFont)
+      ? [settings.terminalFont, ...fonts]
+      : fonts;
   return (
     <>
+      <Row
+        label={t('Schriftart')}
+        description={t('Die mitgelieferte oder eine Festbreitenschrift dieses Geräts.')}
+      >
+        <Select
+          className="w-56"
+          aria-label={t('Schriftart')}
+          value={settings.terminalFont}
+          onChange={(event) => updateSettings({ terminalFont: event.target.value })}
+        >
+          <option value="">{t('JetBrains Mono (mitgeliefert)')}</option>
+          {choices.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </Select>
+      </Row>
+      <pre
+        className="terminal-font-preview"
+        aria-label={t('Vorschau')}
+        style={{
+          fontFamily: terminalFontFamily(settings.terminalFont),
+          fontSize: settings.fontSize,
+        }}
+      >
+        {
+          'nyu@uwu:~$ ls -la | grep "0O 1lI"\n-rw-r--r--  1 nyu  staff  4096  notes.md  => != {} [] ~'
+        }
+      </pre>
       <Row
         label={t('Schriftgröße')}
         description={t('Oder {key} + Mausrad über dem Terminal.', { key: primaryModifier() })}
@@ -383,7 +435,7 @@ function TerminalSettings() {
         label={t('Passwort-Helfer')}
         description={t(
           'Fragt sudo oder su im Terminal nach dem Passwort, bietet UwUSSH an, das Passwort des Hosts einzutippen ({keys}).',
-          { keys: keysFor('type-password') },
+          { keys: keysLabel('type-password') },
         )}
       >
         <Toggle
@@ -430,45 +482,6 @@ function TerminalSettings() {
           onChange={(confirmCloseWithSessions) => updateSettings({ confirmCloseWithSessions })}
         />
       </Row>
-      <div className="shortcuts">
-        <p className="text-body font-semibold">{t('Tastenkürzel')}</p>
-        <dl>
-          {localShellAvailable() && (
-            <>
-              <dt>{keysFor('new-shell')}</dt>
-              <dd>{t('Neue lokale Shell')}</dd>
-            </>
-          )}
-          <dt>{keysFor('duplicate-tab')}</dt>
-          <dd>{t('Tab duplizieren (neue Verbindung zum selben Host)')}</dd>
-          <dt>{keysFor('close-tab')}</dt>
-          <dd>{t('Tab schließen')}</dd>
-          <dt>{allKeysFor('next-tab')}</dt>
-          <dd>{t('Nächster Tab')}</dd>
-          <dt>{allKeysFor('previous-tab')}</dt>
-          <dd>{t('Vorheriger Tab')}</dd>
-          <dt>{t('{first} … {last}', { first: keysForTab(1), last: keysForTab(9) })}</dt>
-          <dd>{t('Zu Tab 1 … 9')}</dd>
-          <dt>{keysFor('open-files')}</dt>
-          <dd>{t('Dateien des Hosts öffnen')}</dd>
-          <dt>{keysFor('type-password')}</dt>
-          <dd>{t('Passwort eintippen, wenn danach gefragt wird')}</dd>
-          <dt>{keysFor('assist')}</dt>
-          <dd>{t('Befehl aus Worten')}</dd>
-          <dt>{mac ? '⌘C · ⌘V' : t('Strg+Umschalt+C · Strg+Umschalt+V')}</dt>
-          <dd>{t('Kopieren · Einfügen')}</dd>
-          {mac && (
-            <>
-              <dt>⌘← · ⌘→ · ⌘⌫</dt>
-              <dd>{t('Zeilenanfang · Zeilenende · Zeile bis zum Cursor löschen')}</dd>
-            </>
-          )}
-          <dt>{t('{key}+Mausrad', { key: primaryModifier() })}</dt>
-          <dd>{t('Schrift größer · kleiner')}</dd>
-          <dt>{keysFor('settings')}</dt>
-          <dd>{t('Einstellungen')}</dd>
-        </dl>
-      </div>
     </>
   );
 }
@@ -1202,10 +1215,17 @@ export function SettingsDialog({
   useLanguage();
   // The App Store build updates through the App Store: no Updates section.
   const updates = updatesAvailableInApp();
-  const sections = SECTIONS.filter((s) => updates || s.id !== 'updates');
-  const [section, setSection] = useState<SettingsSection>(
+  // Teams have a page only with a server that knows them and has them on.
+  const [teamList, refreshTeams] = useTeamServers();
+  const teams = teamsVisible(teamList);
+  const sections = SECTIONS.filter(
+    (s) => (updates || s.id !== 'updates') && (teams || s.id !== 'teams'),
+  );
+  const [picked, setSection] = useState<SettingsSection>(
     initial === 'updates' && !updates ? 'about' : initial,
   );
+  // The last such server went while the page was open: back to where it was connected.
+  const section = picked === 'teams' && !teams ? 'sync' : picked;
   return (
     <Modal title={t('Einstellungen')} size="wide" onCancel={onClose}>
       <div className="settings">
@@ -1224,10 +1244,12 @@ export function SettingsDialog({
         <div className="settings-content">
           {section === 'appearance' && <Appearance onRestartOnboarding={onRestartOnboarding} />}
           {section === 'terminal' && <TerminalSettings />}
+          {section === 'keyboard' && <KeyboardSettings />}
           {section === 'highlight' && <Highlighting />}
           {section === 'vault' && <Vault onChanged={onChanged} />}
           {section === 'assist' && <AssistSettings />}
           {section === 'sync' && <SyncSettings />}
+          {section === 'teams' && <TeamSettings servers={teamList} refresh={refreshTeams} />}
           {section === 'data' && <Data onImport={onImport} />}
           {section === 'updates' && updates && (
             <Updates

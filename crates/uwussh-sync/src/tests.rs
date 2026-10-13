@@ -1249,7 +1249,7 @@ impl crate::Transport for OldServer<'_> {
         &self,
         envelopes: Vec<Envelope>,
     ) -> Result<uwussh_proto::PushResponse, crate::TransportError> {
-        if envelopes.iter().any(|env| env.kind.is_assist()) {
+        if envelopes.iter().any(|env| env.kind.travels_apart()) {
             return Err(crate::TransportError::Refused(
                 "422: unknown variant `assist_config`".into(),
             ));
@@ -1271,7 +1271,7 @@ impl crate::Transport for UnknowingView<'_> {
         _limit: usize,
     ) -> Result<uwussh_proto::PullResponse, crate::TransportError> {
         let mut page = self.0.pull(since, 4)?;
-        page.envelopes.retain(|env| !env.kind.is_assist());
+        page.envelopes.retain(|env| !env.kind.travels_apart());
         Ok(page)
     }
 
@@ -1331,7 +1331,7 @@ fn the_assistants_settings_key_and_answers_reach_the_other_device_sealed() {
     sync_once(&a, &server).unwrap();
     assert!(a.assist_cache_entries(None).unwrap().is_empty());
     // And nothing waits any more, in either request.
-    assert!(a.pending_assist_envelopes(MAX_BATCH).unwrap().0.is_empty());
+    assert!(a.pending_apart_envelopes(MAX_BATCH).unwrap().0.is_empty());
     assert!(server.pull(uwussh_proto::SyncCursor(0), MAX_BATCH).is_ok());
 }
 
@@ -1347,7 +1347,7 @@ fn a_server_that_does_not_know_the_assistant_still_syncs_everything_else() {
     assert!(report.pushed >= 2, "host and login went out: {report:?}");
     assert_eq!(a.pending_count().unwrap(), 0, "nothing shows as waiting");
     assert_eq!(
-        a.pending_assist_envelopes(MAX_BATCH).unwrap().0.len(),
+        a.pending_apart_envelopes(MAX_BATCH).unwrap().0.len(),
         1,
         "the settings wait for a server that takes them"
     );
@@ -1358,7 +1358,7 @@ fn a_server_that_does_not_know_the_assistant_still_syncs_everything_else() {
 
     // The server learns the kinds: the settings go out on the next pass.
     sync_once(&a, &server).unwrap();
-    assert!(a.pending_assist_envelopes(MAX_BATCH).unwrap().0.is_empty());
+    assert!(a.pending_apart_envelopes(MAX_BATCH).unwrap().0.is_empty());
     sync_once(&b, &server).unwrap();
     assert_eq!(b.assist_settings().unwrap().provider, "openai");
 }
@@ -1385,4 +1385,112 @@ fn a_build_that_does_not_know_the_assistant_pulls_past_a_page_full_of_it() {
         b.sync_state().unwrap().cursor >= 12,
         "the cursor went past what b could not read"
     );
+}
+
+// ── The keymap ──────────────────────────────────────────────────────────────
+
+fn keymap_draft(text: Uuid, change: PasswordChange) -> uwussh_store::KeymapDraft {
+    let chord = |code: &str| uwussh_store::Chord {
+        ctrl: true,
+        shift: true,
+        code: code.into(),
+        ..Default::default()
+    };
+    uwussh_store::KeymapDraft {
+        bindings: [
+            ("tab:new".to_string(), vec![chord("KeyT")]),
+            (format!("text:{text}"), vec![chord("KeyP")]),
+        ]
+        .into(),
+        texts: vec![uwussh_store::KeymapTextDraft {
+            id: text,
+            label: "root werden".into(),
+            enter: true,
+            text: change,
+        }],
+    }
+}
+
+#[test]
+fn a_keymap_and_its_text_reach_the_other_device_sealed() {
+    let server = MemoryServer::new();
+    let a = first_device();
+    let text = Uuid::now_v7();
+    let typed = "sudo -i\nhunter2"; // gitleaks:allow
+    a.save_keymap(
+        "other",
+        keymap_draft(
+            text,
+            PasswordChange::Set {
+                value: SecretText::new(typed),
+            },
+        ),
+    )
+    .unwrap();
+    assert_eq!(a.pending_count().unwrap(), 1, "only the text's secret");
+    sync_once(&a, &server).unwrap();
+
+    for record in server.records() {
+        for needle in ["hunter2", "KeyT", "root werden"] {
+            assert!(
+                !record
+                    .blob
+                    .windows(needle.len())
+                    .any(|w| w == needle.as_bytes()),
+                "the server holds the keymap only sealed"
+            );
+        }
+    }
+    let kinds: Vec<EntityKind> = server.records().iter().map(|env| env.kind).collect();
+    assert!(kinds.contains(&EntityKind::Keymap));
+    assert!(kinds.contains(&EntityKind::Secret));
+
+    let b = joined_device(&a);
+    sync_once(&b, &server).unwrap();
+    assert_eq!(b.keymap("other").unwrap(), a.keymap("other").unwrap());
+    assert!(b.keymap("other").unwrap().texts[0].has_text);
+    assert!(b.keymap("mac").unwrap().bindings.is_empty());
+    let (text_on_b, enter) = b.keymap_text("other", text).unwrap().unwrap();
+    assert_eq!(text_on_b.as_str(), typed);
+    assert!(enter);
+
+    // b removes the text: its secret goes on a too, ciphertext and all.
+    b.save_keymap("other", uwussh_store::KeymapDraft::default())
+        .unwrap();
+    sync_once(&b, &server).unwrap();
+    sync_once(&a, &server).unwrap();
+    assert_eq!(
+        a.keymap("other").unwrap(),
+        uwussh_store::KeymapView::default()
+    );
+    assert_eq!(a.keymap_text("other", text).unwrap(), None);
+    assert!(a.pending_apart_envelopes(MAX_BATCH).unwrap().0.is_empty());
+}
+
+#[test]
+fn a_server_that_does_not_know_the_keymap_still_syncs_everything_else() {
+    let server = MemoryServer::new();
+    let a = first_device();
+    a.save_host(draft("prox-1", "192.0.2.12")).unwrap();
+    a.save_keymap("mac", keymap_draft(Uuid::now_v7(), PasswordChange::Keep))
+        .unwrap();
+
+    let report = sync_once(&a, &OldServer(&server)).unwrap();
+    assert!(report.pushed >= 2, "host and login went out: {report:?}");
+    assert_eq!(a.pending_count().unwrap(), 0, "nothing shows as waiting");
+    assert_eq!(a.pending_apart_envelopes(MAX_BATCH).unwrap().0.len(), 1);
+
+    // A build that does not know the kind pulls past it, like the assistant's.
+    sync_once(&a, &server).unwrap();
+    let b = joined_device(&a);
+    let report = sync_once(&b, &UnknowingView(&server)).unwrap();
+    assert!(report.complete);
+    assert_eq!(names(&b), vec!["prox-1".to_string()]);
+    assert!(b.keymap("mac").unwrap().bindings.is_empty());
+
+    // After its update it reads the server from the start (the migration
+    // resets the cursor) and the keymap comes in.
+    b.set_sync_cursor(0).unwrap();
+    sync_once(&b, &server).unwrap();
+    assert_eq!(b.keymap("mac").unwrap(), a.keymap("mac").unwrap());
 }

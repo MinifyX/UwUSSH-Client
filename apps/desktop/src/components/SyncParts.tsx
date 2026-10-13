@@ -1,11 +1,40 @@
 import { Button, Hint, StatusDot, type StatusState } from '@uwusuite/design';
-import { useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { locale, t, useLanguage } from '../lib/i18n';
-import { asSyncFailure, lockAppSyncOff, type SyncFailure, type SyncStatus } from '../lib/sync';
+import {
+  asSyncFailure,
+  lockAppSyncOff,
+  type SpaceRef,
+  type SyncFailure,
+  type SyncStatus,
+} from '../lib/sync';
 import { Modal } from './Modal';
 
 // What both ways of syncing show: UwUSync's pages in SyncSettings, UwULock's
 // in LockSync.
+
+/**
+ * Which server the sync pages inside talk to. With one server nothing sets
+ * this and every command means the main one, as it always did.
+ */
+export type SpaceScope = {
+  /** Passed to every command: nothing for main, an id, or `'new'`. */
+  space: SpaceRef;
+  /** The second server is being set up: its forms say what differs. */
+  second: boolean;
+  /**
+   * With two servers, leaving one asks what becomes of its entries: the
+   * pages call this instead of their own "disconnect" question.
+   */
+  leave: (() => void) | null;
+  /** One more row under a connected server's own: the way to a second one. */
+  after: ReactNode;
+};
+
+const MAIN_SCOPE: SpaceScope = { space: undefined, second: false, leave: null, after: null };
+const SpaceContext = createContext<SpaceScope>(MAIN_SCOPE);
+export const SpaceProvider = SpaceContext.Provider;
+export const useSpace = () => useContext(SpaceContext);
 
 /** A failure in words the person can act on. */
 export function failureText(failure: SyncFailure): string {
@@ -227,6 +256,8 @@ export function PasswordConfirm({
   lead,
   action,
   tone = 'danger',
+  passwordLabel,
+  children,
   run,
   onCancel,
   onDone,
@@ -236,6 +267,10 @@ export function PasswordConfirm({
   action: string;
   /** `normal` for a question that changes nothing, only shows something. */
   tone?: 'danger' | 'normal';
+  /** Whose password, when "Master-Passwort" alone could mean two. */
+  passwordLabel?: string;
+  /** More to decide, between the lead and the password. */
+  children?: ReactNode;
   run: (password: string) => Promise<void>;
   onCancel: () => void;
   onDone: () => void;
@@ -290,8 +325,9 @@ export function PasswordConfirm({
         }}
       >
         <p className="dialog-lead">{lead}</p>
+        {children}
         <label className="field">
-          <span>{t('Master-Passwort')}</span>
+          <span>{passwordLabel ?? t('Master-Passwort')}</span>
           <input
             type="password"
             value={password}

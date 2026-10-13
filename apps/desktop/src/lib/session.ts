@@ -122,6 +122,8 @@ export type HostRecord = {
   hasPassword: boolean;
   keyId: string | null;
   keyLabel: string | null;
+  /** The server (space) this host lives on; an opaque id. */
+  space: string;
 };
 
 export type PasswordChange = { kind: 'keep' } | { kind: 'set'; value: string } | { kind: 'forget' };
@@ -138,6 +140,11 @@ export type HostDraft = {
   workspace: Workspace | null;
   keyId: string | null;
   password: PasswordChange;
+  /**
+   * The server the host should live on. Absent: a new host goes to its
+   * workspace's default, a stored one stays. Another one than it has: it moves.
+   */
+  space?: string;
 };
 
 export type SaveFailure =

@@ -149,12 +149,17 @@
 }
 
 .workspace-name {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* The number stays whole on one line; a narrow sidebar shortens the name instead. */
 .workspace-count {
+  flex: none;
+  white-space: nowrap;
+  text-align: center;
   min-width: 18px;
   padding: 0 6px;
   border-radius: var(--uwu-radius-pill);

@@ -150,7 +150,7 @@ pub(crate) fn group_name(value: Option<String>) -> Result<Option<String>> {
 }
 
 impl HostDraft {
-    fn validated(self) -> Result<Self> {
+    pub(crate) fn validated(self) -> Result<Self> {
         let address = self.address.trim().to_string();
         if address.is_empty() {
             return Err(invalid("address", "required"));

@@ -516,6 +516,168 @@ page then offers to remove the device there, and says so when it was the last
 one. Running the move again, after an interruption or on the next device, skips
 what is there already.
 
+### Two servers
+
+A device can sync with two servers at once, in any mix of UwUSync and
+UwULock. Nothing above changes for that, because **a space is one store
+file**: the main space is `uwussh.db`, the second server is a second store in
+`spaces/<uuid>.db` beside it, with its own vault, its own pairing or UwULock
+session and its own cursor. `uwussh_store::Spaces` (`spaces.rs`) holds them
+and is what the app talks to; the app keeps one sync worker and one realtime
+listener per space (`Syncs` in the app's `sync.rs`).
+
+- **The registry** is `spaces.json` beside the database, written whole (temp
+  file, then rename) and readable by this user only: which space is main, the
+  other space's id and file, where new entries of Private and of Business go,
+  and a journal entry while a host moves. No file means one main space, as
+  before. A file name from the registry is never used as a path: only the
+  database itself and `<uuid>.db` directly inside `spaces/` resolve. A
+  registry that does not read is set aside and the app starts with the main
+  space alone.
+- **One password.** The second vault's key is kept in that store, sealed by
+  the _main vault's key_ and bound to the space's id, so the blob opens for
+  that space only. Opening the main vault (password, or the key the operating
+  system keeps) opens the second; locking locks both. The chain is sealed
+  again whenever a vault key changes — joining an account, signing in to
+  UwULock, the move to UwULock — and when main changes. If it does not open,
+  the space reports `locked` while main is open, and that server's own
+  password opens it and repairs the chain.
+- **Entries.** Hosts are listed as the union, each tagged with its space; a
+  new host goes to its workspace's default space. Groups are a (workspace,
+  name) pair and may hold hosts of both servers; the order within a group is
+  numbered across both stores. Keys are the union by id. Tunnels and known
+  host keys follow the host. Shortcuts, stored texts and the assistant's
+  settings and cache live in main only.
+- **Moving a host** copies host, login, sealed password, key with private
+  part and passphrase, tunnels and the known host key into the other store,
+  sealed again under that vault, then deletes them in the source — the key and
+  the host key only when no other host there uses them. The journal names the
+  move before it starts, and the next start finishes or undoes it, so a host
+  is never lost and never listed twice. A host normally keeps its id; if the
+  target still holds a deleted record under that id, the host gets a new one
+  there rather than reviving a deletion other devices already applied.
+- **Changing the main server** needs both vaults open: the personal records
+  go over with their secrets (the newer of two wins), the key the operating
+  system keeps becomes the new main vault's, the registry is swapped in one
+  rename, and the old main's copies are emptied. From then on the new main
+  server's password opens the app. Other devices should pick the same main
+  server.
+- **Removing a server** asks for that server's own password and either drops
+  its entries from this device or moves them to the server that stays first;
+  then the file is deleted. What moved away is never pushed as a deletion to
+  the removed server: its other devices keep their entries. Removing the main
+  server makes the other one main first.
+- **A session UwULock ends** locks the app only when it is the main
+  server's. The other server just needs signing in again.
+
+### Teams
+
+A team is a vault several accounts share, on a UwUSync server that has teams
+switched on (`GET /v1/teams/policy`; a server from before teams answers 404
+and a UwULock server has none — both are simply "no teams here"). The
+server's side is in its `docs/teams.md`.
+
+- **A team is a space.** On the device it is a store of its own under
+  `spaces/`, a child of the server it is reached through and listed right
+  after it (`kind: team`, `parent`, the team's name as its label). Hosts,
+  keys, tunnels and groups in it work like anywhere else. A team this account
+  only reads is `readOnly`: the store layer refuses every write to it, and
+  the server refuses them again.
+- **Its key is not a password's.** A team store is sealed under the team
+  key. The device keeps that key sealed under the main vault's, like a second
+  server's, so the main password opens everything; a team space never asks
+  for one.
+- **The member key.** Every account has one X25519 key pair for teams. The
+  private half is sealed under the account's vault key and kept by the
+  server, so each device of the account opens it; the public half is what
+  the server lists to others, and its fingerprint (SHA-256, eight groups of
+  four) is what people compare.
+- **A wrap** is the team key in a sealed box for one member, bound to the
+  team, the epoch, the account and the recipient's key. It carries the marks
+  of up to eight earlier team keys — a mark is a hash of a key under a label
+  of its own — and never such a key itself: somebody let in today is handed
+  nothing that opens what was sealed before. Anybody can make a sealed box,
+  the server too; the marks are what a device checks a new key against
+  (below).
+- **What an account writes down about a team** is kept in the account's own
+  vault on that server, sealed and synced among its devices like a password:
+  the epoch and the mark of the team key it last took, and for each member
+  the public key it takes them to have. Not in the team's records —
+  everybody with the team key writes those, and the server decides which of
+  them a device gets to see. (An earlier build kept confirmed keys there.
+  Nothing reads them any more, and a rotation clears them away.)
+- **Joining.** An invite code makes the account a waiting member. An owner
+  or admin compares the newcomer's fingerprint with them and confirms: the
+  client wraps the team key only for a listed key that has exactly that
+  fingerprint, and writes that key down for the confirming account. Until
+  then the newcomer sees the team's name and nothing else.
+- **Removing a member** who had the key asks for a new one. Whoever manages
+  the team rotates: pull to the end, wrap a fresh key for every active
+  member, have the server switch epoch — it deletes the team's records,
+  sealed under the old key — and push everything again under the new one.
+  The device that removes somebody writes down that it owes the team a key
+  before the server hears of the removal, and rotates until it has, whether
+  or not the server says one is needed (`needs_rotation`); the page is told
+  when the new key is still to come. Where the device has the team, that is
+  kept with the team's store; where it has not, in the account's own vault,
+  so another of its devices finds it. The rotation itself is noted in the
+  store before the request, so one that stopped half way is finished on the
+  next pass; other members follow the new epoch, re-seal, and send what the
+  server did not send back. Removing someone also lists the hosts with a
+  stored password or key: a new team key does not change a login on a
+  machine.
+- **Who a rotation wraps for.** The members the server lists as active, held
+  against what the rotating account wrote down. A member listed with another
+  key than the one written down, or listed again after this account took
+  them out, gets nothing: the rotation does not happen, the team says so
+  (`attention`), and it goes on once somebody who manages the team compared
+  that member's fingerprint again — the same confirmation as for a newcomer.
+  A member this account has nothing written down about — somebody else let
+  them in, or the server lists an account nobody did — gets nothing either:
+  nothing is written down on sight, the rotation waits
+  (`attention: member-unconfirmed`) and the key stays owed. Somebody else
+  who manages the team and has compared every member rotates in the
+  meantime; this account does once it compared that member too, which is a
+  note in its own vault and no request to the server. The member list says
+  whom this account has not compared (`confirmed`). So a rotating account
+  wraps only for keys it compared itself — the team's creator for
+  everybody they let in, an admin for the members they went through — and a
+  server acting alone gets no account a team key. An account can only vouch
+  for what it compared itself.
+- **What a device takes from the server.** A key is accepted only when it
+  comes after the one this account wrote down and, where the device has the
+  team, after the one the device holds: the same key under the same epoch,
+  or a wrap that carries the mark of that key at the right place among its
+  earlier ones. An epoch that went backwards, another key under the same
+  epoch, or a jump of more than eight rotations leaves the team as it is,
+  unsynced, and says so (`attention`); leaving and joining again is the way
+  out. Only the first key an account ever sees for a team is taken as it
+  comes — on any of its devices, as long as the note reached that device; a
+  server that keeps the note back from a new device is taken at its word
+  there, as it is for the account's first.
+- **What a new key proves.** That whoever made it knew the key before it.
+  That is enough against the server by itself, which never had one. It is
+  not enough against somebody who was in the team and is not any more: they
+  knew a key, and together with the server they can make a next one that
+  every device accepts. Nothing is signed; telling a rotation by an admin
+  from one by anybody who had the key would take that.
+- **Learning about teams** happens in the sync pass of the team's server
+  (the client reads no event stream): list the teams, bring each active
+  one's space to the server's epoch, push and pull its mailbox. A team's
+  mailbox has no manifests; a server that keeps a team's record back is not
+  noticed the way it is in an account's own mailbox.
+- **When a team leaves the device.** When the account leaves or deletes it,
+  when the server is disconnected or moved to UwULock, or when the server,
+  asked about that team, answers that there is no such team for this account
+  (404 on the team's own routes). A list of teams that comes without it is
+  not that: the file stays, with what was not sent yet, and the team is shown
+  as not available. Neither is a space the handed-out key does not open. What
+  the account wrote down about the team's key outlives the space unless the
+  account itself left, so a team that comes back is held to it; redeeming an
+  invite starts over.
+- Shortcuts, stored texts and the assistant's settings are personal and never
+  in a team. A backup or an import does not write into a team.
+
 ## The sync server
 
 One binary, one Docker image, one SQLite file — and deliberately dumb. It hands

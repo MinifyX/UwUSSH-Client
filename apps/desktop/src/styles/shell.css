@@ -15,11 +15,76 @@
   height: 100%;
 }
 
+/* The host list at the width the user dragged it to (lib/settings.ts), the grip, and the rest. */
 .body {
-  display: grid;
-  grid-template-columns: 268px 1fr;
+  display: flex;
   flex: 1;
   min-height: 0;
+}
+
+.body > .sidebar {
+  flex: none;
+  width: var(--sidebar-width, 268px);
+  /* A small window keeps room for the terminal. */
+  max-width: calc(100% - 280px);
+}
+
+.body[data-sidebar='collapsed'] > .sidebar {
+  display: none;
+}
+
+/* No width of its own: a strip over the edge that takes the pointer. */
+.sidebar-grip {
+  position: relative;
+  flex: none;
+  width: 0;
+  z-index: 2;
+  touch-action: none;
+}
+
+.sidebar-grip::before {
+  content: '';
+  position: absolute;
+  inset: 0 -4px;
+  cursor: col-resize;
+}
+
+.sidebar-grip::after {
+  content: '';
+  position: absolute;
+  inset: 0 -1px;
+  background: var(--uwu-pink);
+  opacity: 0;
+  transition: opacity var(--uwu-duration-fast, 120ms);
+  pointer-events: none;
+}
+
+.sidebar-grip:hover::after,
+.body[data-resizing] > .sidebar-grip::after {
+  opacity: 1;
+}
+
+.sidebar-grip:focus-visible {
+  outline: none;
+}
+
+.sidebar-grip:focus-visible::after {
+  opacity: 1;
+}
+
+/* Folded away, the grip is the window's left edge: a little more to grab, and no line. */
+.body[data-sidebar='collapsed'] > .sidebar-grip::before {
+  inset: 0 -6px 0 0;
+}
+
+/* While dragging, nothing selects text and the terminal does not take the pointer. */
+.body[data-resizing] {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.body[data-resizing] > .main {
+  pointer-events: none;
 }
 
 /* ── Main ──────────────────────────────────────────────── */
@@ -27,6 +92,7 @@
 .main {
   display: flex;
   flex-direction: column;
+  flex: 1;
   min-width: 0;
   min-height: 0;
 }
@@ -156,6 +222,7 @@
   color: var(--uwu-pink-ink);
 }
 
+.tab-sidebar,
 .tab-assist {
   flex: none;
   align-self: center;

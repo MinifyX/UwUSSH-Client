@@ -47,7 +47,6 @@
   "gefährlich": "dangerous",
   "Beschreibe in Worten, was du willst – der Assistent schreibt einen passenden Befehl für das System im Terminal und tippt ihn ein. Ausgeführt wird erst mit deinem Enter. Öffnen mit {shortcut} oder dem Funken über den Tabs.": "Describe in words what you want – the assistant writes a matching command for the system in the terminal and types it in. It runs only when you press Enter. Open it with {shortcut} or the sparkle above the tabs.",
   "KI": "AI",
-  "Befehl aus Worten ({shortcut})": "Command from words ({shortcut})",
   "Befehl aus Worten: erst ein Terminal öffnen": "Command from words: open a terminal first",
   "Läuft auf diesem Rechner oder im Heimnetz. Nichts verlässt dein Netz.": "Runs on this computer or in your home network. Nothing leaves your network.",
   "llama.cpp, LM Studio, vLLM und andere Server mit /v1/chat/completions.": "llama.cpp, LM Studio, vLLM and other servers with /v1/chat/completions.",

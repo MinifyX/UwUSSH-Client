@@ -18,13 +18,16 @@ pub mod device;
 pub mod groups;
 pub mod hosts;
 pub mod import;
+pub mod keymap;
 pub mod keys;
 pub mod known_hosts;
 pub mod lock;
 pub mod manifest;
 mod schema;
 pub mod secret;
+pub mod spaces;
 pub mod sync;
+pub mod team;
 pub mod tunnels;
 pub mod vault;
 
@@ -40,13 +43,21 @@ pub use import::{
     GroupInput, HostInput, IdentityInput, ImportOutcome, ImportSet, KeyInput, KnownHostInput,
     SnippetInput,
 };
+pub use keymap::{
+    keymap_id, Chord, KeymapDraft, KeymapText, KeymapTextDraft, KeymapView, KEYMAP_FAMILIES,
+};
 pub use keys::{KeyDraft, KeyRecord};
 pub use known_hosts::KnownHostRecord;
 pub use lock::{Joining, LockEnrolment, LockState, Space};
 pub use manifest::{manifest_id, ManifestFloor, Problem, Violation, Withheld};
 pub use schema::SCHEMA_VERSION;
 pub use secret::SecretText;
+pub use spaces::{
+    SpaceDefaults, SpaceHandle, SpaceHost, SpaceHostDraft, SpaceKind, Spaces, TeamRole,
+    MAX_SERVERS, MAX_TEAM_NAME, NEW_SPACE,
+};
 pub use sync::{ApplyReport, Enrolment, EnrolmentKeys, Pushed, SyncState};
+pub use team::{MemberPin, Rekey, TeamKeyRecord, TeamState};
 pub use tunnels::{TunnelDraft, TunnelRecord};
 pub use vault::{Revealed, VaultStatus};
 

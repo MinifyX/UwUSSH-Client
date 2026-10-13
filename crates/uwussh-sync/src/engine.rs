@@ -40,6 +40,16 @@ pub trait Transport {
     fn take_reset(&self) -> bool {
         false
     }
+    /// Whether devices publish what they hold here and check each other's.
+    /// A team's mailbox has no manifests: not everybody in it may write.
+    fn manifests(&self) -> bool {
+        true
+    }
+    /// Whether this device may push here at all. Somebody who only reads a
+    /// team does not offer what the server would refuse.
+    fn writes(&self) -> bool {
+        true
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -123,10 +133,18 @@ pub fn sync_once<T: Transport>(store: &Store, transport: &T) -> Result<SyncRepor
     let mut report = SyncReport::default();
     for round in 1..=MAX_ROUNDS {
         report.rounds = round;
-        let conflicts =
-            push_all(store, transport, &mut report)? + push_assist(store, transport, &mut report)?;
+        let conflicts = if transport.writes() {
+            push_all(store, transport, &mut report)? + push_apart(store, transport, &mut report)?
+        } else {
+            0
+        };
         let complete = pull_all(store, transport, &mut report)?;
         if conflicts == 0 {
+            if !transport.manifests() {
+                report.complete = complete;
+                report.cursor = store.sync_state()?.cursor;
+                return Ok(report);
+            }
             let complete = complete && publish_manifest(store, transport, &mut report)?;
             report.complete = complete;
             report.withheld = check(store, transport, &mut report, complete)?;
@@ -293,18 +311,18 @@ fn publish_manifest<T: Transport>(
     pull_all(store, transport, report)
 }
 
-/// The command assistant's records, in requests of their own. A server that
-/// does not know their kinds yet refuses such a request every time — that is
-/// left for the next pass and costs nothing else: hosts, keys and the rest
-/// went out before. Returns the conflicts, like [`push_all`].
-fn push_assist<T: Transport>(
+/// The command assistant's records and the keymap, in requests of their own.
+/// A server that does not know their kinds yet refuses such a request every
+/// time — that is left for the next pass and costs nothing else: hosts, keys
+/// and the rest went out before. Returns the conflicts, like [`push_all`].
+fn push_apart<T: Transport>(
     store: &Store,
     transport: &T,
     report: &mut SyncReport,
 ) -> Result<usize, SyncError> {
     let mut conflicts = 0;
     loop {
-        let (envelopes, oversized) = store.pending_assist_envelopes(MAX_BATCH)?;
+        let (envelopes, oversized) = store.pending_apart_envelopes(MAX_BATCH)?;
         report.oversized += oversized;
         if envelopes.is_empty() {
             return Ok(conflicts);
@@ -312,7 +330,10 @@ fn push_assist<T: Transport>(
         let response = match transport.push(envelopes.clone()) {
             Ok(response) => response,
             Err(TransportError::Refused(error)) => {
-                tracing::info!(%error, "the server does not take the assistant's records yet");
+                tracing::info!(
+                    %error,
+                    "the server does not take the assistant's records and the keymap yet"
+                );
                 return Ok(conflicts);
             }
             Err(error) => return Err(error.into()),

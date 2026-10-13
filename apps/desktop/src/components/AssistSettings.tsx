@@ -20,7 +20,7 @@ import {
   type ProviderKind,
 } from '../lib/assist';
 import { locale, t, useLanguage } from '../lib/i18n';
-import { keysFor } from '../lib/shortcuts';
+import { keysLabel } from '../lib/shortcuts';
 import { VaultDialog } from './VaultDialog';
 
 type Result = { tone: 'ok' | 'error'; text: string };
@@ -147,7 +147,7 @@ export function AssistProviderSetup({ onSaved, saveLabel }: Props) {
         tone: 'ok',
         text: active
           ? t('Gespeichert. {shortcut} öffnet den Assistenten über dem Terminal.', {
-              shortcut: keysFor('assist'),
+              shortcut: keysLabel('assist'),
             })
           : t('Der Assistent ist aus.'),
       });
@@ -407,7 +407,7 @@ export function AssistSettings() {
       <p className="setting-description">
         {t(
           'Beschreibe in Worten, was du willst – der Assistent schreibt einen passenden Befehl für das System im Terminal und tippt ihn ein. Ausgeführt wird erst mit deinem Enter. Öffnen mit {shortcut} oder dem Funken über den Tabs.',
-          { shortcut: keysFor('assist') },
+          { shortcut: keysLabel('assist') },
         )}
       </p>
       <AssistProviderSetup />

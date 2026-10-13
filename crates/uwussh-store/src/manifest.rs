@@ -36,7 +36,7 @@ use uwussh_proto::{EntityKind, Hlc, Manifest, ManifestEntry, MAX_MANIFEST_ENTRIE
 /// The order a manifest lists kinds in, which is also what survives when a
 /// vault has more records than one manifest holds: host keys first, since a
 /// withheld one is a man in the middle, then what logs in, then the rest.
-const PRIORITY: [EntityKind; 10] = [
+const PRIORITY: [EntityKind; 11] = [
     EntityKind::KnownHost,
     EntityKind::Key,
     EntityKind::Secret,
@@ -47,6 +47,7 @@ const PRIORITY: [EntityKind; 10] = [
     EntityKind::Snippet,
     EntityKind::AssistConfig,
     EntityKind::AssistCache,
+    EntityKind::Keymap,
 ];
 
 /// The id of a device's manifest in a vault: the same on every device, so each

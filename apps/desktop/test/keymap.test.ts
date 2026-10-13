@@ -3,7 +3,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  actionId,
+  actionOf,
   allChordLabels,
+  bind,
+  chordsFor,
+  chordWarning,
+  holderOf,
+  menuAccelerator,
+  pruneOverrides,
+  resetAction,
+  unbind,
   hasPrimaryModifier,
   shortcutFor,
   shortcutLabel,
@@ -185,5 +195,80 @@ test('labels speak the system’s language', () => {
   assert.equal(tabLabel(3, 'linux', NAMES), 'Strg+Umschalt+3');
   assert.deepEqual(allChordLabels('next-tab', 'macos', NAMES), ['⇧⌘]', '⌃⇥', '⌥⌘→']);
   assert.deepEqual(allChordLabels('next-tab', 'windows', NAMES), ['Strg+Tab', 'Strg+Bild ab']);
-  assert.deepEqual(allChordLabels('copy', 'windows', NAMES), ['Strg+Umschalt+C', 'Strg+C']);
+  assert.deepEqual(allChordLabels('copy', 'windows', NAMES), ['Strg+Umschalt+C']);
+});
+
+test('the user’s own keys replace the defaults', () => {
+  const chord = { ctrl: true, alt: true, code: 'KeyT' };
+  const own = bind({}, 'other', 'new-shell', chord);
+  assert.deepEqual(shortcutFor(key('KeyT', 'ctrl alt'), ON, false, 'linux', own), {
+    kind: 'new-shell',
+  });
+  // The default stays beside it until it is taken away.
+  const bare = unbind(own, 'other', 'new-shell', { ctrl: true, shift: true, code: 'KeyT' });
+  assert.equal(shortcutFor(key('KeyT', 'ctrl shift'), ON, false, 'linux', bare), null);
+  assert.equal(chordsFor('new-shell', 'other', bare).length, 1);
+  assert.equal(
+    chordsFor('new-shell', 'other', unbind(bare, 'other', 'new-shell', chord)).length,
+    0,
+  );
+  assert.deepEqual(resetAction(bare, 'other', 'new-shell'), {});
+});
+
+test('a combination belongs to one action: binding it takes it over', () => {
+  const taken = { ctrl: true, shift: true, code: 'KeyW' };
+  assert.equal(holderOf(taken, 'other', {}), 'close-tab');
+  const own = bind({}, 'other', 'tunnels', taken);
+  assert.equal(holderOf(taken, 'other', own), 'tunnels');
+  assert.deepEqual(chordsFor('close-tab', 'other', own), []);
+  assert.deepEqual(shortcutFor(key('KeyW', 'ctrl shift'), ON, false, 'windows', own), {
+    kind: 'tunnels',
+  });
+  // Putting the default back does not steal the key from its new owner.
+  assert.deepEqual(chordsFor('close-tab', 'other', resetAction(own, 'other', 'close-tab')), []);
+});
+
+test('hosts and texts are actions of their own', () => {
+  const host = 'host:8f0c1d2e-0000-4000-8000-000000000001';
+  const text = 'text:8f0c1d2e-0000-4000-8000-000000000002';
+  assert.deepEqual(actionOf(host), { kind: 'host', id: host.slice(5) });
+  assert.equal(actionId({ kind: 'text', id: text.slice(5) }), text);
+  assert.equal(actionOf('nonsense'), null);
+  let own = bind({}, 'mac', host, { meta: true, alt: true, code: 'Digit1' });
+  own = bind(own, 'mac', text, { ctrl: true, shift: true, code: 'KeyL' });
+  assert.deepEqual(shortcutFor(key('Digit1', 'meta alt'), ON, false, 'macos', own), {
+    kind: 'host',
+    id: host.slice(5),
+  });
+  assert.deepEqual(shortcutFor(key('KeyL', 'ctrl shift'), ON, false, 'macos', own), {
+    kind: 'text',
+    id: text.slice(5),
+  });
+  assert.deepEqual(
+    Object.keys(pruneOverrides(own, (id) => id === host)),
+    [host],
+    'a deleted text loses its key',
+  );
+});
+
+test('risky combinations are named', () => {
+  assert.equal(chordWarning({ code: 'KeyA' }, 'other'), 'typing');
+  assert.equal(chordWarning({ code: 'F5' }, 'other'), null);
+  assert.equal(chordWarning({ ctrl: true, code: 'KeyR' }, 'other'), 'terminal');
+  assert.equal(chordWarning({ ctrl: true, shift: true, code: 'KeyR' }, 'other'), null);
+  assert.equal(chordWarning({ ctrl: true, alt: true, code: 'KeyQ' }, 'other'), 'altgr');
+  assert.equal(chordWarning({ alt: true, code: 'F4' }, 'other'), 'system');
+  assert.equal(chordWarning({ meta: true, code: 'KeyQ' }, 'mac'), 'system');
+  assert.equal(chordWarning({ alt: true, code: 'KeyL' }, 'mac'), 'option');
+  assert.equal(chordWarning({ meta: true, code: 'KeyB' }, 'mac'), null);
+});
+
+test('the menu bar shows the key that is bound', () => {
+  assert.equal(menuAccelerator('close-tab'), 'Cmd+W');
+  assert.equal(menuAccelerator('open-files'), 'Shift+Cmd+F');
+  const own = bind({}, 'mac', 'tunnels', { meta: true, alt: true, code: 'KeyU' });
+  assert.equal(menuAccelerator('tunnels', own), 'Alt+Cmd+U');
+  // ⌃ alone is no menu key: the page handles it.
+  const ctrl = bind({}, 'mac', 'reconnect', { ctrl: true, shift: true, code: 'KeyR' });
+  assert.equal(menuAccelerator('reconnect', ctrl), undefined);
 });

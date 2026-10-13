@@ -139,5 +139,7 @@
   "Speichere…": "Saving…",
   "Ein abgebrochener Sync-Versuch hat deinen Tresor so verschlüsselt, dass das Master-Passwort allein ihn nicht mehr öffnet. Dieses Gerät kommt noch hinein – leg ein neues Master-Passwort fest, dann ist alles wieder wie vorher.": "A sync attempt that failed left your vault encrypted so that the master password alone no longer opens it. This device can still get in – set a new master password and everything is back as it was.",
   "Keys auf Netzlaufwerken liest UwUSSH nicht": "UwUSSH doesn't read keys on network drives",
-  "Datei wählen…": "Choose file…"
+  "Datei wählen…": "Choose file…",
+  "{server} ist gesperrt. Entsperre ihn unter Einstellungen → Sync, um Hosts umzuziehen.": "{server} is locked. Unlock it under Settings → Sync to move hosts.",
+  "Zieht beim Speichern um – mit Anmeldung, Key, Passwort, Tunneln und dem bekannten Host-Schlüssel.": "Moves when you save – with login, key, password, tunnels and the known host key."
 }

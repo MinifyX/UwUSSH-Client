@@ -95,7 +95,7 @@ async fn off_the_main_thread<T: Send + 'static>(
 
 #[tauri::command]
 pub(crate) fn list_keys(state: State<'_, AppState>) -> CommandResult<Vec<KeyRecord>> {
-    state.store.list_keys().map_err(err)
+    state.spaces.list_keys().map_err(err)
 }
 
 #[tauri::command]
@@ -104,12 +104,12 @@ pub(crate) fn rename_key(
     id: Uuid,
     label: String,
 ) -> Result<(), KeyFailure> {
-    Ok(state.store.rename_key(id, &label)?)
+    Ok(state.spaces.rename_key(id, &label)?)
 }
 
 #[tauri::command]
 pub(crate) fn delete_key(state: State<'_, AppState>, id: Uuid) -> Result<(), KeyFailure> {
-    Ok(state.store.delete_key(id)?)
+    Ok(state.spaces.delete_key(id)?)
 }
 
 /// The public key line of a vault key, for `authorized_keys`. Needs nothing
@@ -121,13 +121,13 @@ pub(crate) async fn key_public_line(
     id: Uuid,
 ) -> Result<String, KeyFailure> {
     let key = state
-        .store
+        .spaces
         .get_key(id)?
         .ok_or_else(|| failure("this key no longer exists"))?;
     if !key.public_key.trim().is_empty() {
         return Ok(key.public_key);
     }
-    let revealed = from_vault(state.store.reveal_key(id))?;
+    let revealed = from_vault(state.spaces.reveal_key(id))?;
     let private = as_secret(revealed.private_key)?;
     let passphrase = revealed.passphrase.map(as_secret).transpose()?;
     off_the_main_thread(move || {
@@ -281,7 +281,7 @@ pub(crate) async fn import_picked_key(
     label: Option<String>,
     passphrase: Option<String>,
 ) -> Result<KeyRecord, KeyFailure> {
-    if state.store.vault_status()? != uwussh_store::VaultStatus::Unlocked {
+    if state.store().vault_status()? != uwussh_store::VaultStatus::Unlocked {
         return Err(KeyFailure::VaultLocked);
     }
     let (name, text) = match &*state.picked_key.0.lock() {
@@ -302,7 +302,7 @@ pub(crate) async fn import_picked_key(
                 .map(|stem| stem.to_string_lossy().into_owned())
         })
         .unwrap_or_else(|| info.label.clone());
-    let record = state.store.add_key(KeyDraft {
+    let record = state.spaces.add_key(KeyDraft {
         label,
         key_type: info.algorithm.clone(),
         public_key: info.public_openssh.clone(),
@@ -323,10 +323,10 @@ pub(crate) async fn export_key_file(
     passphrase: Option<String>,
 ) -> Result<Option<String>, KeyFailure> {
     let key = state
-        .store
+        .spaces
         .get_key(id)?
         .ok_or_else(|| failure("this key no longer exists"))?;
-    let revealed = from_vault(state.store.reveal_key(id))?;
+    let revealed = from_vault(state.spaces.reveal_key(id))?;
     let private = as_secret(revealed.private_key)?;
     let stored_passphrase = revealed.passphrase.map(as_secret).transpose()?;
     let passphrase = passphrase.filter(|p| !p.is_empty()).map(Zeroizing::new);
@@ -360,7 +360,7 @@ pub(crate) async fn keygen_store(
         passphrase.as_ref().map(|p| p.to_string()),
     )
     .await?;
-    let record = state.store.add_key(KeyDraft {
+    let record = state.spaces.add_key(KeyDraft {
         label: if label.trim().is_empty() {
             info.label.clone()
         } else {

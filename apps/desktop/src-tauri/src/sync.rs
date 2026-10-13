@@ -13,16 +13,22 @@
 //! pushes when something is waiting, pulls once a minute, and at once when the
 //! page asks. It never runs while the vault is locked: a pass needs the key to
 //! seal and to open, and the lock is not the sync's to lift.
+//!
+//! With two servers there is all of this twice: each server's store has its
+//! own [`Sync`], its own worker and its own listener, kept in [`Syncs`]. A
+//! command says which one it means (`space`, see [`target`]); none means the
+//! main one.
 
 use crate::{err, AppState, CommandResult};
 use parking_lot::{Condvar, Mutex};
 use serde::Serialize;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
-use uwussh_store::{Store, StoreError, VaultStatus, Withheld};
+use uwussh_store::{Spaces, Store, StoreError, VaultStatus, Withheld, NEW_SPACE};
 use uwussh_sync::flow::{self, FlowError, PairingOffer};
 use uwussh_sync::lock::{Difference, Lock, LockError};
 use uwussh_sync::{pairing, Server, SyncError, SyncReport, TransportError};
@@ -170,7 +176,7 @@ impl From<SyncError> for SyncFailure {
     }
 }
 
-type SyncResult<T> = Result<T, SyncFailure>;
+pub(crate) type SyncResult<T> = Result<T, SyncFailure>;
 
 /// What the last pass did, for the status line.
 #[derive(Debug, Clone, Serialize)]
@@ -182,9 +188,15 @@ pub(crate) struct LastPass {
     error: Option<String>,
 }
 
-/// The worker's side, shared with the commands.
+/// One server's worker's side, shared with the commands.
 #[derive(Default)]
 pub(crate) struct Sync {
+    /// The server was removed from this device: no pass runs any more, and
+    /// its threads end.
+    pub(crate) gone: AtomicBool,
+    /// The server is being removed: its threads let go of its store and
+    /// wait for how that comes out.
+    pub(crate) held: AtomicBool,
     /// A signed-in server, kept between passes. Dropped on any failure, so the
     /// next pass connects afresh.
     pub(crate) server: Mutex<Option<Arc<Server>>>,
@@ -201,6 +213,8 @@ pub(crate) struct Sync {
     /// there: to remove it there, if the person wants.
     pub(crate) left_behind: Mutex<Option<(Arc<Server>, Uuid)>>,
     pub(crate) last: Mutex<Option<LastPass>>,
+    /// The server's teams, as the last pass over them found them.
+    pub(crate) teams: Mutex<Option<uwussh_sync::ServerTeams>>,
     pub(crate) running: AtomicBool,
     /// The last pass found the server keeping records back, and the window
     /// has been told.
@@ -221,6 +235,211 @@ impl Sync {
         *self.wake.lock() = true;
         self.woken.notify_one();
     }
+}
+
+/// Every server's [`Sync`], and the second server while it is being set up.
+#[derive(Default)]
+pub(crate) struct Syncs {
+    of: Mutex<HashMap<String, Arc<Sync>>>,
+    /// A store that is no space yet: made when the second server's form
+    /// first needs one, registered when the server is connected, thrown away
+    /// when the person gives up.
+    pending: Mutex<Option<Pending>>,
+    /// The spaces whose threads run.
+    started: Mutex<HashSet<String>>,
+}
+
+struct Pending {
+    id: String,
+    store: Arc<Store>,
+    sync: Arc<Sync>,
+}
+
+impl Syncs {
+    /// A server's side, made when first asked for.
+    pub(crate) fn of(&self, id: &str) -> Arc<Sync> {
+        Arc::clone(self.of.lock().entry(id.to_string()).or_default())
+    }
+
+    /// A pass now on every server: something changed here.
+    pub(crate) fn poke(&self) {
+        for sync in self.of.lock().values() {
+            sync.poke();
+        }
+    }
+
+    fn forget(&self, id: &str) {
+        self.of.lock().remove(id);
+        self.started.lock().remove(id);
+    }
+
+    pub(crate) fn setting_up(&self) -> bool {
+        self.pending.lock().is_some()
+    }
+}
+
+/// The server a command means.
+pub(crate) struct Target {
+    pub(crate) id: String,
+    pub(crate) store: Arc<Store>,
+    pub(crate) sync: Arc<Sync>,
+    /// The main server: its password opens the app.
+    pub(crate) main: bool,
+    /// The second server being set up, not a space yet.
+    pub(crate) new: bool,
+}
+
+fn open(store: &Store) -> bool {
+    matches!(store.vault_status(), Ok(VaultStatus::Unlocked))
+}
+
+/// Syncing with a server at all, signed in or not.
+pub(crate) fn connected(store: &Store) -> bool {
+    store.sync_state().map(|s| s.paired()).unwrap_or(false)
+        || store.lock_state().map(|s| s.active).unwrap_or(false)
+}
+
+/// Whether a second server may be set up: the first is connected and open,
+/// and there is no second yet.
+pub(crate) fn can_add(spaces: &Spaces) -> bool {
+    let main = spaces.main();
+    spaces.servers().len() == 1 && spaces.has_room() && connected(&main) && open(&main)
+}
+
+/// Which server `space` means: none is the main one, `new` the second one
+/// being set up — begun here with `begin`, when it is not yet.
+pub(crate) fn target(app: &AppHandle, space: Option<&str>, begin: bool) -> SyncResult<Target> {
+    let state = app.state::<AppState>();
+    let syncs = app.state::<Syncs>();
+    let id = match space {
+        None => state.spaces.main_id(),
+        Some(NEW_SPACE) => {
+            let mut pending = syncs.pending.lock();
+            if pending.is_none() {
+                if !begin {
+                    return Err(SyncFailure::error("no second server is being set up"));
+                }
+                if !can_add(&state.spaces) {
+                    return Err(SyncFailure::error(
+                        "a second server needs the first one connected and its vault open",
+                    ));
+                }
+                let (id, store) = state.spaces.prepare()?;
+                *pending = Some(Pending {
+                    id,
+                    store,
+                    sync: Arc::default(),
+                });
+            }
+            let pending = pending.as_ref().expect("just made");
+            return Ok(Target {
+                id: pending.id.clone(),
+                store: Arc::clone(&pending.store),
+                sync: Arc::clone(&pending.sync),
+                main: false,
+                new: true,
+            });
+        }
+        Some(id) => id.to_string(),
+    };
+    let space = state
+        .spaces
+        .get(&id)
+        // A team is no server: it has no connection, password or devices of
+        // its own.
+        .filter(|space| space.kind == uwussh_store::SpaceKind::Server)
+        .ok_or_else(|| SyncFailure::error("this server is not connected on this device"))?;
+    Ok(Target {
+        sync: syncs.of(&id),
+        id,
+        store: space.store,
+        main: space.main,
+        new: false,
+    })
+}
+
+/// Two servers that are one account would list every host twice.
+fn same_account(a: &Store, b: &Store) -> bool {
+    let account = |store: &Store| store.sync_state().ok().and_then(|s| s.account_id);
+    let space = |store: &Store| store.lock_state().ok().and_then(|s| s.space_id);
+    account(a).is_some_and(|id| account(b) == Some(id))
+        || space(a).is_some_and(|id| space(b) == Some(id))
+}
+
+/// The second server is connected: its store becomes a space, its key is
+/// chained to the main vault's, and its threads start.
+fn adopt_new(app: &AppHandle) -> SyncResult<()> {
+    let state = app.state::<AppState>();
+    let syncs = app.state::<Syncs>();
+    let Some(pending) = syncs.pending.lock().take() else {
+        return Err(SyncFailure::error("no second server is being set up"));
+    };
+    let Pending { id, store, sync } = pending;
+    let refused = if state
+        .spaces
+        .all()
+        .iter()
+        .any(|space| same_account(&space.store, &store))
+    {
+        // It was enrolled a moment ago; the server hears that it left again.
+        let me = store.sync_state().ok().and_then(|s| s.device_id);
+        if let (Some(me), Some(server)) = (me, sync.server.lock().clone()) {
+            if let Err(error) = server.revoke(me, None) {
+                tracing::info!(%error, "the server could not be told this device left");
+            }
+        }
+        Some(SyncFailure::error(
+            "this account is already connected on this device",
+        ))
+    } else {
+        state
+            .spaces
+            .register(&id, Arc::clone(&store))
+            .err()
+            .map(SyncFailure::from)
+    };
+    if let Some(failure) = refused {
+        throw_away(&state.spaces, Pending { id, store, sync });
+        return Err(failure);
+    }
+    drop(store);
+    syncs.of.lock().insert(id.clone(), sync);
+    start_space(app, &id);
+    crate::spaces::changed(app);
+    Ok(())
+}
+
+fn throw_away(spaces: &Spaces, pending: Pending) {
+    let Pending { id, store, sync } = pending;
+    sync.gone.store(true, Ordering::SeqCst);
+    // The connections hold the store; the file goes when nobody does.
+    *sync.lock.lock() = None;
+    *sync.server.lock() = None;
+    *sync.left_behind.lock() = None;
+    drop(sync);
+    drop(store);
+    spaces.discard(&id);
+}
+
+/// Give up on the second server being set up. Nothing when none is.
+pub(crate) fn discard_new(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let pending = app.state::<Syncs>().pending.lock().take();
+    if let Some(pending) = pending {
+        throw_away(&state.spaces, pending);
+    }
+}
+
+/// A server left this device: its side stops, and nothing holds its store.
+pub(crate) fn retire(app: &AppHandle, id: &str, sync: &Sync) {
+    sync.gone.store(true, Ordering::SeqCst);
+    *sync.lock.lock() = None;
+    *sync.server.lock() = None;
+    *sync.left_behind.lock() = None;
+    *sync.offer.lock() = None;
+    *sync.last.lock() = None;
+    app.state::<Syncs>().forget(id);
+    sync.poke();
 }
 
 fn now_ms() -> u64 {
@@ -245,6 +464,21 @@ pub(crate) fn server(store: &Store, sync: &Sync) -> SyncResult<Arc<Server>> {
 pub(crate) fn pass(app: &AppHandle, store: &Arc<Store>, sync: &Sync) -> SyncResult<SyncReport> {
     if sync.running.swap(true, Ordering::SeqCst) {
         return Err(SyncFailure::error("a pass is already running"));
+    }
+    if sync.gone.load(Ordering::SeqCst) {
+        // What moved to the other server was deleted here on this device
+        // only; a pass would delete it for this server's other devices.
+        sync.running.store(false, Ordering::SeqCst);
+        return Err(SyncFailure::error(
+            "this server was removed from this device",
+        ));
+    }
+    if sync.held.load(Ordering::SeqCst) {
+        // The same while it is being removed, however the pass was asked for.
+        sync.running.store(false, Ordering::SeqCst);
+        return Err(SyncFailure::error(
+            "this server is being removed from this device",
+        ));
     }
     let on_lock = store.lock_state().map(|s| s.active).unwrap_or(false);
     let outcome = (|| {
@@ -309,7 +543,7 @@ pub(crate) fn pass(app: &AppHandle, store: &Arc<Store>, sync: &Sync) -> SyncResu
     outcome
 }
 
-fn describe(failure: &SyncFailure) -> String {
+pub(crate) fn describe(failure: &SyncFailure) -> String {
     match failure {
         SyncFailure::VaultLocked => "the vault is locked".into(),
         SyncFailure::PasswordWrong => "wrong password".into(),
@@ -331,22 +565,39 @@ fn describe(failure: &SyncFailure) -> String {
     }
 }
 
-/// Starts the worker, and the thread that listens to UwULock. Both live as
-/// long as the app.
+/// Starts every server's worker, and the thread that listens to UwULock.
 pub(crate) fn start(app: &AppHandle) {
-    app.manage(Sync::default());
-    let worker_app = app.clone();
-    std::thread::Builder::new()
-        .name("uwussh-sync".into())
-        .spawn(move || worker(worker_app))
-        .expect("the sync thread starts");
-    crate::lock::start_live(app);
+    app.manage(Syncs::default());
+    for space in app.state::<AppState>().spaces.servers() {
+        start_space(app, &space.id);
+    }
 }
 
-fn worker(app: AppHandle) {
+/// The worker and the listener of one server. They live as long as the
+/// server is on this device.
+pub(crate) fn start_space(app: &AppHandle, id: &str) {
+    if !app.state::<Syncs>().started.lock().insert(id.to_string()) {
+        return;
+    }
+    // A removal that stopped half way, in this run or an earlier one, keeps
+    // the server from syncing until it is asked again and gets through.
+    if app.state::<AppState>().spaces.is_leaving(id) {
+        app.state::<Syncs>()
+            .of(id)
+            .held
+            .store(true, Ordering::SeqCst);
+    }
+    let (worker_app, worker_id) = (app.clone(), id.to_string());
+    std::thread::Builder::new()
+        .name("uwussh-sync".into())
+        .spawn(move || worker(worker_app, worker_id))
+        .expect("the sync thread starts");
+    crate::lock::start_live(app, id);
+}
+
+fn worker(app: AppHandle, id: String) {
     let state = app.state::<AppState>();
-    let sync = app.state::<Sync>();
-    let store = Arc::clone(&state.store);
+    let sync = app.state::<Syncs>().of(&id);
     // A first pass shortly after start, so a device that was off for a week
     // catches up without waiting a minute.
     let mut next_pull = Instant::now() + Duration::from_secs(3);
@@ -359,12 +610,25 @@ fn worker(app: AppHandle) {
             }
             std::mem::take(&mut *wake)
         };
+        // Looked up every time and held for one round only: a server that
+        // was removed leaves nothing behind that keeps its file open.
+        if sync.gone.load(Ordering::SeqCst) {
+            return;
+        }
+        if sync.held.load(Ordering::SeqCst) {
+            continue;
+        }
+        let Some(space) = state.spaces.get(&id) else {
+            return;
+        };
+        let store = space.store;
         let paired = store.sync_state().map(|s| s.paired()).unwrap_or(false);
         let on_lock = store
             .lock_state()
             .map(|s| s.active && s.signed_in)
             .unwrap_or(false);
         let unlocked = matches!(store.vault_status(), Ok(VaultStatus::Unlocked));
+        crate::teams::without_server(&app, &id, &store, &sync);
         if !(paired || on_lock) || !unlocked {
             continue;
         }
@@ -382,6 +646,7 @@ fn worker(app: AppHandle) {
             Ok(_) => {
                 next_pull = Instant::now() + PULL_EVERY;
                 not_before = Instant::now();
+                crate::teams::after_pass(&app, &id, &store, &sync);
             }
             Err(SyncFailure::SwitchedOff) => {
                 tracing::info!("UwULock has app sync switched off; looking again later");
@@ -397,18 +662,74 @@ fn worker(app: AppHandle) {
     }
 }
 
-/// Run blocking sync work on a worker thread, so the window keeps drawing —
-/// Argon2 and SPAKE2 take a moment, and the network takes longer.
+/// Run blocking sync work for one server on a worker thread, so the window
+/// keeps drawing — Argon2 and SPAKE2 take a moment, and the network takes
+/// longer.
 pub(crate) async fn blocking<T: Send + 'static>(
     app: &AppHandle,
+    space: Option<String>,
     work: impl FnOnce(&AppHandle, &Arc<Store>, &Sync) -> SyncResult<T> + Send + 'static,
 ) -> SyncResult<T> {
     let app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let state = app.state::<AppState>();
-        let sync = app.state::<Sync>();
-        let store = Arc::clone(&state.store);
-        work(&app, &store, &sync)
+        let target = target(&app, space.as_deref(), false)?;
+        work(&app, &target.store, &target.sync as &Sync)
+    })
+    .await
+    .map_err(SyncFailure::error)?
+}
+
+/// How a step of connecting a server came out.
+pub(crate) enum Step<T> {
+    /// The server is connected.
+    Done(T),
+    /// The person is asked something and comes back: nothing is settled.
+    More(T),
+}
+
+/// A step of connecting a server — the main one, or the second one being set
+/// up, whose store is made here when there is none yet.
+///
+/// When the second server is connected, it becomes a space. When a flow of
+/// one step fails, its store is thrown away; one of several steps (a code by
+/// mail, then the code) keeps it until the person gives up
+/// ([`discard_new`]). Either way a vault key may have changed, so the keys
+/// kept under the main vault's are sealed again.
+pub(crate) async fn setting_up<T: Send + 'static>(
+    app: &AppHandle,
+    space: Option<String>,
+    one_step: bool,
+    work: impl FnOnce(&AppHandle, &Target) -> SyncResult<Step<T>> + Send + 'static,
+) -> SyncResult<T> {
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let target = target(&app, space.as_deref(), true)?;
+        let new = target.new;
+        let outcome = work(&app, &target);
+        // Nothing of ours holds the store while it is registered or deleted.
+        drop(target);
+        match outcome {
+            Ok(Step::Done(value)) => {
+                if new {
+                    adopt_new(&app)?;
+                } else {
+                    crate::spaces::rechain(&app);
+                }
+                Ok(value)
+            }
+            Ok(Step::More(value)) => Ok(value),
+            Err(failure) => {
+                if new && one_step {
+                    discard_new(&app);
+                }
+                if !new {
+                    // A step that failed late may have changed the key
+                    // before it did.
+                    crate::spaces::rechain(&app);
+                }
+                Err(failure)
+            }
+        }
     })
     .await
     .map_err(SyncFailure::error)?
@@ -443,38 +764,67 @@ pub(crate) struct SyncStatus {
     lock: crate::lock::LockStatus,
 }
 
+impl SyncStatus {
+    pub(crate) fn of(store: &Store, sync: &Sync) -> uwussh_store::Result<Self> {
+        let s = store.sync_state()?;
+        let lock = store.lock_state()?;
+        let backend = if lock.active {
+            "uwulock"
+        } else if s.paired() {
+            "uwusync"
+        } else {
+            "none"
+        };
+        Ok(SyncStatus {
+            paired: s.paired(),
+            server_url: s.server_url,
+            tls_fingerprint: s.tls_fingerprint,
+            device_id: s.device_id,
+            paired_ms: s.paired_ms,
+            last_sync_ms: s.last_sync_ms,
+            last: sync.last.lock().clone(),
+            pending: store.pending_count().unwrap_or(0),
+            running: sync.running.load(Ordering::SeqCst),
+            vault: store.vault_status()?,
+            device_name: device_name(),
+            offering: sync.offer.lock().is_some(),
+            withheld: store.withheld().unwrap_or_default(),
+            backend,
+            lock: crate::lock::LockStatus::of(lock, sync),
+        })
+    }
+
+    /// A server nothing is known of yet: the second one, before its form
+    /// was sent for the first time.
+    pub(crate) fn blank() -> Self {
+        let nothing = Sync::default();
+        SyncStatus {
+            paired: false,
+            server_url: None,
+            tls_fingerprint: None,
+            device_id: None,
+            paired_ms: None,
+            last_sync_ms: None,
+            last: None,
+            pending: 0,
+            running: false,
+            vault: VaultStatus::Absent,
+            device_name: device_name(),
+            offering: false,
+            withheld: Withheld::default(),
+            backend: "none",
+            lock: crate::lock::LockStatus::of(Default::default(), &nothing),
+        }
+    }
+}
+
 #[tauri::command]
-pub(crate) fn sync_status(
-    state: State<'_, AppState>,
-    sync: State<'_, Sync>,
-) -> CommandResult<SyncStatus> {
-    let store = &state.store;
-    let s = store.sync_state().map_err(err)?;
-    let lock = store.lock_state().map_err(err)?;
-    let backend = if lock.active {
-        "uwulock"
-    } else if s.paired() {
-        "uwusync"
-    } else {
-        "none"
-    };
-    Ok(SyncStatus {
-        paired: s.paired(),
-        server_url: s.server_url,
-        tls_fingerprint: s.tls_fingerprint,
-        device_id: s.device_id,
-        paired_ms: s.paired_ms,
-        last_sync_ms: s.last_sync_ms,
-        last: sync.last.lock().clone(),
-        pending: store.pending_count().unwrap_or(0),
-        running: sync.running.load(Ordering::SeqCst),
-        vault: store.vault_status().map_err(err)?,
-        device_name: device_name(),
-        offering: sync.offer.lock().is_some(),
-        withheld: store.withheld().unwrap_or_default(),
-        backend,
-        lock: crate::lock::LockStatus::of(lock, &sync),
-    })
+pub(crate) fn sync_status(app: AppHandle, space: Option<String>) -> CommandResult<SyncStatus> {
+    if space.as_deref() == Some(NEW_SPACE) && !app.state::<Syncs>().setting_up() {
+        return Ok(SyncStatus::blank());
+    }
+    let target = target(&app, space.as_deref(), false).map_err(|failure| describe(&failure))?;
+    SyncStatus::of(&target.store, &target.sync).map_err(err)
 }
 
 /// This computer's name, the way the other devices will see it listed.
@@ -574,9 +924,13 @@ pub(crate) fn wants_remembered(store: &Store) -> bool {
 
 /// Keep a remembered vault remembered: a vault key that changed (joining
 /// another account's vault) needs sealing again.
-pub(crate) fn keep_remembered(store: &Store, was_remembered: bool) {
-    if was_remembered {
-        if let Err(error) = store.remember_vault(crate::device::protect) {
+///
+/// The main vault only. What a second server's store keeps is its key under
+/// the main vault's, never under the operating system's: that is sealed
+/// again when the step is done (see [`setting_up`]).
+pub(crate) fn keep_remembered(target: &Target, was_remembered: bool) {
+    if was_remembered && target.main {
+        if let Err(error) = target.store.remember_vault(crate::device::protect) {
             tracing::warn!(%error, "could not remember the vault again");
         }
     }
@@ -602,11 +956,13 @@ pub(crate) async fn sync_connect(
     code: String,
     password: String,
     name: String,
+    space: Option<String>,
 ) -> SyncResult<Connected> {
     let password = Zeroizing::new(password);
     let setup = flow::parse_setup(&code).ok_or(SyncFailure::BadCode)?;
     let name = clean_name(&name)?;
-    blocking(&app, move |app, store, sync| {
+    setting_up(&app, space, true, move |app, target| {
+        let (store, sync) = (&target.store, &*target.sync);
         if store.sync_state()?.paired() {
             return Err(SyncFailure::error("this device is already paired"));
         }
@@ -625,7 +981,7 @@ pub(crate) async fn sync_connect(
             &name,
             crate::device::protect_sync,
         )?;
-        keep_remembered(store, remembered);
+        keep_remembered(target, remembered);
         let recovery_code = paired
             .recovery
             .as_ref()
@@ -634,11 +990,11 @@ pub(crate) async fn sync_connect(
         *sync.server.lock() = Some(Arc::new(server));
         sync.poke();
         let _ = app.emit("sync:status", ());
-        Ok(Connected {
+        Ok(Step::Done(Connected {
             recovery_code,
             server_url: setup.server_url,
             tls_fingerprint: setup.tls_fingerprint,
-        })
+        }))
     })
     .await
 }
@@ -678,12 +1034,14 @@ pub(crate) async fn sync_join(
     fingerprint: Option<String>,
     password: String,
     name: String,
+    space: Option<String>,
 ) -> SyncResult<()> {
     let password = Zeroizing::new(password);
-    let target = target_of(&code, server_url.as_deref(), fingerprint.as_deref())
+    let offered = target_of(&code, server_url.as_deref(), fingerprint.as_deref())
         .ok_or(SyncFailure::BadCode)?;
     let name = clean_name(&name)?;
-    blocking(&app, move |app, store, sync| {
+    setting_up(&app, space, true, move |app, target| {
+        let (store, sync) = (&target.store, &*target.sync);
         if store.sync_state()?.paired() {
             return Err(SyncFailure::error("this device is already paired"));
         }
@@ -698,17 +1056,17 @@ pub(crate) async fn sync_join(
         let remembered = wants_remembered(store);
         let (server, _) = flow::join(
             store,
-            &target,
+            &offered,
             password.as_bytes(),
             &name,
             crate::device::protect_sync,
             Instant::now() + pairing::DEADLINE,
         )?;
-        keep_remembered(store, remembered);
+        keep_remembered(target, remembered);
         *sync.server.lock() = Some(Arc::new(server));
         sync.poke();
         let _ = app.emit("sync:status", ());
-        Ok(())
+        Ok(Step::Done(()))
     })
     .await
 }
@@ -731,9 +1089,13 @@ pub(crate) struct OfferShown {
 /// The master password first: the other end of the code receives the account
 /// key, and a window left open should not hand that to whoever sits down at it.
 #[tauri::command]
-pub(crate) async fn sync_offer(app: AppHandle, password: String) -> SyncResult<OfferShown> {
+pub(crate) async fn sync_offer(
+    app: AppHandle,
+    password: String,
+    space: Option<String>,
+) -> SyncResult<OfferShown> {
     let password = Zeroizing::new(password);
-    blocking(&app, move |_, store, sync| {
+    blocking(&app, space, move |_, store, sync| {
         let header = store
             .vault_header()?
             .ok_or_else(|| SyncFailure::error("there is no vault"))?;
@@ -769,8 +1131,11 @@ pub(crate) struct DeviceJoined {
 /// Wait for the device the code was read out to. Returns when it joined, the
 /// code ran out, or the words didn't match.
 #[tauri::command]
-pub(crate) async fn sync_wait_for_device(app: AppHandle) -> SyncResult<DeviceJoined> {
-    blocking(&app, |app, store, sync| {
+pub(crate) async fn sync_wait_for_device(
+    app: AppHandle,
+    space: Option<String>,
+) -> SyncResult<DeviceJoined> {
+    blocking(&app, space, |app, store, sync| {
         let offer = sync
             .offer
             .lock()
@@ -812,8 +1177,8 @@ pub(crate) async fn sync_wait_for_device(app: AppHandle) -> SyncResult<DeviceJoi
 }
 
 #[tauri::command]
-pub(crate) async fn sync_cancel_offer(app: AppHandle) -> SyncResult<()> {
-    blocking(&app, |_, store, sync| {
+pub(crate) async fn sync_cancel_offer(app: AppHandle, space: Option<String>) -> SyncResult<()> {
+    blocking(&app, space, |_, store, sync| {
         if let Some(offer) = sync.offer.lock().take() {
             if let Ok(server) = server(store, sync) {
                 let _ = server.close_pairing(&offer.offer.id);
@@ -839,8 +1204,11 @@ pub(crate) struct DeviceRow {
 }
 
 #[tauri::command]
-pub(crate) async fn sync_devices(app: AppHandle) -> SyncResult<Vec<DeviceRow>> {
-    blocking(&app, |_, store, sync| {
+pub(crate) async fn sync_devices(
+    app: AppHandle,
+    space: Option<String>,
+) -> SyncResult<Vec<DeviceRow>> {
+    blocking(&app, space, |_, store, sync| {
         let me = store.sync_state()?.device_id;
         let server = server(store, sync)?;
         let devices = server
@@ -868,9 +1236,10 @@ pub(crate) async fn sync_revoke(
     app: AppHandle,
     device_id: Uuid,
     password: String,
+    space: Option<String>,
 ) -> SyncResult<()> {
     let password = Zeroizing::new(password);
-    blocking(&app, move |_, store, sync| {
+    blocking(&app, space, move |_, store, sync| {
         let state = store.sync_state()?;
         if state.device_id == Some(device_id) {
             return Err(SyncFailure::error(
@@ -891,51 +1260,89 @@ pub(crate) async fn sync_revoke(
     .await
 }
 
-/// A pass now, instead of at the next tick.
+/// A pass now, instead of at the next tick: on one server, or on every one
+/// when none is named.
 #[tauri::command]
-pub(crate) fn sync_now(sync: State<'_, Sync>) {
-    sync.poke();
+pub(crate) fn sync_now(syncs: State<'_, Syncs>, space: Option<String>) {
+    match space {
+        None => syncs.poke(),
+        Some(id) => {
+            if let Some(sync) = syncs.of.lock().get(&id) {
+                sync.poke();
+            }
+        }
+    }
 }
 
 /// A pass now, waited for: a `uwussh://` link to a host this device doesn't
 /// know yet looks again after it. False when there is nothing to sync with.
+///
+/// Without a server named, the other one is asked too — the host may be on
+/// either — but only the main one's trouble is this command's.
 #[tauri::command]
-pub(crate) async fn sync_pass_now(app: AppHandle) -> SyncResult<bool> {
-    blocking(&app, |app, store, sync| {
-        let paired = store.sync_state()?.paired();
-        let lock = store.lock_state()?;
-        if !(paired || (lock.active && lock.signed_in)) {
-            return Ok(false);
+pub(crate) async fn sync_pass_now(app: AppHandle, space: Option<String>) -> SyncResult<bool> {
+    let everywhere = space.is_none();
+    let handle = app.clone();
+    let passed = blocking(&app, space, pass_now).await?;
+    if !everywhere {
+        return Ok(passed);
+    }
+    let others = tauri::async_runtime::spawn_blocking(move || {
+        let state = handle.state::<AppState>();
+        let syncs = handle.state::<Syncs>();
+        let mut passed = false;
+        for space in state
+            .spaces
+            .servers()
+            .into_iter()
+            .filter(|space| !space.main)
+        {
+            passed |= pass_now(&handle, &space.store, &syncs.of(&space.id)).unwrap_or(false);
         }
-        // A pass already under way may have started before the record
-        // arrived: wait for it, then run one of our own.
-        let wait_for_running = || {
-            let deadline = Instant::now() + Duration::from_secs(60);
-            while sync.running.load(Ordering::SeqCst) && Instant::now() < deadline {
-                std::thread::sleep(Duration::from_millis(50));
-            }
-        };
-        wait_for_running();
-        match pass(app, store, sync) {
-            Ok(_) => Ok(true),
-            // The worker started one in between; that one is as fresh.
-            Err(_) if sync.running.load(Ordering::SeqCst) => {
-                wait_for_running();
-                Ok(true)
-            }
-            Err(failure) => Err(failure),
-        }
+        passed
     })
     .await
+    .unwrap_or(false);
+    Ok(passed || others)
+}
+
+fn pass_now(app: &AppHandle, store: &Arc<Store>, sync: &Sync) -> SyncResult<bool> {
+    let paired = store.sync_state()?.paired();
+    let lock = store.lock_state()?;
+    if !(paired || (lock.active && lock.signed_in)) {
+        return Ok(false);
+    }
+    // A pass already under way may have started before the record
+    // arrived: wait for it, then run one of our own.
+    let wait_for_running = || {
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while sync.running.load(Ordering::SeqCst) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    };
+    wait_for_running();
+    match pass(app, store, sync) {
+        Ok(_) => Ok(true),
+        // The worker started one in between; that one is as fresh.
+        Err(_) if sync.running.load(Ordering::SeqCst) => {
+            wait_for_running();
+            Ok(true)
+        }
+        Err(failure) => Err(failure),
+    }
 }
 
 /// Stop syncing on this device. The hosts stay; the vault is wrapped again
 /// without the account key, so the master password alone opens it once more.
 /// The server is told this device is gone, as far as it can be reached.
 #[tauri::command]
-pub(crate) async fn sync_disconnect(app: AppHandle, password: String) -> SyncResult<()> {
+pub(crate) async fn sync_disconnect(
+    app: AppHandle,
+    password: String,
+    space: Option<String>,
+) -> SyncResult<()> {
     let password = Zeroizing::new(password);
-    blocking(&app, move |app, store, sync| {
+    blocking(&app, space, move |app, store, sync| {
         let state = store.sync_state()?;
         if !state.paired() {
             return Ok(());
@@ -966,6 +1373,9 @@ pub(crate) async fn sync_disconnect(app: AppHandle, password: String) -> SyncRes
             drop(offer);
         }
         let _ = app.emit("sync:status", ());
+        // A second server's vault was opened with its own password, perhaps;
+        // and the server's name is gone from the list.
+        crate::spaces::rechain(app);
         Ok(())
     })
     .await
@@ -976,9 +1386,13 @@ pub(crate) async fn sync_disconnect(app: AppHandle, password: String) -> SyncRes
 /// holds the key anyway. The master password first, so an unattended but
 /// unlocked window does not hand it out.
 #[tauri::command]
-pub(crate) async fn sync_recovery_code(app: AppHandle, password: String) -> SyncResult<Connected> {
+pub(crate) async fn sync_recovery_code(
+    app: AppHandle,
+    password: String,
+    space: Option<String>,
+) -> SyncResult<Connected> {
     let password = Zeroizing::new(password);
-    blocking(&app, move |_, store, _| {
+    blocking(&app, space, move |_, store, _| {
         let state = store.sync_state()?;
         if !state.paired() {
             return Err(SyncFailure::error("this device is not paired"));

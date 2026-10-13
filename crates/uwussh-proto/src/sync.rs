@@ -259,7 +259,7 @@ mod tests {
             Secret,
             Manifest,
         }
-        for kind in EntityKind::ASSIST {
+        for kind in EntityKind::APART {
             let name = serde_json::to_value(kind).unwrap();
             assert!(serde_json::from_value::<OldKind>(name).is_err());
         }

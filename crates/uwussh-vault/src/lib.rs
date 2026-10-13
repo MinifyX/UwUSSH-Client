@@ -14,6 +14,7 @@ pub mod account;
 pub mod crypto;
 pub mod kdf;
 pub mod password;
+pub mod team;
 pub mod vault;
 
 pub use account::AccountKey;
@@ -26,6 +27,7 @@ pub use kdf::{
     KdfParams, MasterSecrets, KDF_MEMORY_KIB, KDF_PARALLELISM, KDF_TIME_COST,
 };
 pub use password::{open_with_password, seal_with_password, PasswordSealed};
+pub use team::{MemberKey, TeamKeys, WrapContext};
 pub use vault::{create, create_with, UnlockedVault, VaultHeader};
 
 #[derive(Debug, thiserror::Error)]

@@ -29,7 +29,7 @@ pub(crate) fn listener(app: AppHandle) -> uwussh_core::TunnelListener {
 
 #[tauri::command]
 pub(crate) fn list_tunnels(state: State<'_, AppState>) -> CommandResult<Vec<TunnelRecord>> {
-    state.store.list_tunnels().map_err(err)
+    state.spaces.list_tunnels().map_err(err)
 }
 
 #[tauri::command]
@@ -37,14 +37,14 @@ pub(crate) fn save_tunnel(
     state: State<'_, AppState>,
     draft: TunnelDraft,
 ) -> Result<TunnelRecord, SaveFailure> {
-    Ok(state.store.save_tunnel(draft)?)
+    Ok(state.spaces.save_tunnel(draft)?)
 }
 
 /// Delete a tunnel; a running one stops first.
 #[tauri::command]
 pub(crate) async fn delete_tunnel(state: State<'_, AppState>, id: Uuid) -> CommandResult<()> {
     state.tunnels.stop(id).await;
-    state.store.delete_tunnel(id).map_err(err)
+    state.spaces.delete_tunnel(id).map_err(err)
 }
 
 #[tauri::command]
@@ -92,7 +92,7 @@ pub(crate) async fn start_tunnel(
 ) -> Result<TunnelStatus, StartFailure> {
     check_attempt(&attempt)?;
     let tunnel = state
-        .store
+        .spaces
         .get_tunnel(id)
         .map_err(internal)?
         .ok_or_else(|| internal("this tunnel no longer exists"))?;
@@ -105,7 +105,7 @@ pub(crate) async fn start_tunnel(
                 prepare(&state, tunnel.host_id, secret.map(Zeroizing::new))?;
             match state.sessions.open_link(&attempt, target).await {
                 Ok(link) => {
-                    if let Err(error) = state.store.mark_connected(host.id) {
+                    if let Err(error) = state.spaces.mark_connected(host.id) {
                         tracing::warn!(%error, "could not record the connection time");
                     }
                     state.tunnels.keep_dedicated(host.id, &link);
@@ -138,7 +138,7 @@ pub(crate) fn autostart(app: &AppHandle, host: Uuid, session: SessionId) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         let state = app.state::<AppState>();
-        let tunnels = match state.store.list_tunnels() {
+        let tunnels = match state.spaces.list_tunnels() {
             Ok(tunnels) => tunnels,
             Err(error) => {
                 tracing::warn!(%error, "could not read the tunnels to start");

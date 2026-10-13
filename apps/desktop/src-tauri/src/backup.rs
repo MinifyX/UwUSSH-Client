@@ -76,7 +76,7 @@ pub(crate) async fn export_hosts(
     if secrets && password.as_ref().is_none_or(|p| p.is_empty()) {
         return Err(BackupFailure::PasswordRequired);
     }
-    let backup = state.store.export_backup(secrets)?;
+    let backup = state.spaces.export_backup(secrets)?;
     let summary = backup.summary();
     let bytes = uwussh_store::encode_export(
         &backup,
@@ -204,7 +204,7 @@ pub(crate) async fn import_export_file(
 ) -> Result<ImportReport, BackupFailure> {
     let bytes = picked(&state, &token)?;
     let password = password.map(Zeroizing::new);
-    let store = std::sync::Arc::clone(&state.store);
+    let spaces = std::sync::Arc::clone(&state.spaces);
     let outcome = off_the_main_thread(move || {
         let mut backup =
             uwussh_store::decode_export(&bytes, password.as_ref().map(|p| p.as_bytes()))?;
@@ -224,7 +224,7 @@ pub(crate) async fn import_export_file(
                 host.key_path = None;
             }
         }
-        Ok(store.import_backup(backup)?)
+        Ok(spaces.import_backup(backup)?)
     })
     .await?;
     *state.picked_export.0.lock() = None;

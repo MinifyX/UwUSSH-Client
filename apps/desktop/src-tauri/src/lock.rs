@@ -8,13 +8,13 @@
 //! words the page shows. The master password goes into one command and is
 //! wiped when it returns; the keys it opens are never kept, only the space's.
 
-use crate::sync::{self, blocking, Sync, SyncFailure};
+use crate::sync::{self, blocking, setting_up, Step, Sync, SyncFailure, Syncs};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
-use uwussh_store::{Joining, LockEnrolment, LockState, Store, VaultStatus};
+use uwussh_store::{Joining, LockEnrolment, LockState, Store, VaultStatus, NEW_SPACE};
 use uwussh_sync::lock::{
     self, live, AcceptSpace, Lock, LockDevice, MoveReport, SignIn, SignInOutcome, SignedIn,
     TwoFactorAnswer, TwoFactorMethod,
@@ -122,10 +122,10 @@ fn device(store: &Store) -> SyncResult<LockDevice> {
 
 /// The worker's pass flag, held: a pass that runs now is waited for, and
 /// none starts until this is dropped.
-struct Running<'a>(&'a Sync);
+pub(crate) struct Running<'a>(&'a Sync);
 
 impl<'a> Running<'a> {
-    fn take(sync: &'a Sync) -> SyncResult<Self> {
+    pub(crate) fn take(sync: &'a Sync) -> SyncResult<Self> {
         let until = std::time::Instant::now() + Duration::from_secs(120);
         while sync.running.swap(true, Ordering::SeqCst) {
             if std::time::Instant::now() > until {
@@ -134,6 +134,13 @@ impl<'a> Running<'a> {
             std::thread::sleep(Duration::from_millis(100));
         }
         Ok(Self(sync))
+    }
+}
+
+impl<'a> Running<'a> {
+    /// The flag, when no pass runs right now.
+    pub(crate) fn try_take(sync: &'a Sync) -> Option<Self> {
+        (!sync.running.swap(true, Ordering::SeqCst)).then_some(Self(sync))
     }
 }
 
@@ -284,9 +291,12 @@ pub(crate) async fn lock_sign_in(
     password: String,
     two_factor: Option<TwoFactorInput>,
     accept_space: Option<AcceptSpaceInput>,
+    space: Option<String>,
 ) -> SyncResult<LockOutcome> {
     let password = Zeroizing::new(password);
-    blocking(&app, move |app, store, sync| {
+    // Several steps, perhaps: a second server's store waits for the code.
+    setting_up(&app, space, false, move |app, target| {
+        let (store, sync) = (&target.store, &*target.sync);
         if store.sync_state()?.paired() {
             return Err(SyncFailure::error(
                 "this device syncs through UwUSync: move it to UwULock instead",
@@ -305,7 +315,7 @@ pub(crate) async fn lock_sign_in(
             accept_space,
         )? {
             Ok(signed) => signed,
-            Err(outcome) => return Ok(outcome),
+            Err(outcome) => return Ok(Step::More(outcome)),
         };
         let (refresh, remember) = sealed_tokens(&signed)?;
         let kdf = signed.kdf_to_keep();
@@ -326,10 +336,10 @@ pub(crate) async fn lock_sign_in(
                 kdf: &kdf,
             },
         )?;
-        sync::keep_remembered(store, remembered);
+        sync::keep_remembered(target, remembered);
         let made_space = signed.made_space;
         start_syncing(app, store, sync, signed);
-        Ok(LockOutcome::SignedIn { made_space })
+        Ok(Step::Done(LockOutcome::SignedIn { made_space }))
     })
     .await
 }
@@ -338,8 +348,15 @@ pub(crate) async fn lock_sign_in(
 /// the forms to say so before anyone types a password. A server that doesn't
 /// say, or can't be reached, is not switched off as far as the page knows.
 #[tauri::command]
-pub(crate) async fn lock_app_sync_off(app: AppHandle, server_url: String) -> SyncResult<bool> {
-    blocking(&app, move |_, store, _| {
+pub(crate) async fn lock_app_sync_off(
+    app: AppHandle,
+    server_url: String,
+    space: Option<String>,
+) -> SyncResult<bool> {
+    // Asking makes no store: before a second server's is there, this device
+    // introduces itself as it does to the first.
+    let space = space.filter(|id| id != NEW_SPACE || app.state::<Syncs>().setting_up());
+    blocking(&app, space, move |_, store, _| {
         Ok(lock::app_sync_switched_off(&server_url, device(store)?).unwrap_or(false))
     })
     .await
@@ -352,12 +369,14 @@ pub(crate) async fn lock_send_email_code(
     server_url: String,
     email: String,
     password: String,
+    space: Option<String>,
 ) -> SyncResult<()> {
     let password = Zeroizing::new(password);
-    blocking(&app, move |_, store, _| {
+    setting_up(&app, space, false, move |_, target| {
+        let store = &target.store;
         let known = lock::known(store, &server_url, &email)?;
         lock::send_email_code(&server_url, &email, &password, &known, device(store)?)?;
-        Ok(())
+        Ok(Step::More(()))
     })
     .await
 }
@@ -379,9 +398,16 @@ pub(crate) async fn lock_move(
     password: String,
     two_factor: Option<TwoFactorInput>,
     accept_space: Option<AcceptSpaceInput>,
+    space: Option<String>,
 ) -> SyncResult<LockOutcome> {
     let password = Zeroizing::new(password);
-    blocking(&app, move |app, store, sync| {
+    if space.as_deref() == Some(NEW_SPACE) {
+        return Err(SyncFailure::error(
+            "this device does not sync through UwUSync",
+        ));
+    }
+    setting_up(&app, space, false, move |app, target| {
+        let (store, sync) = (&target.store, &*target.sync);
         let before = store.sync_state()?;
         let Some(me) = before.device_id.filter(|_| before.paired()) else {
             return Err(SyncFailure::error(
@@ -400,7 +426,7 @@ pub(crate) async fn lock_move(
             accept_space,
         )? {
             Ok(signed) => signed,
-            Err(outcome) => return Ok(outcome),
+            Err(outcome) => return Ok(Step::More(outcome)),
         };
         store.note_move_started(&signed.server_url, &signed.email)?;
         let _ = app.emit("sync:status", ());
@@ -432,7 +458,7 @@ pub(crate) async fn lock_move(
                     kdf: &kdf,
                 },
             )?;
-            sync::keep_remembered(store, remembered);
+            sync::keep_remembered(target, remembered);
             Ok((report, uwusync))
         })();
         drop(running);
@@ -452,10 +478,10 @@ pub(crate) async fn lock_move(
         *sync.left_behind.lock() = Some((uwusync, me));
         *sync.last.lock() = None;
         start_syncing(app, store, sync, signed);
-        Ok(LockOutcome::Moved {
+        Ok(Step::Done(LockOutcome::Moved {
             report,
             last_device,
-        })
+        }))
     })
     .await
 }
@@ -463,8 +489,12 @@ pub(crate) async fn lock_move(
 /// After the move: remove this device from UwUSync, or leave it listed
 /// there. Either way the UwUSync session is let go.
 #[tauri::command]
-pub(crate) async fn lock_leave_uwusync(app: AppHandle, revoke: bool) -> SyncResult<()> {
-    blocking(&app, move |app, _, sync| {
+pub(crate) async fn lock_leave_uwusync(
+    app: AppHandle,
+    revoke: bool,
+    space: Option<String>,
+) -> SyncResult<()> {
+    blocking(&app, space, move |app, _, sync| {
         let left = sync.left_behind.lock().take();
         if let (true, Some((server, me))) = (revoke, left) {
             server.revoke(me, None)?;
@@ -478,8 +508,8 @@ pub(crate) async fn lock_leave_uwusync(app: AppHandle, revoke: bool) -> SyncResu
 /// Give up on a move that did not finish. Nothing to undo: this device
 /// never stopped syncing through UwUSync.
 #[tauri::command]
-pub(crate) async fn lock_forget_move(app: AppHandle) -> SyncResult<()> {
-    blocking(&app, move |app, store, _| {
+pub(crate) async fn lock_forget_move(app: AppHandle, space: Option<String>) -> SyncResult<()> {
+    blocking(&app, space, move |app, store, _| {
         store.forget_move()?;
         let _ = app.emit("sync:status", ());
         Ok(())
@@ -490,9 +520,13 @@ pub(crate) async fn lock_forget_move(app: AppHandle) -> SyncResult<()> {
 /// Stop syncing through UwULock on this device. Hosts and vault stay, and
 /// the UwULock master password keeps opening it.
 #[tauri::command]
-pub(crate) async fn lock_sign_out(app: AppHandle, password: String) -> SyncResult<()> {
+pub(crate) async fn lock_sign_out(
+    app: AppHandle,
+    password: String,
+    space: Option<String>,
+) -> SyncResult<()> {
     let password = Zeroizing::new(password);
-    blocking(&app, move |app, store, sync| {
+    blocking(&app, space, move |app, store, sync| {
         if !store.lock_state()?.active {
             return Ok(());
         }
@@ -509,6 +543,7 @@ pub(crate) async fn lock_sign_out(app: AppHandle, password: String) -> SyncResul
         *sync.last.lock() = None;
         sync.live_refused.store(false, Ordering::SeqCst);
         let _ = app.emit("sync:status", ());
+        crate::spaces::changed(app);
         Ok(())
     })
     .await
@@ -519,84 +554,116 @@ pub(crate) async fn lock_sign_out(app: AppHandle, password: String) -> SyncResul
 /// How often the listener looks whether it should connect.
 const IDLE: Duration = Duration::from_secs(2);
 
-/// Starts the thread that keeps UwULock's realtime channel open while this
-/// device syncs through UwULock and the vault is open. It lives as long as
-/// the app.
-pub(crate) fn start_live(app: &AppHandle) {
-    let app = app.clone();
+/// Starts the thread that keeps one server's UwULock realtime channel open
+/// while this device syncs through UwULock there and the vault is open. It
+/// lives as long as the server is on this device.
+pub(crate) fn start_live(app: &AppHandle, id: &str) {
+    let (app, id) = (app.clone(), id.to_string());
     std::thread::Builder::new()
         .name("uwussh-live".into())
-        .spawn(move || listen(app))
+        .spawn(move || listen(app, id))
         .expect("the realtime thread starts");
 }
 
-fn listen(app: AppHandle) {
+fn listen(app: AppHandle, id: String) {
     let state = app.state::<crate::AppState>();
-    let sync = app.state::<Sync>();
-    let store = Arc::clone(&state.store);
+    let sync = app.state::<Syncs>().of(&id);
     loop {
-        let wanted = store
-            .lock_state()
-            .map(|s| s.active && s.signed_in)
-            .unwrap_or(false)
-            && matches!(store.vault_status(), Ok(VaultStatus::Unlocked))
-            && !sync.live_refused.load(Ordering::SeqCst)
-            && !sync.switched_off.load(Ordering::SeqCst);
-        if !wanted {
+        if sync.gone.load(Ordering::SeqCst) {
+            return;
+        }
+        if sync.held.load(Ordering::SeqCst) {
             std::thread::sleep(IDLE);
             continue;
         }
-        let lock = match connection(&store, &sync) {
-            Ok(lock) => lock,
-            Err(SyncFailure::SignIn) => {
-                session_ended(&store, &sync);
-                let _ = app.emit("sync:status", ());
-                continue;
-            }
-            Err(_) => {
-                std::thread::sleep(IDLE);
-                continue;
-            }
+        // Looked up every round, and let go at its end: a server that was
+        // removed leaves nothing behind that keeps its file open.
+        let Some(space) = state.spaces.get(&id) else {
+            return;
         };
-        // Until the vault is locked, or this connection is replaced by a
-        // sign-in or dropped by a sign-out.
-        let keep_going = || {
-            matches!(store.vault_status(), Ok(VaultStatus::Unlocked))
-                && sync
-                    .lock
-                    .lock()
-                    .as_ref()
-                    .is_some_and(|current| Arc::ptr_eq(current, &lock))
-        };
-        let ended = live::run(&lock, &keep_going, &mut |event| {
-            if event == live::Event::Ready && !sync.live.swap(true, Ordering::SeqCst) {
-                let _ = app.emit("sync:status", ());
-            }
-            sync.poke();
-        });
-        if sync.live.swap(false, Ordering::SeqCst) {
+        listen_once(&app, &state.spaces, &space, &sync);
+    }
+}
+
+fn listen_once(
+    app: &AppHandle,
+    spaces: &uwussh_store::Spaces,
+    space: &uwussh_store::SpaceHandle,
+    sync: &Sync,
+) {
+    let store = &space.store;
+    let wanted = store
+        .lock_state()
+        .map(|s| s.active && s.signed_in)
+        .unwrap_or(false)
+        && matches!(store.vault_status(), Ok(VaultStatus::Unlocked))
+        && !sync.live_refused.load(Ordering::SeqCst)
+        && !sync.switched_off.load(Ordering::SeqCst);
+    if !wanted {
+        std::thread::sleep(IDLE);
+        return;
+    }
+    let lock = match connection(store, sync) {
+        Ok(lock) => lock,
+        Err(SyncFailure::SignIn) => {
+            session_ended(store, sync);
+            let _ = app.emit("sync:status", ());
+            return;
+        }
+        Err(_) => {
+            std::thread::sleep(IDLE);
+            return;
+        }
+    };
+    // Until the vault is locked, the server is being removed, or this
+    // connection is replaced by a sign-in or dropped by a sign-out.
+    let keep_going = || {
+        matches!(store.vault_status(), Ok(VaultStatus::Unlocked))
+            && !sync.held.load(Ordering::SeqCst)
+            && !sync.gone.load(Ordering::SeqCst)
+            && sync
+                .lock
+                .lock()
+                .as_ref()
+                .is_some_and(|current| Arc::ptr_eq(current, &lock))
+    };
+    let ended = live::run(&lock, &keep_going, &mut |event| {
+        if event == live::Event::Ready && !sync.live.swap(true, Ordering::SeqCst) {
             let _ = app.emit("sync:status", ());
         }
-        match ended {
-            live::Ended::Stopped | live::Ended::Retry(_) => {}
-            live::Ended::SignIn => {
-                session_ended(&store, &sync);
-                let _ = app.emit("sync:status", ());
-            }
-            live::Ended::Refused => {
-                tracing::info!("UwULock refuses the realtime channel; polling instead");
-                sync.live_refused.store(true, Ordering::SeqCst);
-            }
-            live::Ended::Logout(reason) => {
-                // The server ended this device's session (signed out
-                // everywhere, removed, disabled, keys rotated): nothing
-                // decrypted stays open.
-                tracing::info!(%reason, "UwULock ended this device's session");
-                session_ended(&store, &sync);
-                store.lock_vault();
+        sync.poke();
+    });
+    if sync.live.swap(false, Ordering::SeqCst) {
+        let _ = app.emit("sync:status", ());
+    }
+    match ended {
+        live::Ended::Stopped | live::Ended::Retry(_) => {}
+        live::Ended::SignIn => {
+            session_ended(store, sync);
+            let _ = app.emit("sync:status", ());
+        }
+        live::Ended::Refused => {
+            tracing::info!("UwULock refuses the realtime channel; polling instead");
+            sync.live_refused.store(true, Ordering::SeqCst);
+        }
+        live::Ended::Logout(reason) => {
+            tracing::info!(%reason, "UwULock ended this device's session");
+            session_ended(store, sync);
+            // Asked now, not when the round began: which server is main may
+            // have changed since.
+            let main = spaces.get(&space.id).is_some_and(|now| now.main);
+            if main {
+                // The server whose password opens the app ended this
+                // device's session (signed out everywhere, removed,
+                // disabled, keys rotated): nothing decrypted stays open, on
+                // either server.
+                spaces.lock_all();
                 let _ = app.emit("sync:logout", reason);
-                let _ = app.emit("sync:status", ());
             }
+            // The other server's ending locks nothing: it needs signing in
+            // again, and says so.
+            let _ = app.emit("sync:status", ());
+            crate::spaces::changed(app);
         }
     }
 }

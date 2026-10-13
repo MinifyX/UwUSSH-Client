@@ -1,6 +1,6 @@
 import '@xterm/xterm/css/xterm.css';
 import { useEffect, useRef } from 'react';
-import { TerminalDriver } from '../lib/driver';
+import { TerminalDriver, terminalFontFamily } from '../lib/driver';
 import { compileRules } from '../lib/highlight';
 import { isMac } from '../lib/shortcuts';
 import {
@@ -36,8 +36,14 @@ export function TerminalView({ onReady, onDispose }: TerminalViewProps) {
     const host = hostRef.current;
     if (!host) return;
     const options = () => {
-      const { fontSize, cursorStyle, cursorBlink, scrollback } = getSettings();
-      return { fontSize, cursorStyle, cursorBlink, scrollback };
+      const { terminalFont, fontSize, cursorStyle, cursorBlink, scrollback } = getSettings();
+      return {
+        fontFamily: terminalFontFamily(terminalFont),
+        fontSize,
+        cursorStyle,
+        cursorBlink,
+        scrollback,
+      };
     };
     const driver = new TerminalDriver(host, options());
     let highlight = getSettings().highlight;

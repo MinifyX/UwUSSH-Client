@@ -233,29 +233,251 @@
   color: var(--uwu-success-ink);
 }
 
-.shortcuts {
-  padding: 14px 0 4px;
-}
-
-.shortcuts dl {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 6px 16px;
-  margin: 8px 0 0;
-}
-
-.shortcuts dt {
-  font-family: var(--uwu-mono);
-  font-size: 11.5px;
-  letter-spacing: 0;
-  text-transform: none;
+.terminal-font-preview {
+  margin: 0 0 var(--uwu-space-3);
+  padding: var(--uwu-space-3);
+  border: 1px solid var(--uwu-border);
+  border-radius: var(--uwu-radius-md, 10px);
+  background: var(--uwu-surface);
   color: var(--uwu-ink);
+  line-height: 1.35;
+  overflow-x: auto;
+  white-space: pre;
 }
 
-.shortcuts dd {
+/* Settings → Tastatur: the keyboard picture and what is on its keys. */
+.keymap {
+  display: grid;
+  gap: var(--uwu-space-3);
+  padding-top: var(--uwu-space-2);
+}
+
+.keymap-bar,
+.keymap-modifiers,
+.keymap-panel-head,
+.keymap-text,
+.keymap-text-actions,
+.keymap-texts-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--uwu-space-2);
+}
+
+.keymap-spacer {
+  flex: 1;
+}
+
+.keymap-modifier {
+  min-width: 52px;
+  height: 30px;
+  padding: 0 var(--uwu-space-3);
+  border: 1px solid var(--uwu-border);
+  border-radius: var(--uwu-radius-pill);
+  background: var(--uwu-surface);
+  color: var(--uwu-muted);
+  font-size: var(--uwu-text-meta);
+  font-weight: 600;
+}
+
+.keymap-modifier[aria-pressed='true'] {
+  border-color: var(--uwu-pink);
+  background: var(--uwu-pink-tint);
+  color: var(--uwu-pink-ink);
+}
+
+.keymap-hint,
+.keymap-note {
   margin: 0;
   font-size: 12.5px;
+  line-height: 1.45;
   color: var(--uwu-muted);
+}
+
+.kb {
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--uwu-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--uwu-surface) 70%, transparent);
+  overflow-x: auto;
+}
+
+.kb[data-capturing] {
+  border-color: var(--uwu-pink);
+}
+
+.kb-main {
+  flex: 15 0 0;
+  min-width: 480px;
+}
+
+.kb-nav {
+  flex: 3 0 0;
+  min-width: 96px;
+}
+
+.kb-main,
+.kb-nav {
+  display: grid;
+  grid-auto-rows: 34px;
+  gap: 3px;
+}
+
+.kb-row {
+  display: flex;
+  gap: 3px;
+  min-width: 0;
+}
+
+.kb-gap,
+.kb-key {
+  flex-shrink: 1;
+  flex-basis: 0;
+  min-width: 0;
+}
+
+.kb-key {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 0 4px;
+  border: 1px solid var(--uwu-border);
+  border-radius: 6px;
+  background: var(--uwu-surface);
+  color: var(--uwu-ink);
+  font-size: 11px;
+  line-height: 1.1;
+  overflow: hidden;
+}
+
+.kb-key:hover:not(:disabled) {
+  border-color: var(--uwu-pink);
+}
+
+.kb-key:disabled {
+  opacity: 0.45;
+}
+
+.kb-key[data-modifier] {
+  color: var(--uwu-muted);
+  font-size: 10px;
+}
+
+.kb-key[data-bound] {
+  background: var(--uwu-pink-tint);
+  color: var(--uwu-pink-ink);
+}
+
+.kb-key[aria-pressed='true'] {
+  border-color: var(--uwu-pink);
+  box-shadow: inset 0 0 0 1px var(--uwu-pink);
+}
+
+.kb-key[data-modifier][aria-pressed='true'] {
+  background: var(--uwu-pink-tint);
+  color: var(--uwu-pink-ink);
+}
+
+.kb-cap {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.kb-action {
+  max-width: 100%;
+  font-size: 8.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.85;
+}
+
+.keymap-panel {
+  display: grid;
+  gap: var(--uwu-space-2);
+  padding: var(--uwu-space-3);
+  border: 1px solid var(--uwu-border);
+  border-radius: 12px;
+}
+
+.keymap-chord {
+  padding: 4px 10px;
+  border: 1px solid var(--uwu-border);
+  border-radius: 6px;
+  background: var(--uwu-surface);
+  font-family: var(--uwu-mono);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.keymap-action {
+  flex: 1;
+  min-width: 200px;
+}
+
+.keymap-warning,
+.keymap-error {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--uwu-danger, #c0392b);
+}
+
+.keymap-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--uwu-pink-ink);
+  font: inherit;
+  text-decoration: underline;
+}
+
+.keymap-texts {
+  display: grid;
+  gap: var(--uwu-space-2);
+}
+
+.keymap-texts-head {
+  align-items: flex-start;
+  flex-wrap: nowrap;
+  justify-content: space-between;
+}
+
+.keymap-text {
+  flex-wrap: nowrap;
+  padding: 4px 0;
+}
+
+.keymap-text-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.keymap-text-keys {
+  flex: none;
+  font-family: var(--uwu-mono);
+  font-size: 11.5px;
+  color: var(--uwu-muted);
+}
+
+.keymap-text-edit {
+  display: grid;
+  gap: var(--uwu-space-2);
+  padding: var(--uwu-space-3);
+  border: 1px solid var(--uwu-border);
+  border-radius: 12px;
+}
+
+.keymap-text-value {
+  font-family: var(--uwu-mono);
+  font-size: 12.5px;
 }
 
 .about {
@@ -594,6 +816,51 @@
   gap: 8px;
 }
 
+/* Two servers: each a section of the usual rows under its name. */
+.sync-spaces {
+  display: grid;
+  gap: var(--uwu-space-5);
+}
+
+.sync-space {
+  display: grid;
+  min-width: 0;
+}
+
+.sync-space-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: var(--uwu-space-2);
+  border-bottom: 1px solid var(--uwu-border);
+}
+
+.sync-space-head > b {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 15px;
+}
+
+/* What becomes of a server's entries when it is disconnected. */
+.sync-remove-choice {
+  display: grid;
+  gap: var(--uwu-space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.sync-remove-choice > legend {
+  padding: 0;
+  margin-bottom: var(--uwu-space-2);
+  font-weight: 600;
+}
+
+.sync-remove-choice .check[data-disabled] {
+  color: var(--uwu-muted);
+}
+
 /* The recovery kit: a Card with a dashed pink edge, so it reads as "keep this". */
 .sync-kit-card {
   gap: 10px;
@@ -745,6 +1012,98 @@
   margin: 0;
   font-size: 13px;
   line-height: 1.45;
+}
+
+/* What was asked before, newest first; scrolls by itself so the dialog keeps its height. */
+.assist-history {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.assist-history h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--uwu-muted);
+}
+
+.assist-history-keys {
+  margin-left: auto;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.assist-history ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 208px;
+  overflow-y: auto;
+}
+
+.assist-history li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 2px;
+  border-radius: var(--uwu-radius-control);
+}
+
+.assist-history li:hover,
+.assist-history li[data-current] {
+  background: var(--uwu-elevated);
+}
+
+.assist-history li[data-current] {
+  box-shadow: inset 2px 0 0 var(--uwu-pink);
+}
+
+.assist-history-entry {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--uwu-radius-control);
+  background: transparent;
+  color: var(--uwu-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.assist-history-entry:focus-visible {
+  outline: none;
+  box-shadow: var(--uwu-focus);
+}
+
+.assist-history-request,
+.assist-history-entry code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assist-history-request {
+  font-size: 13px;
+}
+
+.assist-history-entry code {
+  font-family: var(--uwu-mono);
+  font-size: 12px;
+  color: var(--uwu-muted);
+}
+
+.assist-history-entry code[data-dangerous] {
+  color: var(--uwu-danger-ink);
 }
 
 .assist-failure {
@@ -1123,4 +1482,92 @@
     flex: none;
     white-space: nowrap;
   }
+}
+
+/* ── Teams ───────────────────────────────────────────────────────────────── */
+
+/* A member key's fingerprint, in rows to read out and compare. */
+.team-fingerprint {
+  display: grid;
+  gap: 2px;
+  justify-items: start;
+  font: 500 12.5px/1.5 var(--uwu-mono);
+  letter-spacing: 0.04em;
+  user-select: all;
+}
+
+.team-fingerprint[data-large] {
+  gap: 4px;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.team-code-card {
+  display: grid;
+  gap: 8px;
+}
+
+.team-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.sync-device-text b:has(.team-name) {
+  flex-wrap: wrap;
+}
+
+.team-note {
+  padding: 10px 0 0;
+}
+
+/* What stands in the way of a team: one line, its way out at the end. */
+.team-attention {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.team-attention > span {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.sync-device-list li:has(> .team-attention) {
+  flex-wrap: wrap;
+}
+
+.sync-device-list li > .team-attention {
+  flex: 1 0 100%;
+}
+
+.team-invite-new {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.team-code-input {
+  font-family: var(--uwu-mono);
+  letter-spacing: 0.04em;
+}
+
+/* The hosts whose logins should change after a member went. */
+.team-hosts {
+  display: grid;
+  gap: 4px;
+  max-height: 220px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.team-hosts li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-wrap: anywhere;
 }
