@@ -15,10 +15,18 @@
 //!   hand a member the key of another team, nor an old epoch's key as the
 //!   current one, nor a key wrapped for somebody else.
 //! - Anybody can seal a box to a public key, the server too. So a wrap also
-//!   carries the keys that came **before** — as many as [`MAX_EARLIER`] —
-//!   and a member who already holds a key takes a newer one only when the
-//!   key it holds is among them at the right distance. A server cannot make
-//!   that up without a key it never had.
+//!   carries a **mark** of each key that came before — a hash of it, as many
+//!   as [`MAX_EARLIER`] — and a member who already holds a key takes a newer
+//!   one only when the mark of the key it holds is among them at the right
+//!   distance. A mark tells whoever has a key that it is that key; it opens
+//!   nothing, so a newcomer learns no key from before its time.
+//!
+//!   What that holds against: a server on its own, which never had a team
+//!   key and so cannot name the mark of one. What it does not hold against:
+//!   anybody who had a team key once. A member who was taken out still knows
+//!   the key of their last epoch, and together with the server can hand the
+//!   members that remain a key of their own making as the next one. Nothing
+//!   here signs a new key; that would take a signing key per member.
 //! - The **fingerprint** of a public key is what two people compare before a
 //!   newcomer is given the key. The server hands out public keys; a server
 //!   that lied about one would otherwise be handed the team key.
@@ -26,6 +34,7 @@
 use crate::{decrypt_keyed, encrypt_keyed, Result, Sealed, UnlockedVault, VaultError};
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
+use curve25519_dalek::constants::X25519_BASEPOINT;
 use curve25519_dalek::montgomery::MontgomeryPoint;
 use hkdf::Hkdf;
 use rand::RngCore;
@@ -36,15 +45,19 @@ use zeroize::{Zeroize, Zeroizing};
 /// The first byte of everything this module writes.
 const VERSION: u8 = 1;
 
-const WRAP_LABEL: &[u8] = b"uwussh/team/wrap/v1";
+/// The first byte of a wrap. 1 carried the earlier keys themselves.
+const WRAP_VERSION: u8 = 2;
+
+const WRAP_LABEL: &[u8] = b"uwussh/team/wrap/v2";
+const MARK_LABEL: &[u8] = b"uwussh/team/key-mark/v1";
 const MEMBER_LABEL: &[u8] = b"uwussh/team/member-key/v1";
 const FINGERPRINT_LABEL: &[u8] = b"uwussh/team/fingerprint/v1";
 
 /// `version || ephemeral public key || nonce || sealed team key`, without
-/// earlier keys. Each of those adds 32 bytes.
+/// marks of earlier keys. Each of those adds 32 bytes.
 pub const WRAPPED_LEN: usize = 1 + 32 + 24 + 32 + 16;
-/// As many earlier keys as a wrap carries: a member that was away for more
-/// rotations than this cannot tell the new key from a made-up one.
+/// As many earlier keys as a wrap carries a mark of: a member that was away
+/// for more rotations than this cannot tell the new key from a made-up one.
 pub const MAX_EARLIER: usize = 8;
 /// `version || nonce || sealed private key`.
 pub const SEALED_MEMBER_LEN: usize = 1 + 24 + 32 + 16;
@@ -72,7 +85,7 @@ impl MemberKey {
     }
 
     pub fn public(&self) -> [u8; 32] {
-        MontgomeryPoint::mul_base_clamped(*self.secret).to_bytes()
+        ladder(&X25519_BASEPOINT, &self.secret).to_bytes()
     }
 
     /// The private key sealed under the account's vault on that server, as
@@ -126,10 +139,11 @@ pub struct WrapContext {
     pub account: Uuid,
 }
 
-/// What a wrap holds: the team key and the ones before it, newest first.
+/// What a wrap holds: the team key, and the marks of the ones before it,
+/// newest first.
 pub struct TeamKeys {
     pub key: Zeroizing<[u8; 32]>,
-    pub earlier: Vec<Zeroizing<[u8; 32]>>,
+    pub earlier: Vec<[u8; 32]>,
 }
 
 impl std::fmt::Debug for TeamKeys {
@@ -143,8 +157,13 @@ impl TeamKeys {
     /// key of `held_epoch`: the same key at the same epoch, or `held` where
     /// it has to be among the earlier ones.
     pub fn follows(&self, epoch: u64, held_epoch: u64, held: &[u8; 32]) -> bool {
+        self.follows_mark(epoch, held_epoch, &key_mark(held))
+    }
+
+    /// The same, for a device that kept the mark of a key and not the key.
+    pub fn follows_mark(&self, epoch: u64, held_epoch: u64, held: &[u8; 32]) -> bool {
         if epoch == held_epoch {
-            return same(&self.key, held);
+            return same(&key_mark(&self.key), held);
         }
         let Some(back) = epoch.checked_sub(held_epoch) else {
             return false;
@@ -155,13 +174,39 @@ impl TeamKeys {
             .is_some_and(|earlier| same(earlier, held))
     }
 
-    /// The earlier keys a wrap of the key after this one carries.
-    pub fn handed_on(&self) -> Vec<Zeroizing<[u8; 32]>> {
-        std::iter::once(self.key.clone())
-            .chain(self.earlier.iter().cloned())
+    /// The marks a wrap of the key after this one carries.
+    pub fn handed_on(&self) -> Vec<[u8; 32]> {
+        std::iter::once(key_mark(&self.key))
+            .chain(self.earlier.iter().copied())
             .take(MAX_EARLIER)
             .collect()
     }
+}
+
+/// What stands for a team key where the key itself must not be: a hash of
+/// it under a label of its own. Whoever has the key can tell it is that
+/// key's; nobody gets the key from it.
+pub fn key_mark(key: &[u8; 32]) -> [u8; 32] {
+    Sha256::new()
+        .chain_update(MARK_LABEL)
+        .chain_update(key)
+        .finalize()
+        .into()
+}
+
+/// Clamped X25519 on a secret that stays where it is: the multiplication the
+/// library offers takes the scalar by value and leaves that copy behind.
+fn ladder(point: &MontgomeryPoint, secret: &[u8; 32]) -> MontgomeryPoint {
+    let mut scalar = Zeroizing::new([0u8; 32]);
+    scalar.copy_from_slice(secret);
+    scalar[0] &= 248;
+    scalar[31] &= 127;
+    scalar[31] |= 64;
+    let bits = scalar
+        .iter()
+        .rev()
+        .flat_map(|byte| (0..8).rev().map(move |bit| (byte >> bit) & 1 == 1));
+    point.mul_bits_be(bits)
 }
 
 fn same(a: &[u8; 32], b: &[u8; 32]) -> bool {
@@ -175,11 +220,11 @@ pub fn new_team_key() -> Zeroizing<[u8; 32]> {
     key
 }
 
-/// Wrap a team key for one member, with the keys before it (newest first;
-/// no more than [`MAX_EARLIER`] are taken).
+/// Wrap a team key for one member, with the marks of the keys before it
+/// (newest first; no more than [`MAX_EARLIER`] are taken).
 pub fn wrap_team_key(
     team_key: &[u8; 32],
-    earlier: &[Zeroizing<[u8; 32]>],
+    earlier: &[[u8; 32]],
     context: WrapContext,
     recipient: &[u8; 32],
 ) -> Result<Vec<u8>> {
@@ -190,8 +235,8 @@ pub fn wrap_team_key(
     let earlier = &earlier[..earlier.len().min(MAX_EARLIER)];
     let mut keys = Zeroizing::new(Vec::with_capacity(32 * (1 + earlier.len())));
     keys.extend_from_slice(team_key);
-    for key in earlier {
-        keys.extend_from_slice(key.as_ref());
+    for mark in earlier {
+        keys.extend_from_slice(mark);
     }
     wrap_with(&keys, context, recipient, &ephemeral, &nonce)
 }
@@ -203,7 +248,7 @@ fn wrap_with(
     ephemeral: &[u8; 32],
     nonce: &[u8; 24],
 ) -> Result<Vec<u8>> {
-    let ephemeral_public = MontgomeryPoint::mul_base_clamped(*ephemeral).to_bytes();
+    let ephemeral_public = ladder(&X25519_BASEPOINT, ephemeral).to_bytes();
     let key = box_key(ephemeral, recipient, &ephemeral_public, recipient)?;
     let blob = XChaCha20Poly1305::new(key.as_ref().into())
         .encrypt(
@@ -215,7 +260,7 @@ fn wrap_with(
         )
         .map_err(|e| VaultError::Encrypt(e.to_string()))?;
     let mut out = Vec::with_capacity(WRAPPED_LEN - 32 + team_key.len());
-    out.push(VERSION);
+    out.push(WRAP_VERSION);
     out.extend_from_slice(&ephemeral_public);
     out.extend_from_slice(nonce);
     out.extend_from_slice(&blob);
@@ -233,7 +278,7 @@ pub fn unwrap_team_key(
     if wrapped.len() < WRAPPED_LEN
         || !extra.is_multiple_of(32)
         || extra / 32 > MAX_EARLIER
-        || wrapped[0] != VERSION
+        || wrapped[0] != WRAP_VERSION
     {
         return Err(VaultError::Decrypt);
     }
@@ -257,15 +302,13 @@ pub fn unwrap_team_key(
             )
             .map_err(|_| VaultError::Decrypt)?,
     );
-    let mut keys = plain.as_chunks::<32>().0.iter().map(|chunk| {
-        let mut key = Zeroizing::new([0u8; 32]);
-        key.copy_from_slice(chunk);
-        key
-    });
-    let key = keys.next().ok_or(VaultError::Decrypt)?;
+    let (chunks, _) = plain.as_chunks::<32>();
+    let (first, marks) = chunks.split_first().ok_or(VaultError::Decrypt)?;
+    let mut key = Zeroizing::new([0u8; 32]);
+    key.copy_from_slice(first);
     Ok(TeamKeys {
         key,
-        earlier: keys.collect(),
+        earlier: marks.to_vec(),
     })
 }
 
@@ -279,11 +322,7 @@ fn box_key(
     ephemeral_public: &[u8; 32],
     recipient_public: &[u8; 32],
 ) -> Result<Zeroizing<[u8; 32]>> {
-    let shared = Zeroizing::new(
-        MontgomeryPoint(*their_public)
-            .mul_clamped(*secret)
-            .to_bytes(),
-    );
+    let shared = Zeroizing::new(ladder(&MontgomeryPoint(*their_public), secret).to_bytes());
     if shared.iter().fold(0u8, |acc, byte| acc | byte) == 0 {
         return Err(VaultError::Decrypt);
     }
@@ -410,10 +449,19 @@ mod tests {
         assert!(keys.earlier.is_empty());
     }
 
-    const WRAP_VECTOR: &str = "010faa684ed28867b97f4a6a2dee5df8ce974e76b7018e3f22a1c4cf2678570f20\
+    const WRAP_VECTOR: &str = "020faa684ed28867b97f4a6a2dee5df8ce974e76b7018e3f22a1c4cf2678570f20\
         333333333333333333333333333333333333333333333333\
-        c7571020eb5f8db73bd72e90d2e0e3f5f253052b40decb3c4744b283a9302c20\
-        e5cd71b13ff5686fab1b3b1413cf90d1";
+        6bfbe0851651cd7bf2500af7ac16d77ca307cb6c07fa33a70c70a0b3be53fdf2\
+        8234cc3f01994188070eba4e264f121a";
+
+    /// The mark of a key is this hash and no other, on every device.
+    #[test]
+    fn a_mark_has_this_form() {
+        assert_eq!(to_hex(&key_mark(&[0x42; 32])), MARK_VECTOR);
+        assert_ne!(key_mark(&[0x42; 32]), key_mark(&[0x43; 32]));
+    }
+
+    const MARK_VECTOR: &str = "caeb76cd9e62ee51dfebf685c08959cb02149b06c910944d4ff60c9adbac8ac5";
 
     #[test]
     fn a_fingerprint_has_this_form() {
@@ -462,7 +510,14 @@ mod tests {
     #[test]
     fn a_changed_wrap_does_not_open() {
         let member = MemberKey::generate();
-        let wrapped = wrap_team_key(&[5u8; 32], &[], context(), &member.public()).unwrap();
+        // With marks of two earlier keys behind the key: those are sealed
+        // with it, and changing one is noticed like anything else.
+        let marks = [key_mark(&[4; 32]), key_mark(&[3; 32])];
+        let wrapped = wrap_team_key(&[5u8; 32], &marks, context(), &member.public()).unwrap();
+        // The form from before marks, which carried earlier keys, is not read.
+        let mut old = wrapped.clone();
+        old[0] = 1;
+        assert!(unwrap_team_key(&member, context(), &old).is_err());
         for index in 0..wrapped.len() {
             let mut bad = wrapped.clone();
             bad[index] ^= 1;
@@ -491,8 +546,8 @@ mod tests {
     #[test]
     fn a_new_key_is_taken_only_when_it_comes_after_the_one_held() {
         let member = MemberKey::generate();
-        let key = |byte: u8| Zeroizing::new([byte; 32]);
-        // Epoch 5, carrying the keys of 4, 3 and 2.
+        let key = |byte: u8| key_mark(&[byte; 32]);
+        // Epoch 5, carrying the marks of the keys of 4, 3 and 2.
         let earlier = [key(4), key(3), key(2)];
         let wrapped = wrap_team_key(&[5; 32], &earlier, context(), &member.public()).unwrap();
         assert_eq!(wrapped.len(), WRAPPED_LEN + 3 * 32);
@@ -513,7 +568,16 @@ mod tests {
 
         let on = keys.handed_on();
         assert_eq!(on.len(), 4);
-        assert_eq!((*on[0], *on[3]), ([5; 32], [2; 32]));
+        assert_eq!((on[0], on[3]), (key(5), key(2)));
+        // A wrap holds no key but the one it is for: neither an earlier key
+        // nor anything it could be worked out from.
+        let plain_len = wrapped.len() - (WRAPPED_LEN - 32);
+        assert_eq!(plain_len, 4 * 32);
+        for old in [4u8, 3, 2] {
+            assert!(keys.earlier.iter().all(|mark| *mark != [old; 32]));
+        }
+        assert!(keys.follows_mark(5, 3, &key(3)));
+        assert!(!keys.follows_mark(5, 3, &[3; 32]));
         // No more than a wrap holds are handed on or taken.
         let many: Vec<_> = (0..12).map(key).collect();
         let wrapped = wrap_team_key(&[5; 32], &many, context(), &member.public()).unwrap();

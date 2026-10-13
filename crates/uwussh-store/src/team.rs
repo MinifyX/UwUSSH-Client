@@ -10,11 +10,21 @@
 //! comes from the server, wrapped for this account, and is kept on the device
 //! the way a second server's is: sealed by the main vault.
 //!
-//! A team's store also holds who is in the team, as far as that takes a key:
-//! for every member somebody confirmed, the public key that was confirmed,
-//! as a sealed record of its own that syncs like a password does. A rotation
-//! wraps the new key for those keys and no others, so a server that lists a
-//! member nobody let in, or another key for one, is not handed the team key.
+//! What an account knows about a team beyond the team's records is **not**
+//! in the team's store. Everybody with the team key writes into that, and
+//! the server decides what of it a device gets to see. It is in the store of
+//! the server the account has the team on, sealed under the account's own
+//! vault key and synced among the account's devices like a password:
+//!
+//! - the **key record** of a team: the epoch this account last took a key
+//!   for, and the mark of that key. A team that is offered again — on a new
+//!   device, or after its space went — has to come after it.
+//! - the **confirmed key** of a member: the public key this account wrapped
+//!   the team key for, or first saw the member with. A rotation by this
+//!   account wraps for those keys and never for another under that account.
+//!
+//! An earlier build kept confirmed keys in the team's store. Nothing reads
+//! those any more; [`Store::team_drop_mailbox_pin`] clears them away.
 
 use crate::sync::{parse_uuid, table_of, SYNCED_KINDS};
 use crate::{Result, Store, StoreError};
@@ -39,16 +49,62 @@ fn pending_id(team: Uuid, epoch: u64) -> Uuid {
     Uuid::from_u128(team.as_u128() ^ 0x7577_7573_7368_2d72_6f74_6174_6500_0000 ^ u128::from(epoch))
 }
 
-/// The record id a member's confirmed public key is kept under.
-fn pin_id(team: Uuid, account: Uuid) -> Uuid {
-    let digest = Sha256::new()
-        .chain_update(b"uwussh/team/member-pin/v1")
-        .chain_update(team.as_bytes())
-        .chain_update(account.as_bytes())
-        .finalize();
+fn derived_id(label: &[u8], team: Uuid, account: Option<Uuid>) -> Uuid {
+    let mut hash = Sha256::new()
+        .chain_update(label)
+        .chain_update(team.as_bytes());
+    if let Some(account) = account {
+        hash.update(account.as_bytes());
+    }
+    let digest = hash.finalize();
     let mut id = [0u8; 16];
     id.copy_from_slice(&digest[..16]);
     Uuid::from_bytes(id)
+}
+
+/// The record id a confirmed key was kept under in the team's own store, by
+/// a build that kept them there.
+fn mailbox_pin_id(team: Uuid, account: Uuid) -> Uuid {
+    derived_id(b"uwussh/team/member-pin/v1", team, Some(account))
+}
+
+/// The record id a member's confirmed public key is kept under, in the
+/// account's own store.
+fn pin_id(team: Uuid, account: Uuid) -> Uuid {
+    derived_id(b"uwussh/team/own-pin/v1", team, Some(account))
+}
+
+/// The record id a team's key record is kept under, in the account's own
+/// store.
+fn key_record_id(team: Uuid) -> Uuid {
+    derived_id(b"uwussh/team/key-record/v1", team, None)
+}
+
+/// A team's epoch as the database holds it. SQLite's integers are signed;
+/// an epoch above that is none a server gets to by counting.
+fn epoch_column(epoch: u64) -> Result<i64> {
+    i64::try_from(epoch).map_err(|_| StoreError::Invalid {
+        field: "epoch",
+        problem: "out of range",
+    })
+}
+
+/// What an account takes a member of a team to be.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemberPin {
+    /// In the team, with this public key.
+    Confirmed([u8; 32]),
+    /// Taken out by this account. Listed again, they get no key from it
+    /// until it confirmed them again.
+    Removed,
+}
+
+/// What an account last knew of a team's key: see the module's head.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TeamKeyRecord {
+    pub epoch: u64,
+    /// `uwussh_vault::team::key_mark` of the key of that epoch.
+    pub mark: [u8; 32],
 }
 
 /// What a team's store knows about its key.
@@ -62,6 +118,9 @@ pub struct TeamState {
     pub requeue: bool,
     /// The epoch of a rotation this device began.
     pub pending_epoch: Option<u64>,
+    /// This device took a member out and the team has not had a new key
+    /// from it since.
+    pub rotation_owed: bool,
 }
 
 /// What becomes of the records when the key changes.
@@ -93,7 +152,8 @@ fn header_for(vault: &UnlockedVault) -> Result<VaultHeader> {
 fn state_row(conn: &rusqlite::Connection) -> Result<Option<TeamState>> {
     let row = conn
         .query_row(
-            "SELECT team_id, epoch, requeue, pending_epoch FROM team_state WHERE id = 1",
+            "SELECT team_id, epoch, requeue, pending_epoch, rotation_owed
+               FROM team_state WHERE id = 1",
             [],
             |row| {
                 Ok((
@@ -101,16 +161,18 @@ fn state_row(conn: &rusqlite::Connection) -> Result<Option<TeamState>> {
                     row.get::<_, i64>(1)?,
                     row.get::<_, bool>(2)?,
                     row.get::<_, Option<i64>>(3)?,
+                    row.get::<_, bool>(4)?,
                 ))
             },
         )
         .optional()?;
-    row.map(|(team, epoch, requeue, pending)| {
+    row.map(|(team, epoch, requeue, pending, rotation_owed)| {
         Ok(TeamState {
             team: parse_uuid(&team)?,
             epoch: epoch.max(0) as u64,
             requeue,
             pending_epoch: pending.map(|epoch| epoch.max(0) as u64),
+            rotation_owed,
         })
     })
     .transpose()
@@ -118,6 +180,7 @@ fn state_row(conn: &rusqlite::Connection) -> Result<Option<TeamState>> {
 
 fn write_key(tx: &Transaction, vault: &UnlockedVault, epoch: u64, requeue: bool) -> Result<()> {
     let team = vault.vault_id();
+    let epoch = epoch_column(epoch)?;
     let check = vault.seal(check_id(team), EntityKind::Secret, CHECK)?;
     tx.execute("DELETE FROM vault", [])?;
     crate::vault::store_header(tx, &header_for(vault)?)?;
@@ -129,13 +192,7 @@ fn write_key(tx: &Transaction, vault: &UnlockedVault, epoch: u64, requeue: bool)
             check_nonce = excluded.check_nonce, check_blob = excluded.check_blob,
             requeue = excluded.requeue,
             pending_epoch = NULL, pending_nonce = NULL, pending_blob = NULL",
-        params![
-            team.to_string(),
-            epoch as i64,
-            check.nonce,
-            check.blob,
-            requeue
-        ],
+        params![team.to_string(), epoch, check.nonce, check.blob, requeue],
     )?;
     // The key this device kept opens the old key's vault.
     tx.execute("DELETE FROM device_unlock", [])?;
@@ -320,6 +377,7 @@ impl Store {
     /// to get. Sealed under the current key, so it is worth nothing to
     /// anybody who could not read the team anyway.
     pub fn team_note_rotation(&self, epoch: u64, key: &[u8; 32]) -> Result<()> {
+        let column = epoch_column(epoch)?;
         let guard = self.vault.lock();
         let vault = guard.as_ref().ok_or(StoreError::VaultLocked)?;
         let sealed = vault.seal(pending_id(vault.vault_id(), epoch), EntityKind::Secret, key)?;
@@ -327,7 +385,7 @@ impl Store {
         let changed = self.conn.lock().execute(
             "UPDATE team_state SET pending_epoch = ?1, pending_nonce = ?2, pending_blob = ?3
               WHERE id = 1",
-            params![epoch as i64, sealed.nonce, sealed.blob],
+            params![column, sealed.nonce, sealed.blob],
         )?;
         if changed == 0 {
             return Err(StoreError::NoVault);
@@ -374,17 +432,57 @@ impl Store {
         Ok(())
     }
 
-    /// Write down the public key a member was confirmed with. It goes to the
-    /// other members with the next sync.
-    pub fn team_pin_member(&self, account: Uuid, public: &[u8; 32]) -> Result<()> {
-        if self.team_pinned(account)?.as_ref() == Some(public) {
+    /// Note that this device took a member out and owes the team a new key,
+    /// or that it has given it one. Kept on the device and nowhere else:
+    /// whether the server asks for a rotation is the server's to say, and
+    /// this is not.
+    pub fn team_owe_rotation(&self, owed: bool) -> Result<()> {
+        let changed = self.conn.lock().execute(
+            "UPDATE team_state SET rotation_owed = ?1 WHERE id = 1",
+            [owed],
+        )?;
+        if changed == 0 {
+            return Err(StoreError::NoVault);
+        }
+        Ok(())
+    }
+
+    /// A confirmed key an earlier build left in this team's store, for
+    /// `account`: tombstoned, so it goes from the other members too.
+    /// `Ok(true)` when there was one. Nothing reads these; anybody with the
+    /// team key could write one.
+    pub fn team_drop_mailbox_pin(&self, account: Uuid) -> Result<bool> {
+        let mut conn = self.conn.lock();
+        let Some(state) = state_row(&conn)? else {
+            return Err(StoreError::NoVault);
+        };
+        let id = mailbox_pin_id(state.team, account).to_string();
+        let there: i64 = conn.query_row(
+            "SELECT count(*) FROM secrets WHERE id = ?1 AND deleted = 0",
+            [&id],
+            |row| row.get(0),
+        )?;
+        if there == 0 {
+            return Ok(false);
+        }
+        let tx = conn.transaction()?;
+        crate::vault::forget_secret(&tx, self.device, &id)?;
+        tx.commit()?;
+        Ok(true)
+    }
+
+    // -- what the account's own store keeps about its teams ----------------
+
+    /// Keep `plain` as a sealed record under `id`. Writes nothing when that
+    /// is what is there.
+    fn note_put(&self, id: Uuid, plain: &[u8]) -> Result<()> {
+        if self.note_get(id)?.as_deref() == Some(plain) {
             return Ok(());
         }
         let mut conn = self.conn.lock();
         let guard = self.vault.lock();
         let vault = guard.as_ref().ok_or(StoreError::VaultLocked)?;
-        let id = pin_id(vault.vault_id(), account);
-        let sealed = vault.seal(id, EntityKind::Secret, public)?;
+        let sealed = vault.seal(id, EntityKind::Secret, plain)?;
         let tx = conn.transaction()?;
         let clock = crate::tick(&tx, self.device)?;
         tx.execute(
@@ -409,12 +507,11 @@ impl Store {
         Ok(())
     }
 
-    /// The public key a member was confirmed with, if anybody wrote one down.
-    pub fn team_pinned(&self, account: Uuid) -> Result<Option<[u8; 32]>> {
+    /// One that does not open is as good as none.
+    fn note_get(&self, id: Uuid) -> Result<Option<Vec<u8>>> {
         let conn = self.conn.lock();
         let guard = self.vault.lock();
         let vault = guard.as_ref().ok_or(StoreError::VaultLocked)?;
-        let id = pin_id(vault.vault_id(), account);
         let sealed = conn
             .query_row(
                 "SELECT nonce, blob FROM secrets WHERE id = ?1 AND deleted = 0",
@@ -427,26 +524,83 @@ impl Store {
                 },
             )
             .optional()?;
-        let Some(sealed) = sealed else {
-            return Ok(None);
-        };
-        // One that does not open, or is not a key, is as good as none.
-        Ok(vault
-            .open(id, EntityKind::Secret, &sealed)
-            .ok()
-            .and_then(|plain| <[u8; 32]>::try_from(plain.as_slice()).ok()))
+        Ok(sealed.and_then(|sealed| {
+            let plain = vault.open(id, EntityKind::Secret, &sealed).ok()?;
+            Some(plain.to_vec())
+        }))
     }
 
-    /// Forget a member's confirmed key: they left, or were taken out.
-    pub fn team_unpin_member(&self, account: Uuid) -> Result<()> {
+    fn note_forget(&self, id: Uuid) -> Result<()> {
         let mut conn = self.conn.lock();
-        let Some(state) = state_row(&conn)? else {
-            return Err(StoreError::NoVault);
-        };
         let tx = conn.transaction()?;
-        crate::vault::forget_secret(&tx, self.device, &pin_id(state.team, account).to_string())?;
+        crate::vault::forget_secret(&tx, self.device, &id.to_string())?;
         tx.commit()?;
         Ok(())
+    }
+
+    /// Write down, in the account's own store, the key this account now
+    /// holds for a team: its epoch and its mark. It goes to the account's
+    /// other devices with the next sync, and to nobody else.
+    pub fn team_note_key(&self, team: Uuid, record: TeamKeyRecord) -> Result<()> {
+        epoch_column(record.epoch)?;
+        let mut plain = [0u8; 40];
+        plain[..8].copy_from_slice(&record.epoch.to_be_bytes());
+        plain[8..].copy_from_slice(&record.mark);
+        self.note_put(key_record_id(team), &plain)
+    }
+
+    /// What this account last knew of a team's key, if anything.
+    pub fn team_key_record(&self, team: Uuid) -> Result<Option<TeamKeyRecord>> {
+        Ok(self.note_get(key_record_id(team))?.and_then(|plain| {
+            let (epoch, mark) = plain.split_first_chunk::<8>()?;
+            Some(TeamKeyRecord {
+                epoch: u64::from_be_bytes(*epoch),
+                mark: <[u8; 32]>::try_from(mark).ok()?,
+            })
+        }))
+    }
+
+    /// Forget a team's key: this account left it, or deleted it.
+    pub fn team_forget_key(&self, team: Uuid) -> Result<()> {
+        self.note_forget(key_record_id(team))
+    }
+
+    /// Write down, in the account's own store, the public key this account
+    /// takes a member of a team to have.
+    pub fn team_pin_member(&self, team: Uuid, account: Uuid, public: &[u8; 32]) -> Result<()> {
+        self.note_put(pin_id(team, account), public)
+    }
+
+    /// What this account takes a member to be, if it wrote anything down.
+    pub fn team_pin(&self, team: Uuid, account: Uuid) -> Result<Option<MemberPin>> {
+        Ok(self
+            .note_get(pin_id(team, account))?
+            .and_then(|plain| match plain.as_slice() {
+                [] => Some(MemberPin::Removed),
+                key => <[u8; 32]>::try_from(key).ok().map(MemberPin::Confirmed),
+            }))
+    }
+
+    /// Write down that this account took a member out. Unlike nothing at
+    /// all, that is not overwritten by seeing the member listed.
+    pub fn team_bar_member(&self, team: Uuid, account: Uuid) -> Result<()> {
+        self.note_put(pin_id(team, account), &[])
+    }
+
+    /// Forget what was written down about a member: the team is left.
+    pub fn team_unpin_member(&self, team: Uuid, account: Uuid) -> Result<()> {
+        self.note_forget(pin_id(team, account))
+    }
+
+    /// A confirmed key in the team's own store, as an earlier build wrote
+    /// it and as anybody with the team key can. For tests of what this
+    /// build makes of one.
+    #[doc(hidden)]
+    pub fn team_write_mailbox_pin(&self, account: Uuid, public: &[u8; 32]) -> Result<()> {
+        let team = state_row(&self.conn.lock())?
+            .ok_or(StoreError::NoVault)?
+            .team;
+        self.note_put(mailbox_pin_id(team, account), public)
     }
 
     /// An account's member key, sealed under this store's vault for the
@@ -660,28 +814,128 @@ mod tests {
         assert!(store.team_pending_rotation().unwrap().is_none());
     }
 
+    /// The account's own store on the server, not a team's.
+    fn own() -> Store {
+        let store = Store::open_in_memory().unwrap();
+        store
+            .create_vault_with(b"password", KdfParams::INSECURE_FOR_TESTS)
+            .unwrap();
+        store
+    }
+
     #[test]
-    fn a_confirmed_key_is_a_record_that_syncs_and_outlives_a_new_team_key() {
-        let store = begun();
+    fn a_confirmed_key_is_a_record_of_the_accounts_own_store() {
+        let store = own();
         let (nia, olive) = (Uuid::from_u128(1), Uuid::from_u128(2));
-        assert_eq!(store.team_pinned(nia).unwrap(), None);
-        store.team_pin_member(nia, &[7; 32]).unwrap();
-        store.team_pin_member(olive, &[8; 32]).unwrap();
-        assert_eq!(store.team_pinned(nia).unwrap(), Some([7; 32]));
+        assert_eq!(store.team_pin(team(), nia).unwrap(), None);
+        store.team_pin_member(team(), nia, &[7; 32]).unwrap();
+        store.team_pin_member(team(), olive, &[8; 32]).unwrap();
+        let seven = Some(MemberPin::Confirmed([7; 32]));
+        assert_eq!(store.team_pin(team(), nia).unwrap(), seven);
+        // Per team: the same account in another team is another record.
+        assert_eq!(store.team_pin(Uuid::from_u128(9), nia).unwrap(), None);
         assert_eq!(dirty(&store, "secrets"), 2);
         // The same key again writes nothing.
         all_pushed(&store);
-        store.team_pin_member(nia, &[7; 32]).unwrap();
+        store.team_pin_member(team(), nia, &[7; 32]).unwrap();
         assert_eq!(dirty(&store, "secrets"), 0);
 
-        store.team_rekey(2, key(2), Rekey::Read).unwrap();
-        assert_eq!(store.team_pinned(olive).unwrap(), Some([8; 32]));
-        store.team_unpin_member(olive).unwrap();
-        assert_eq!(store.team_pinned(olive).unwrap(), None);
-        assert_eq!(store.team_pinned(nia).unwrap(), Some([7; 32]));
+        // Taken out is something else than never seen.
+        store.team_bar_member(team(), olive).unwrap();
+        assert_eq!(
+            store.team_pin(team(), olive).unwrap(),
+            Some(MemberPin::Removed)
+        );
+        assert_eq!(store.team_pin(team(), nia).unwrap(), seven);
         // Back again, with another key.
-        store.team_pin_member(olive, &[9; 32]).unwrap();
-        assert_eq!(store.team_pinned(olive).unwrap(), Some([9; 32]));
+        store.team_pin_member(team(), olive, &[9; 32]).unwrap();
+        assert_eq!(
+            store.team_pin(team(), olive).unwrap(),
+            Some(MemberPin::Confirmed([9; 32]))
+        );
+        store.team_unpin_member(team(), olive).unwrap();
+        assert_eq!(store.team_pin(team(), olive).unwrap(), None);
+
+        // Sealed: the key is not in the row.
+        let blobs: Vec<Vec<u8>> = {
+            let conn = store.conn.lock();
+            let mut stmt = conn.prepare("SELECT blob FROM secrets").unwrap();
+            let rows = stmt.query_map([], |row| row.get::<_, Vec<u8>>(0)).unwrap();
+            rows.map(|row| row.unwrap()).collect()
+        };
+        assert!(blobs
+            .iter()
+            .all(|blob| !blob.windows(8).any(|window| window == [7; 8])));
+    }
+
+    #[test]
+    fn a_teams_key_record_is_kept_and_forgotten() {
+        let store = own();
+        assert_eq!(store.team_key_record(team()).unwrap(), None);
+        let record = TeamKeyRecord {
+            epoch: 3,
+            mark: [5; 32],
+        };
+        store.team_note_key(team(), record).unwrap();
+        assert_eq!(store.team_key_record(team()).unwrap(), Some(record));
+        assert_eq!(store.team_key_record(Uuid::from_u128(9)).unwrap(), None);
+        all_pushed(&store);
+        store.team_note_key(team(), record).unwrap();
+        assert_eq!(dirty(&store, "secrets"), 0);
+        store.team_forget_key(team()).unwrap();
+        assert_eq!(store.team_key_record(team()).unwrap(), None);
+
+        store.lock_vault();
+        assert!(matches!(
+            store.team_key_record(team()),
+            Err(StoreError::VaultLocked)
+        ));
+    }
+
+    #[test]
+    fn a_pin_an_earlier_build_left_in_the_teams_store_is_cleared_away() {
+        let store = begun();
+        let nia = Uuid::from_u128(1);
+        assert!(!store.team_drop_mailbox_pin(nia).unwrap());
+        store.team_write_mailbox_pin(nia, &[7; 32]).unwrap();
+        all_pushed(&store);
+        assert!(store.team_drop_mailbox_pin(nia).unwrap());
+        assert_eq!(dirty(&store, "secrets"), 1);
+        assert!(!store.team_drop_mailbox_pin(nia).unwrap());
+    }
+
+    #[test]
+    fn an_epoch_the_database_cannot_hold_is_refused() {
+        let store = Store::open_in_memory().unwrap();
+        let far = i64::MAX as u64 + 1;
+        assert!(store.team_begin(team(), far, key(1)).is_err());
+        let store = begun();
+        assert!(store.team_rekey(far, key(2), Rekey::Read).is_err());
+        assert!(store.team_note_rotation(far, &[7; 32]).is_err());
+        assert!(store.team_rekey(u64::MAX, key(2), Rekey::Lead).is_err());
+        // Nothing of it happened.
+        let state = store.team_state().unwrap().unwrap();
+        assert_eq!((state.epoch, state.pending_epoch), (1, None));
+        assert!(store.team_key_is(&[1; 32]).unwrap());
+        assert!(store
+            .team_rekey(i64::MAX as u64, key(2), Rekey::Read)
+            .is_ok());
+    }
+
+    #[test]
+    fn a_rotation_that_is_owed_stays_owed_through_a_new_key() {
+        let store = begun();
+        assert!(!store.team_state().unwrap().unwrap().rotation_owed);
+        store.team_owe_rotation(true).unwrap();
+        // Somebody else's rotation is not this device's.
+        store.team_rekey(2, key(2), Rekey::Follow).unwrap();
+        assert!(store.team_state().unwrap().unwrap().rotation_owed);
+        store.team_owe_rotation(false).unwrap();
+        assert!(!store.team_state().unwrap().unwrap().rotation_owed);
+        assert!(Store::open_in_memory()
+            .unwrap()
+            .team_owe_rotation(true)
+            .is_err());
     }
 
     #[test]

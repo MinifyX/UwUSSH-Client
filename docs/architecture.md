@@ -593,39 +593,80 @@ server's side is in its `docs/teams.md`.
   the server lists to others, and its fingerprint (SHA-256, eight groups of
   four) is what people compare.
 - **A wrap** is the team key in a sealed box for one member, bound to the
-  team, the epoch, the account and the recipient's key, and it carries up to
-  eight earlier team keys. Anybody can make a sealed box, the server too —
-  the earlier keys are what a device checks a new key against (below).
+  team, the epoch, the account and the recipient's key. It carries the marks
+  of up to eight earlier team keys — a mark is a hash of a key under a label
+  of its own — and never such a key itself: somebody let in today is handed
+  nothing that opens what was sealed before. Anybody can make a sealed box,
+  the server too; the marks are what a device checks a new key against
+  (below).
+- **What an account writes down about a team** is kept in the account's own
+  vault on that server, sealed and synced among its devices like a password:
+  the epoch and the mark of the team key it last took, and for each member
+  the public key it takes them to have. Not in the team's records —
+  everybody with the team key writes those, and the server decides which of
+  them a device gets to see. (An earlier build kept confirmed keys there.
+  Nothing reads them any more, and a rotation clears them away.)
 - **Joining.** An invite code makes the account a waiting member. An owner
   or admin compares the newcomer's fingerprint with them and confirms: the
   client wraps the team key only for a listed key that has exactly that
-  fingerprint, and writes the confirmed key into the team's vault as a sealed
-  record. Until then the newcomer sees the team's name and nothing else.
-- **Removing a member** asks for a new key (`needs_rotation`). Whoever
-  manages the team rotates: pull to the end, wrap a fresh key for every
-  active member, have the server switch epoch — it deletes the team's
-  records, sealed under the old key — and push everything again under the
-  new one. A member the server lists as active whose key is not among the
-  confirmed ones stops the rotation instead of receiving the key. The
-  rotation is noted in the store before the request, so one that stopped
-  half way is finished on the next pass; other members follow the new epoch,
-  re-seal, and send what the server did not send back. Removing someone also
-  lists the hosts with a stored password or key: a new team key does not
-  change a login on a machine.
-- **What a device takes from the server.** The first key for a team on a
-  device is taken as it comes. After that a key is accepted only when it
-  comes after the one held: the same key under the same epoch, or a wrap
-  that carries the held key at the right place among its earlier ones. An
-  epoch that went backwards, another key under the same epoch, or a jump of
-  more than eight rotations leaves the team as it is, unsynced, with a line
-  in the log; leaving and joining again is the way out.
+  fingerprint, and writes that key down for the confirming account. Until
+  then the newcomer sees the team's name and nothing else.
+- **Removing a member** who had the key asks for a new one. Whoever manages
+  the team rotates: pull to the end, wrap a fresh key for every active
+  member, have the server switch epoch — it deletes the team's records,
+  sealed under the old key — and push everything again under the new one.
+  The device that removes somebody writes down that it owes the team a key
+  before the server hears of the removal, and rotates until it has, whether
+  or not the server says one is needed (`needs_rotation`); the page is told
+  when the new key is still to come. The rotation itself is noted in the
+  store before the request, so one that stopped half way is finished on the
+  next pass; other members follow the new epoch, re-seal, and send what the
+  server did not send back. Removing someone also lists the hosts with a
+  stored password or key: a new team key does not change a login on a
+  machine.
+- **Who a rotation wraps for.** The members the server lists as active, held
+  against what the rotating account wrote down. A member listed with another
+  key than the one written down, or listed again after this account took
+  them out, gets nothing: the rotation does not happen, the team says so
+  (`attention`), and it goes on once somebody who manages the team compared
+  that member's fingerprint again — the same confirmation as for a newcomer.
+  A member this account has nothing written down about — somebody else let
+  them in — is taken with the key the server lists, which is written down
+  from then on. This is the weak spot: a server that lists an account nobody
+  confirmed gets it the next team key from whoever rotates without having
+  seen that member before. An account can only vouch for what it compared
+  itself.
+- **What a device takes from the server.** A key is accepted only when it
+  comes after the one this account wrote down and, where the device has the
+  team, after the one the device holds: the same key under the same epoch,
+  or a wrap that carries the mark of that key at the right place among its
+  earlier ones. An epoch that went backwards, another key under the same
+  epoch, or a jump of more than eight rotations leaves the team as it is,
+  unsynced, and says so (`attention`); leaving and joining again is the way
+  out. Only the first key an account ever sees for a team is taken as it
+  comes — on any of its devices, as long as the note reached that device; a
+  server that keeps the note back from a new device is taken at its word
+  there, as it is for the account's first.
+- **What a new key proves.** That whoever made it knew the key before it.
+  That is enough against the server by itself, which never had one. It is
+  not enough against somebody who was in the team and is not any more: they
+  knew a key, and together with the server they can make a next one that
+  every device accepts. Nothing is signed; telling a rotation by an admin
+  from one by anybody who had the key would take that.
 - **Learning about teams** happens in the sync pass of the team's server
   (the client reads no event stream): list the teams, bring each active
   one's space to the server's epoch, push and pull its mailbox. A team's
   mailbox has no manifests; a server that keeps a team's record back is not
-  noticed the way it is in an account's own mailbox. A team this account is
-  no longer in, and every team of a server that was disconnected or moved to
-  UwULock, leaves the device with its file.
+  noticed the way it is in an account's own mailbox.
+- **When a team leaves the device.** When the account leaves or deletes it,
+  when the server is disconnected or moved to UwULock, or when the server,
+  asked about that team, answers that there is no such team for this account
+  (404 on the team's own routes). A list of teams that comes without it is
+  not that: the file stays, with what was not sent yet, and the team is shown
+  as not available. Neither is a space the handed-out key does not open. What
+  the account wrote down about the team's key outlives the space unless the
+  account itself left, so a team that comes back is held to it; redeeming an
+  invite starts over.
 - Shortcuts, stored texts and the assistant's settings are personal and never
   in a team. A backup or an import does not write into a team.
 

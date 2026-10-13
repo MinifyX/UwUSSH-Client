@@ -7,7 +7,7 @@ use crate::{Result, StoreError};
 use rusqlite::{params, Connection, OptionalExtension};
 use uuid::Uuid;
 
-pub const SCHEMA_VERSION: i64 = 11;
+pub const SCHEMA_VERSION: i64 = 12;
 
 /// The sync header (`id`, `vault_id`, clock, `rev`, `deleted`) is on every
 /// syncable table from the start; see the crate docs for why.
@@ -427,6 +427,12 @@ CREATE TABLE team_state (
 );
 "#;
 
+/// A team's store remembers that this device took a member out and has not
+/// given the team a new key since. On the device only.
+const V12: &str = r#"
+ALTER TABLE team_state ADD COLUMN rotation_owed INTEGER NOT NULL DEFAULT 0;
+"#;
+
 /// The command assistant: its settings and its answer cache, both synced
 /// (see `crate::assist`).
 const V9: &str = r#"
@@ -712,6 +718,14 @@ pub fn migrate(conn: &mut Connection) -> Result<()> {
         tx.pragma_update(None, "user_version", 11)?;
         tx.commit()?;
         tracing::info!("store migrated to schema 11");
+    }
+
+    if version < 12 {
+        let tx = conn.transaction()?;
+        tx.execute_batch(V12)?;
+        tx.pragma_update(None, "user_version", 12)?;
+        tx.commit()?;
+        tracing::info!("store migrated to schema 12");
     }
 
     Ok(())

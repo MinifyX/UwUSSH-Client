@@ -445,6 +445,7 @@ function TeamDetail({
   const [removed, setRemoved] = useState<{
     member: TeamMember;
     hosts: TeamRemoval['hosts'];
+    rotated: boolean;
   } | null>(null);
   const [inviteRole, setInviteRole] = useState<TeamRole>('editor');
   const [invite, setInvite] = useState<TeamInvite | null>(null);
@@ -712,7 +713,12 @@ function TeamDetail({
           run={() => teamRemove(server.space, team.id, removing.accountId)}
           onCancel={() => setRemoving(null)}
           onDone={(result) => {
-            setRemoved({ member: removing, hosts: (result as TeamRemoval | null)?.hosts ?? [] });
+            const removal = result as TeamRemoval | null;
+            setRemoved({
+              member: removing,
+              hosts: removal?.hosts ?? [],
+              rotated: removal?.rotated ?? true,
+            });
             setRemoving(null);
             changed();
           }}
@@ -721,7 +727,7 @@ function TeamDetail({
       {removed && (
         <NoticeDialog
           title={removed.hosts.length > 0 ? t('Zugangsdaten ändern') : t('Entfernt')}
-          tone={removed.hosts.length > 0 ? 'warning' : 'default'}
+          tone={removed.hosts.length > 0 || !removed.rotated ? 'warning' : 'default'}
           onClose={() => setRemoved(null)}
         >
           {removed.hosts.length > 0 ? (
@@ -746,6 +752,13 @@ function TeamDetail({
               {t(
                 '{name} ist entfernt. Kein Host des Teams hat ein gespeichertes Passwort oder einen Key – es gibt nichts zu ändern.',
                 { name: removed.member.displayName },
+              )}
+            </p>
+          )}
+          {!removed.rotated && (
+            <p className="dialog-lead">
+              {t(
+                'Der Schlüssel des Teams ist noch der alte. Er wird ersetzt, sobald der Server erreichbar ist.',
               )}
             </p>
           )}

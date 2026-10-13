@@ -19,7 +19,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 use uwussh_store::{SpaceHandle, SpaceKind, Spaces, Store, TeamRole, VaultStatus};
 use uwussh_sync::{
-    HostRef, MemberState, Server, ServerTeams, TeamError, TeamInfo, TeamInvite, TeamMember, Teams,
+    MemberState, Removal, Server, ServerTeams, TeamError, TeamInfo, TeamInvite, TeamMember, Teams,
 };
 
 /// What the page is told when something went wrong. `kind` is what it acts
@@ -52,6 +52,21 @@ impl From<TeamError> for TeamFailure {
         let kind = error.kind();
         let message = match &error {
             TeamError::VaultLocked | TeamError::Unsupported => None,
+            // The page has no word of its own for this one, and shows the
+            // message as it comes.
+            other if other.code() == Some("rate-limited") => {
+                Some("Zu viele Versuche. Bitte später erneut.".to_string())
+            }
+            // The page knows a changed key by this word in the message,
+            // whoever noticed: this device or the server.
+            other if other.code() == Some("identity-changed") => {
+                let text = other.to_string();
+                Some(if text.contains("identity-changed") {
+                    text
+                } else {
+                    format!("identity-changed: {text}")
+                })
+            }
             other => Some(other.to_string()),
         };
         Self { kind, message }
@@ -185,6 +200,7 @@ fn from_here(spaces: &Spaces, server: &SpaceHandle) -> ServerTeams {
                 members: 0,
                 needs_rotation: false,
                 space: Some(space.id),
+                attention: None,
             })
         })
         .collect();
@@ -383,21 +399,50 @@ pub(crate) async fn team_set_role(
     .await
 }
 
-#[derive(Serialize)]
-pub(crate) struct Removed {
-    /// The hosts whose stored logins the member may still know.
-    hosts: Vec<HostRef>,
-}
-
 #[tauri::command]
 pub(crate) async fn team_remove(
     app: AppHandle,
     server: String,
     team: Uuid,
     account: Uuid,
-) -> TeamResult<Removed> {
-    on_server(&app, server, true, move |teams| {
-        teams.remove(team, account).map(|hosts| Removed { hosts })
-    })
-    .await
+) -> TeamResult<Removal> {
+    on_server(&app, server, true, move |teams| teams.remove(team, account)).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn refused(code: &str, message: &str) -> TeamFailure {
+        TeamFailure::from(TeamError::Refused {
+            code: code.into(),
+            message: message.into(),
+            epoch: None,
+        })
+    }
+
+    #[test]
+    fn the_page_is_told_of_a_changed_key_and_of_too_many_tries_in_words_it_knows() {
+        let failure = refused("identity-changed", "the member key is another one");
+        assert_eq!(failure.kind, "error");
+        assert_eq!(
+            failure.message.as_deref(),
+            Some("identity-changed: the member key is another one")
+        );
+        let failure = TeamFailure::from(TeamError::MemberChanged {
+            account: Uuid::nil(),
+            name: "Ben".into(),
+            returned: false,
+        });
+        let message = failure.message.unwrap();
+        assert!(message.starts_with("identity-changed: Ben "));
+
+        let failure = refused("rate-limited", "slow down");
+        assert_eq!(failure.kind, "error");
+        assert_eq!(
+            failure.message.as_deref(),
+            Some("Zu viele Versuche. Bitte später erneut.")
+        );
+        assert_eq!(refused("forbidden", "no").kind, "not-allowed");
+    }
 }

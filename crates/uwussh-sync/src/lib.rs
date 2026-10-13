@@ -36,8 +36,8 @@ pub use flow::{create_account, join, offer_pairing, parse_setup, reconnect, Flow
 pub use http::{from_wire, to_wire, Server};
 pub use memory::MemoryServer;
 pub use team::{
-    HostRef, MemberState, ServerTeams, TeamApi, TeamError, TeamInfo, TeamInvite, TeamMember,
-    TeamPass, Teams,
+    Attention, AttentionKind, HostRef, MemberState, Removal, ServerTeams, TeamApi, TeamError,
+    TeamInfo, TeamInvite, TeamMember, TeamPass, Teams,
 };
 pub use uwussh_proto::api;
 

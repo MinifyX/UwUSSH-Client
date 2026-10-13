@@ -57,7 +57,7 @@ pub use spaces::{
     MAX_SERVERS, MAX_TEAM_NAME, NEW_SPACE,
 };
 pub use sync::{ApplyReport, Enrolment, EnrolmentKeys, Pushed, SyncState};
-pub use team::{Rekey, TeamState};
+pub use team::{MemberPin, Rekey, TeamKeyRecord, TeamState};
 pub use tunnels::{TunnelDraft, TunnelRecord};
 pub use vault::{Revealed, VaultStatus};
 

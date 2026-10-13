@@ -95,6 +95,7 @@
   "Entfernt": "Removed",
   "{name} ist entfernt, kennt aber weiter, was im Team lag. Ändere Passwort und Key dieser Hosts – auf den Servern selbst:": "{name} is removed but still knows what was in the team. Change the password and key of these hosts – on the servers themselves:",
   "{name} ist entfernt. Kein Host des Teams hat ein gespeichertes Passwort oder einen Key – es gibt nichts zu ändern.": "{name} is removed. No host of the team has a stored password or key – there is nothing to change.",
+  "Der Schlüssel des Teams ist noch der alte. Er wird ersetzt, sobald der Server erreichbar ist.": "The team's key is still the old one. It is replaced as soon as the server can be reached.",
   "{team} verlassen?": "Leave {team}?",
   "Die Hosts des Teams verschwinden von deinen Geräten. Zurück kommst du nur mit einer neuen Einladung.": "The team's hosts disappear from your devices. You can only come back with a new invite.",
   "Verlassen": "Leave",

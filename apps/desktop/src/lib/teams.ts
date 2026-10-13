@@ -27,6 +27,21 @@ export type TeamInfo = {
   needsRotation: boolean;
   /** The local space once the team is open on this device. */
   space: string | null;
+  /** What stands in the way of this team on this device, when something does. */
+  attention?: TeamAttention;
+};
+
+/**
+ * - `unavailable`: the server no longer lists the team; what is here is kept.
+ * - `key-refused`: the key the server hands out does not follow the one held.
+ * - `member-key-changed`: `member`'s key changed; no new team key until an
+ *   admin confirmed them again (the normal confirm, with `account`).
+ * - `member-returned`: `member` was removed here and is listed again.
+ */
+export type TeamAttention = {
+  kind: 'unavailable' | 'key-refused' | 'member-key-changed' | 'member-returned';
+  account?: string;
+  member?: string;
 };
 
 export type TeamServer = {
@@ -55,8 +70,12 @@ export type TeamMember = {
 /** `code` only right after the invite was made. */
 export type TeamInvite = { id: string; role: TeamRole; expiresMs: number; code?: string };
 
-/** The team's hosts that carry a stored password or key, after a member went. */
-export type TeamRemoval = { hosts: { id: string; name: string }[] };
+/**
+ * After a member went: the team's hosts that carry a stored password or key,
+ * and whether the team has its new key. `rotated: false` means it gets one
+ * as soon as the server is reachable.
+ */
+export type TeamRemoval = { hosts: { id: string; name: string }[]; rotated: boolean };
 
 export type TeamFailure = {
   kind:

@@ -2,16 +2,16 @@
 //!
 //! The server here follows the rules of UwUSync's `docs/teams.md` — and can
 //! be made to break them, the way one that was taken over would: list a
-//! public key nobody confirmed, hand out a key of its own making, hand out
-//! an old one again.
+//! another public key for a member, hand out a key of its own making, hand
+//! out an old one again, leave a team out of the list and bring it back.
 
-use crate::engine::Transport;
+use crate::engine::{sync_once, Transport};
 use crate::http::{decode_base64, encode_base64};
 use crate::team::{
     MemberState, Policy, RotateKey, TeamApi, TeamError, TeamPull, Teams, WireIdentity, WireInvite,
     WireJoined, WireMember, WireTeam,
 };
-use crate::MemoryServer;
+use crate::{AttentionKind, MemoryServer};
 use parking_lot::Mutex;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -21,7 +21,7 @@ use uwussh_proto::{Envelope, PushResponse, SyncCursor};
 use uwussh_store::{
     AuthMethod, HostDraft, PasswordChange, SecretText, SpaceHostDraft, Spaces, TeamRole,
 };
-use uwussh_vault::team::{new_team_key, wrap_team_key};
+use uwussh_vault::team::{key_mark, new_team_key, wrap_team_key, TeamKeys};
 use uwussh_vault::{KdfParams, WrapContext};
 
 type Result<T> = std::result::Result<T, TeamError>;
@@ -34,6 +34,7 @@ fn refused<T>(code: &str) -> Result<T> {
     })
 }
 
+#[derive(Clone)]
 struct Member {
     account: Uuid,
     display: String,
@@ -59,6 +60,8 @@ struct State {
     old: bool,
     disabled: bool,
     down: bool,
+    /// List no team to anybody. A team's own routes answer as before.
+    unlisted: bool,
     /// Do the next rotation, and lose the answer.
     drop_rotate_answer: bool,
     /// Refuse the next rotation with this.
@@ -208,6 +211,9 @@ impl TeamApi for As<'_> {
 
     fn teams(&self) -> Result<Vec<WireTeam>> {
         self.with(|state| {
+            if state.unlisted {
+                return Ok(Vec::new());
+            }
             Ok(state
                 .teams
                 .iter()
@@ -604,12 +610,53 @@ impl Device {
     }
 
     fn epoch(&self, team: Uuid) -> u64 {
+        self.store(team).team_state().unwrap().unwrap().epoch
+    }
+
+    /// The team's own store on this device.
+    fn store(&self, team: Uuid) -> Arc<uwussh_store::Store> {
         let space = self
             .spaces
             .team_space(&self.spaces.main_id(), team)
-            .unwrap();
-        space.store.team_state().unwrap().unwrap().epoch
+            .expect("the team's space");
+        space.store
     }
+
+    /// What the server hands this account for the team, opened.
+    fn keys(&self, fake: &Fake, team: Uuid) -> TeamKeys {
+        self.on(fake, |teams| {
+            let wire = teams.listed()?.into_iter().find(|wire| wire.id == team);
+            teams.keys(&teams.member_key()?, &wire.expect("the team"))
+        })
+        .unwrap()
+    }
+
+    /// What one pass makes of the team.
+    fn told(&self, fake: &Fake, team: Uuid) -> crate::TeamInfo {
+        let teams = self.pass(fake).status.teams;
+        let found = teams.into_iter().find(|info| info.id == team);
+        found.expect("the team")
+    }
+}
+
+/// The public key the server has for a device's account.
+fn public_of(fake: &Fake, device: &Device) -> String {
+    fake.state.lock().identities[&device.account].0.clone()
+}
+
+/// A wrap anybody can make: for `device`'s key, an epoch, a key the server
+/// knows. It carries no mark of any key before it.
+fn forged(fake: &Fake, device: &Device, team: Uuid, epoch: u64) -> String {
+    let public: [u8; 32] = decode_base64(&public_of(fake, device))
+        .unwrap()
+        .try_into()
+        .unwrap();
+    let context = WrapContext {
+        team,
+        epoch,
+        account: device.account,
+    };
+    encode_base64(wrap_team_key(&new_team_key(), &[], context, &public).unwrap())
 }
 
 /// A team `owner` made, with `others` let in under the roles given.
@@ -630,6 +677,27 @@ fn team_of(fake: &Fake, owner: &Device, others: &[(&Device, TeamRole)]) -> Uuid 
         device.pass(fake);
     }
     team
+}
+
+/// Let one more into a team that is there already.
+fn team_of_more(fake: &Fake, owner: &Device, team: Uuid, device: &Device) -> Uuid {
+    let invite = owner
+        .on(fake, |teams| teams.invite(team, TeamRole::Editor))
+        .unwrap();
+    let joined = device
+        .on(fake, |teams| teams.join(&invite.code.unwrap(), "Somebody"))
+        .unwrap();
+    let seen = device.fingerprint(fake);
+    owner
+        .on(fake, |teams| teams.confirm(team, device.account, &seen))
+        .unwrap();
+    device.pass(fake);
+    joined.id
+}
+
+fn fingerprint_of(public: &str) -> String {
+    let public: [u8; 32] = decode_base64(public).unwrap().try_into().unwrap();
+    uwussh_vault::team::fingerprint(&public)
 }
 
 fn code_of<T: std::fmt::Debug>(result: Result<T>) -> String {
@@ -867,9 +935,11 @@ fn removing_a_member_gives_the_team_a_new_key_and_names_the_logins_they_knew() {
         .team_key()
         .unwrap();
 
-    let known = olive
+    let removal = olive
         .on(&fake, |teams| teams.remove(team, ben.account))
         .unwrap();
+    assert!(removal.rotated);
+    let known = removal.hosts;
     assert_eq!(known.len(), 1);
     assert_eq!((known[0].id, known[0].name.as_str()), (bastion, "bastion"));
     assert_eq!(fake.epoch(team), old_epoch + 1);
@@ -926,15 +996,18 @@ fn a_rotation_that_stopped_halfway_is_finished_on_the_next_pass() {
     // The server switches and the answer never arrives: its records are
     // gone, and this device does not know whether it happened.
     fake.state.lock().drop_rotate_answer = true;
-    olive
+    let removal = olive
         .on(&fake, |teams| teams.remove(team, ben.account))
         .unwrap();
+    assert!(!removal.rotated, "for all this device knows");
     assert_eq!(fake.epoch(team), 3);
     assert_eq!(olive.epoch(team), 2);
     assert!(fake.mailbox(team).is_empty());
 
     olive.pass(&fake);
     assert_eq!(olive.epoch(team), 3);
+    let state = olive.store(team).team_state().unwrap().unwrap();
+    assert!(!state.rotation_owed, "it was this device's rotation");
     assert!(!fake.mailbox(team).is_empty());
     cleo.pass(&fake);
     assert_eq!(cleo.hosts(team), ["bastion"]);
@@ -988,43 +1061,363 @@ fn two_who_manage_a_team_end_with_one_rotation() {
 }
 
 #[test]
-fn a_member_the_server_lists_and_nobody_confirmed_gets_no_key() {
+fn a_removal_the_rotation_did_not_follow_is_owed_until_it_does() {
     let fake = Fake::default();
-    let (olive, ben, mallory) = (Device::new(), Device::new(), Device::new());
+    let (olive, ben, dan) = (Device::new(), Device::new(), Device::new());
     let team = team_of(&fake, &olive, &[(&ben, TeamRole::Editor)]);
-    olive.add(team, "bastion").unwrap();
+    let secret = PasswordChange::Set {
+        value: SecretText::new("hunter2"),
+    };
+    olive.add_with(team, "bastion", secret).unwrap();
     olive.pass(&fake);
 
-    // The server puts an account of its choosing among the active members
-    // and asks for a new key.
+    // Somebody who only waited never had the key: nothing is owed.
+    let invite = olive
+        .on(&fake, |teams| teams.invite(team, TeamRole::Editor))
+        .unwrap();
+    dan.on(&fake, |teams| teams.join(&invite.code.unwrap(), "Dan"))
+        .unwrap();
+    let rotations = fake.state.lock().rotations;
+    let removal = olive
+        .on(&fake, |teams| teams.remove(team, dan.account))
+        .unwrap();
+    assert!(removal.rotated && removal.hosts.is_empty());
+    assert_eq!(fake.state.lock().rotations, rotations);
+    assert!(!olive.told(&fake, team).needs_rotation);
+    assert_eq!(fake.state.lock().rotations, rotations);
+
+    // Ben had it. The server takes him out and refuses the new key.
+    fake.state.lock().refuse_rotate = Some("forbidden");
+    let removal = olive
+        .on(&fake, |teams| teams.remove(team, ben.account))
+        .unwrap();
+    assert!(!removal.rotated);
+    assert_eq!(removal.hosts.len(), 1, "the logins are named all the same");
+    assert_eq!(fake.state.lock().rotations, rotations);
+    let state = olive.store(team).team_state().unwrap().unwrap();
+    assert!(state.rotation_owed);
+
+    // And says nothing of a rotation being needed. This device knows.
+    fake.team(team, |team| team.needs_rotation = false);
+    let epoch = fake.epoch(team);
+    let info = olive.told(&fake, team);
+    assert!(!info.needs_rotation && info.attention.is_none());
+    assert_eq!(fake.state.lock().rotations, rotations + 1);
+    assert_eq!(
+        (fake.epoch(team), olive.epoch(team)),
+        (epoch + 1, epoch + 1)
+    );
+    let state = olive.store(team).team_state().unwrap().unwrap();
+    assert!(!state.rotation_owed);
+    olive.pass(&fake);
+    assert_eq!(fake.state.lock().rotations, rotations + 1, "once");
+
+    // A removal the server refuses owes nothing and bars nobody.
+    let adam = Device::new();
+    let other = team_of(&fake, &olive, &[(&adam, TeamRole::Admin)]);
+    assert_eq!(
+        code_of(adam.on(&fake, |teams| teams.remove(other, Uuid::now_v7()))),
+        "not-found"
+    );
+    let state = adam.store(other).team_state().unwrap().unwrap();
+    assert!(!state.rotation_owed);
+}
+
+#[test]
+fn a_member_whose_key_changed_gets_no_key_until_it_was_compared_again() {
+    let fake = Fake::default();
+    let (olive, ben, cleo, mallory) = (Device::new(), Device::new(), Device::new(), Device::new());
+    let team = team_of(
+        &fake,
+        &olive,
+        &[(&ben, TeamRole::Editor), (&cleo, TeamRole::Editor)],
+    );
+    olive.add(team, "bastion").unwrap();
+    olive.pass(&fake);
+    cleo.pass(&fake);
+
+    // The server lists another key for Ben and asks for a new team key.
     mallory.on(&fake, |teams| teams.join("x", "M")).ok();
-    let public = fake.state.lock().identities[&mallory.account].0.clone();
+    let genuine = public_of(&fake, &ben);
+    let swapped = public_of(&fake, &mallory);
     fake.team(team, |team| {
-        team.members.push(Member {
-            account: mallory.account,
-            display: "Ben".into(),
-            role: TeamRole::Editor,
-            state: MemberState::Active,
-            public,
-            wrapped: None,
-            epoch: None,
-        });
+        team.members[1].public = swapped.clone();
         team.needs_rotation = true;
     });
     let epoch = fake.epoch(team);
-    let pass = olive.pass(&fake);
-    assert!(pass.status.teams[0].needs_rotation);
+    let info = olive.told(&fake, team);
+    assert!(info.needs_rotation);
+    let attention = info.attention.expect("something to do");
+    assert_eq!(attention.kind, AttentionKind::MemberKeyChanged);
+    assert_eq!(attention.account, Some(ben.account));
+    assert_eq!(attention.member.as_deref(), Some("Somebody"));
     assert_eq!(fake.epoch(team), epoch);
-    assert!(fake.wrapped(team, mallory.account).is_none());
 
-    // The same for a confirmed member whose key was swapped afterwards.
-    fake.team(team, |team| {
-        team.members.pop();
-        let swapped = team.members[0].public.clone();
-        team.members[1].public = swapped;
-    });
+    // Somebody with the team key writes into the team's records that the
+    // new key is confirmed, where an earlier build looked. Nothing looks
+    // there any more.
+    let swapped_key: [u8; 32] = decode_base64(&swapped).unwrap().try_into().unwrap();
+    cleo.store(team)
+        .team_write_mailbox_pin(ben.account, &swapped_key)
+        .unwrap();
+    cleo.pass(&fake);
+    let info = olive.told(&fake, team);
+    assert_eq!(
+        info.attention.map(|attention| attention.kind),
+        Some(AttentionKind::MemberKeyChanged)
+    );
+    assert_eq!(fake.epoch(team), epoch);
+
+    // Comparing the wrong fingerprint changes nothing, and the page is
+    // told in the word it knows.
+    let wrong = fingerprint_of(&genuine);
+    let refused = olive
+        .on(&fake, |teams| teams.confirm(team, ben.account, &wrong))
+        .unwrap_err();
+    assert_eq!(refused.code(), Some("identity-changed"));
+    assert!(refused.to_string().contains("identity-changed"));
     olive.pass(&fake);
     assert_eq!(fake.epoch(team), epoch);
+
+    // Compared again, the key is Ben's for this account, and the team gets
+    // its new one.
+    let seen = fingerprint_of(&swapped);
+    olive
+        .on(&fake, |teams| teams.confirm(team, ben.account, &seen))
+        .unwrap();
+    let info = olive.told(&fake, team);
+    assert!(!info.needs_rotation && info.attention.is_none());
+    assert_eq!(fake.epoch(team), epoch + 1);
+    // What was planted went with it.
+    assert!(!olive
+        .store(team)
+        .team_drop_mailbox_pin(ben.account)
+        .unwrap());
+    cleo.pass(&fake);
+    assert!(!cleo.store(team).team_drop_mailbox_pin(ben.account).unwrap());
+}
+
+#[test]
+fn a_member_somebody_else_let_in_is_taken_as_first_seen_and_not_back_once_removed() {
+    let fake = Fake::default();
+    let (olive, adam, cleo, mallory) = (Device::new(), Device::new(), Device::new(), Device::new());
+    let team = team_of(&fake, &olive, &[(&adam, TeamRole::Admin)]);
+    olive.add(team, "bastion").unwrap();
+    olive.pass(&fake);
+    adam.pass(&fake);
+
+    // Adam lets Cleo in. Olive's devices have never seen her.
+    let invite = adam
+        .on(&fake, |teams| teams.invite(team, TeamRole::Editor))
+        .unwrap();
+    cleo.on(&fake, |teams| teams.join(&invite.code.unwrap(), "Cleo"))
+        .unwrap();
+    let seen = cleo.fingerprint(&fake);
+    adam.on(&fake, |teams| teams.confirm(team, cleo.account, &seen))
+        .unwrap();
+    cleo.pass(&fake);
+
+    // Olive's rotation takes her with the key the server lists.
+    fake.team(team, |team| team.needs_rotation = true);
+    let epoch = fake.epoch(team);
+    assert!(olive.told(&fake, team).attention.is_none());
+    assert_eq!(fake.epoch(team), epoch + 1);
+    cleo.pass(&fake);
+    assert_eq!(cleo.hosts(team), ["bastion"]);
+
+    // And with no other from then on.
+    mallory.on(&fake, |teams| teams.join("x", "M")).ok();
+    let genuine = public_of(&fake, &cleo);
+    let swapped = public_of(&fake, &mallory);
+    fake.team(team, |team| {
+        team.members[2].public = swapped;
+        team.needs_rotation = true;
+    });
+    let attention = olive.told(&fake, team).attention.expect("something to do");
+    assert_eq!(attention.kind, AttentionKind::MemberKeyChanged);
+    assert_eq!(fake.epoch(team), epoch + 1);
+    fake.team(team, |team| team.members[2].public = genuine.clone());
+    assert!(olive.told(&fake, team).attention.is_none());
+    assert_eq!(fake.epoch(team), epoch + 2);
+
+    // Olive takes Cleo out. A server that lists her again, with the key
+    // she always had, gets her no new team key from Olive.
+    let kept = fake.team(team, |team| team.members[2].clone());
+    let removal = olive
+        .on(&fake, |teams| teams.remove(team, cleo.account))
+        .unwrap();
+    assert!(removal.rotated);
+    assert_eq!(fake.epoch(team), epoch + 3);
+    fake.team(team, |team| {
+        team.members.push(kept);
+        team.needs_rotation = true;
+    });
+    let attention = olive.told(&fake, team).attention.expect("something to do");
+    assert_eq!(attention.kind, AttentionKind::MemberReturned);
+    assert_eq!(attention.account, Some(cleo.account));
+    assert_eq!(fake.epoch(team), epoch + 3);
+
+    // Until Olive compared her fingerprint again.
+    olive
+        .on(&fake, |teams| teams.confirm(team, cleo.account, &seen))
+        .unwrap();
+    assert!(olive.told(&fake, team).attention.is_none());
+    assert_eq!(fake.epoch(team), epoch + 4);
+}
+
+#[test]
+fn somebody_let_in_after_a_rotation_is_handed_no_earlier_key() {
+    let fake = Fake::default();
+    let (olive, ben, cleo) = (Device::new(), Device::new(), Device::new());
+    let team = team_of(&fake, &olive, &[(&ben, TeamRole::Editor)]);
+    olive.add(team, "bastion").unwrap();
+    olive.pass(&fake);
+    let before = olive.store(team).team_key().unwrap();
+    let removal = olive
+        .on(&fake, |teams| teams.remove(team, ben.account))
+        .unwrap();
+    assert!(removal.rotated);
+    let now = olive.store(team).team_key().unwrap();
+    assert_ne!(*before, *now);
+
+    let team_too = team_of_more(&fake, &olive, team, &cleo);
+    assert_eq!(team_too, team);
+    let keys = cleo.keys(&fake, team);
+    assert_eq!(*keys.key, *now);
+    // What came before is there as a mark: enough to tell that a key
+    // follows, not enough to open anything.
+    assert!(keys.earlier.contains(&key_mark(&before)));
+    assert!(!keys.earlier.contains(&before));
+    // The same for those who were there: Olive's own wrap of the rotation.
+    let keys = olive.keys(&fake, team);
+    assert!(keys.earlier.contains(&key_mark(&before)));
+    assert!(!keys.earlier.contains(&before));
+    assert_eq!(cleo.hosts(team), ["bastion"]);
+}
+
+#[test]
+fn a_team_left_out_of_the_list_stays_and_comes_back_only_with_a_key_that_follows() {
+    let fake = Fake::default();
+    let (olive, cleo) = (Device::new(), Device::new());
+    let team = team_of(&fake, &olive, &[(&cleo, TeamRole::Editor)]);
+    olive.add(team, "bastion").unwrap();
+    olive.pass(&fake);
+    cleo.pass(&fake);
+    let epoch = cleo.epoch(team);
+    // Cleo has an edit nobody has seen.
+    cleo.add(team, "cleo's").unwrap();
+
+    // The list comes without the team. That is no word about the team.
+    fake.state.lock().unlisted = true;
+    let pass = cleo.pass(&fake);
+    assert!(!pass.spaces_changed);
+    assert_eq!(pass.status.teams.len(), 1);
+    let info = &pass.status.teams[0];
+    assert_eq!((info.id, info.name.as_str()), (team, "Ops"));
+    assert_eq!(info.space, cleo.space(team));
+    assert_eq!(
+        info.attention.as_ref().map(|attention| attention.kind),
+        Some(AttentionKind::Unavailable)
+    );
+    assert_eq!(cleo.hosts(team), ["bastion", "cleo's"]);
+
+    // It is back, with a key of the server's making under the next epoch.
+    let genuine = fake.wrapped(team, cleo.account);
+    let wrap = forged(&fake, &cleo, team, epoch + 1);
+    fake.state.lock().unlisted = false;
+    fake.team(team, |team| {
+        team.epoch += 1;
+        team.members[1].wrapped = Some(wrap);
+    });
+    let cursor = fake.mailbox(team).cursor();
+    let info = cleo.told(&fake, team);
+    assert_eq!(
+        info.attention.map(|attention| attention.kind),
+        Some(AttentionKind::KeyRefused)
+    );
+    assert_eq!(cleo.epoch(team), epoch);
+    assert_eq!(cleo.hosts(team), ["bastion", "cleo's"]);
+    assert_eq!(fake.mailbox(team).cursor(), cursor, "nothing sealed for it");
+
+    // Another device of Cleo's that never had the team: what her account
+    // wrote down about the team's key reaches it with her own sync, and
+    // the server's key is turned down there as well.
+    let account = MemoryServer::new();
+    let phone = cleo.second();
+    sync_once(&cleo.spaces.main(), &account).unwrap();
+    sync_once(&phone.spaces.main(), &account).unwrap();
+    let info = phone.told(&fake, team);
+    assert_eq!(
+        info.attention.map(|attention| attention.kind),
+        Some(AttentionKind::KeyRefused)
+    );
+    assert!(phone.space(team).is_none());
+
+    // With the team as it was, both go on, and the edit arrives.
+    fake.team(team, |team| {
+        team.epoch -= 1;
+        team.members[1].wrapped = genuine;
+    });
+    assert!(cleo.told(&fake, team).attention.is_none());
+    assert!(phone.told(&fake, team).attention.is_none());
+    assert_eq!(phone.hosts(team), ["bastion", "cleo's"]);
+    olive.pass(&fake);
+    assert_eq!(olive.hosts(team), ["bastion", "cleo's"]);
+
+    // A real rotation is followed by the device that only has the note.
+    let tablet = cleo.second();
+    sync_once(&tablet.spaces.main(), &account).unwrap();
+    fake.team(team, |team| team.needs_rotation = true);
+    olive.pass(&fake);
+    assert_eq!(fake.epoch(team), epoch + 1);
+    assert!(tablet.told(&fake, team).attention.is_none());
+    assert_eq!(tablet.epoch(team), epoch + 1);
+    assert_eq!(tablet.hosts(team), ["bastion", "cleo's"]);
+}
+
+#[test]
+fn a_space_that_does_not_open_is_kept_and_leaving_takes_the_note_along() {
+    let fake = Fake::default();
+    let (olive, cleo) = (Device::new(), Device::new());
+    let team = team_of(&fake, &olive, &[(&cleo, TeamRole::Editor)]);
+    cleo.pass(&fake);
+    let own = cleo.spaces.main();
+    let record = own.team_key_record(team).unwrap().expect("written down");
+    assert_eq!(record.epoch, cleo.epoch(team));
+    assert_eq!(record.mark, key_mark(&cleo.store(team).team_key().unwrap()));
+
+    // Gone for the account, said about the team itself: the space goes,
+    // the note stays, and the server's own key is no way back in.
+    fake.team(team, |team| {
+        team.members.pop();
+    });
+    assert!(cleo.pass(&fake).spaces_changed);
+    assert!(cleo.space(team).is_none());
+    assert!(own.team_key_record(team).unwrap().is_some());
+    let wrap = forged(&fake, &cleo, team, record.epoch + 1);
+    let public = public_of(&fake, &cleo);
+    fake.team(team, |team| {
+        team.epoch += 1;
+        team.members.push(Member {
+            account: cleo.account,
+            display: "Cleo".into(),
+            role: TeamRole::Editor,
+            state: MemberState::Active,
+            public,
+            wrapped: Some(wrap),
+            epoch: None,
+        });
+    });
+    let info = cleo.told(&fake, team);
+    assert_eq!(
+        info.attention.map(|attention| attention.kind),
+        Some(AttentionKind::KeyRefused)
+    );
+    assert!(cleo.space(team).is_none());
+
+    // Leaving is the account's own word: nothing of the team is kept.
+    cleo.on(&fake, |teams| teams.leave(team)).unwrap();
+    assert!(own.team_key_record(team).unwrap().is_none());
 }
 
 #[test]
@@ -1043,19 +1436,12 @@ fn a_key_of_the_servers_own_or_an_old_one_again_is_not_taken() {
     let first_wrap = fake.wrapped(team, cleo.account).unwrap();
 
     // A wrap anybody can make: for Cleo's key, the next epoch, a key the
-    // server knows. It does not carry the key Cleo holds.
-    let public = fake.state.lock().identities[&cleo.account].0.clone();
-    let public: [u8; 32] = decode_base64(&public).unwrap().try_into().unwrap();
-    let context = WrapContext {
-        team,
-        epoch: epoch + 1,
-        account: cleo.account,
-    };
-    let forged = wrap_team_key(&new_team_key(), &[], context, &public).unwrap();
+    // server knows. It does not carry the mark of the key Cleo holds.
+    let wrap = forged(&fake, &cleo, team, epoch + 1);
     let genuine = fake.wrapped(team, cleo.account);
     fake.team(team, |team| {
         team.epoch += 1;
-        team.members[2].wrapped = Some(encode_base64(forged));
+        team.members[2].wrapped = Some(wrap);
     });
     cleo.add(team, "cleo's").unwrap();
     let cursor = fake.mailbox(team).cursor();
@@ -1064,11 +1450,10 @@ fn a_key_of_the_servers_own_or_an_old_one_again_is_not_taken() {
     assert_eq!(fake.mailbox(team).cursor(), cursor, "nothing sealed for it");
     assert_eq!(cleo.hosts(team), ["bastion", "cleo's"]);
     // Another key under the epoch held is no better.
-    let context = WrapContext { epoch, ..context };
-    let forged = wrap_team_key(&new_team_key(), &[], context, &public).unwrap();
+    let wrap = forged(&fake, &cleo, team, epoch);
     fake.team(team, |team| {
         team.epoch -= 1;
-        team.members[2].wrapped = Some(encode_base64(forged));
+        team.members[2].wrapped = Some(wrap);
     });
     cleo.pass(&fake);
     assert_eq!(fake.mailbox(team).cursor(), cursor);
@@ -1159,6 +1544,17 @@ fn what_went_wrong_is_one_of_the_words_the_interface_knows() {
     assert_eq!(kind("membership-pending"), "not-allowed");
     assert_eq!(kind("teams-disabled"), "unsupported");
     assert_eq!(kind("something-new"), "error");
+    assert_eq!(kind("rate-limited"), "error");
+    let changed = TeamError::MemberChanged {
+        account: Uuid::nil(),
+        name: "Ben".into(),
+        returned: false,
+    };
+    assert_eq!(
+        (changed.kind(), changed.code()),
+        ("error", Some("identity-changed"))
+    );
+    assert!(changed.to_string().starts_with("identity-changed: Ben "));
     assert_eq!(TeamError::Unsupported.kind(), "unsupported");
     assert_eq!(TeamError::VaultLocked.kind(), "vault-locked");
     assert_eq!(TeamError::Offline("x".into()).kind(), "offline");
@@ -1172,8 +1568,18 @@ fn what_went_wrong_is_one_of_the_words_the_interface_knows() {
         members: 2,
         needs_rotation: true,
         space: None,
+        attention: None,
     })
     .unwrap();
+    assert!(info.get("attention").is_none());
+    let attention = serde_json::to_value(crate::Attention {
+        kind: AttentionKind::MemberKeyChanged,
+        account: Some(Uuid::nil()),
+        member: Some("Ben".into()),
+    })
+    .unwrap();
+    assert_eq!(attention["kind"], "member-key-changed");
+    assert_eq!(attention["member"], "Ben");
     assert_eq!(info["role"], "admin");
     assert_eq!(info["state"], "pending");
     assert_eq!(info["needsRotation"], true);
