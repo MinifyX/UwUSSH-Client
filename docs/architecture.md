@@ -618,7 +618,9 @@ server's side is in its `docs/teams.md`.
   The device that removes somebody writes down that it owes the team a key
   before the server hears of the removal, and rotates until it has, whether
   or not the server says one is needed (`needs_rotation`); the page is told
-  when the new key is still to come. The rotation itself is noted in the
+  when the new key is still to come. Where the device has the team, that is
+  kept with the team's store; where it has not, in the account's own vault,
+  so another of its devices finds it. The rotation itself is noted in the
   store before the request, so one that stopped half way is finished on the
   next pass; other members follow the new epoch, re-seal, and send what the
   server did not send back. Removing someone also lists the hosts with a
@@ -631,11 +633,17 @@ server's side is in its `docs/teams.md`.
   (`attention`), and it goes on once somebody who manages the team compared
   that member's fingerprint again — the same confirmation as for a newcomer.
   A member this account has nothing written down about — somebody else let
-  them in — is taken with the key the server lists, which is written down
-  from then on. This is the weak spot: a server that lists an account nobody
-  confirmed gets it the next team key from whoever rotates without having
-  seen that member before. An account can only vouch for what it compared
-  itself.
+  them in, or the server lists an account nobody did — gets nothing either:
+  nothing is written down on sight, the rotation waits
+  (`attention: member-unconfirmed`) and the key stays owed. Somebody else
+  who manages the team and has compared every member rotates in the
+  meantime; this account does once it compared that member too, which is a
+  note in its own vault and no request to the server. The member list says
+  whom this account has not compared (`confirmed`). So a rotating account
+  wraps only for keys it compared itself — the team's creator for
+  everybody they let in, an admin for the members they went through — and a
+  server acting alone gets no account a team key. An account can only vouch
+  for what it compared itself.
 - **What a device takes from the server.** A key is accepted only when it
   comes after the one this account wrote down and, where the device has the
   team, after the one the device holds: the same key under the same epoch,

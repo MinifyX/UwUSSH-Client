@@ -47,27 +47,27 @@ impl TeamFailure {
     }
 }
 
+/// The codes the page tells apart inside a failure that is otherwise just
+/// shown.
+const WORDS: [&str; 3] = ["identity-changed", "rate-limited", "member-unconfirmed"];
+
 impl From<TeamError> for TeamFailure {
     fn from(error: TeamError) -> Self {
         let kind = error.kind();
         let message = match &error {
             TeamError::VaultLocked | TeamError::Unsupported => None,
-            // The page has no word of its own for this one, and shows the
-            // message as it comes.
-            other if other.code() == Some("rate-limited") => {
-                Some("Zu viele Versuche. Bitte später erneut.".to_string())
-            }
-            // The page knows a changed key by this word in the message,
-            // whoever noticed: this device or the server.
-            other if other.code() == Some("identity-changed") => {
+            // The page knows these by the word in the message, whoever
+            // noticed, this device or the server, and has its own sentence
+            // for each.
+            other => {
                 let text = other.to_string();
-                Some(if text.contains("identity-changed") {
-                    text
-                } else {
-                    format!("identity-changed: {text}")
-                })
+                match other.code() {
+                    Some(code) if WORDS.contains(&code) && !text.contains(code) => {
+                        Some(format!("{code}: {text}"))
+                    }
+                    _ => Some(text),
+                }
             }
-            other => Some(other.to_string()),
         };
         Self { kind, message }
     }
@@ -439,10 +439,16 @@ mod tests {
 
         let failure = refused("rate-limited", "slow down");
         assert_eq!(failure.kind, "error");
-        assert_eq!(
-            failure.message.as_deref(),
-            Some("Zu viele Versuche. Bitte später erneut.")
-        );
+        assert_eq!(failure.message.as_deref(), Some("rate-limited: slow down"));
+        let failure = TeamFailure::from(TeamError::MemberUnconfirmed {
+            account: Uuid::nil(),
+            name: "Cleo".into(),
+        });
+        assert_eq!(failure.kind, "error");
+        assert!(failure
+            .message
+            .unwrap()
+            .starts_with("member-unconfirmed: Cleo "));
         assert_eq!(refused("forbidden", "no").kind, "not-allowed");
     }
 }

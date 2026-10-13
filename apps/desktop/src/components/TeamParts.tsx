@@ -5,6 +5,7 @@ import type { SpaceRef } from '../lib/sync';
 import { useSpaces } from '../lib/teamCommands';
 import {
   asTeamFailure,
+  type AttentionNotice,
   failureCase,
   fingerprintRows,
   inviteRemaining,
@@ -30,6 +31,8 @@ export function teamFailureText(failure: TeamFailure): string {
   switch (failureCase(failure)) {
     case 'identity-changed':
       return t('Der Schlüssel dieses Mitglieds hat sich geändert. Bitte neu vergleichen.');
+    case 'rate-limited':
+      return t('Zu viele Versuche. Bitte später erneut.');
     case 'vault-locked':
       return t('Der Tresor ist gesperrt.');
     case 'offline':
@@ -52,6 +55,36 @@ export function teamFailureText(failure: TeamFailure): string {
       return failure.message
         ? t('Das hat nicht geklappt: {reason}', { reason: failure.message })
         : t('Das hat nicht geklappt.');
+  }
+}
+
+/** What stands in the way of a team, in one line. */
+export function attentionText(notice: AttentionNotice): string {
+  const name = notice.member ?? t('Ein Mitglied');
+  switch (notice.kind) {
+    case 'unavailable':
+      return t(
+        'Der Server bietet dieses Team gerade nicht an. Was auf diesem Gerät liegt, bleibt erhalten.',
+      );
+    case 'key-refused':
+      return t(
+        'Der Server bietet einen Schlüssel an, der nicht an den bekannten anschließt. Das Team wird nicht synchronisiert. Wende dich an den Inhaber – oder verlass das Team.',
+      );
+    case 'member-key-changed':
+      return t(
+        'Der Schlüssel von {name} hat sich geändert. Der neue Team-Schlüssel wartet, bis {name} neu bestätigt ist.',
+        { name },
+      );
+    case 'member-returned':
+      return t(
+        '{name} wurde entfernt und steht wieder im Team. Der neue Team-Schlüssel wartet, bis {name} neu bestätigt ist.',
+        { name },
+      );
+    case 'member-unconfirmed':
+      return t(
+        '{name} wurde von jemand anderem aufgenommen. Der neue Team-Schlüssel wartet, bis du {name} bestätigt hast.',
+        { name },
+      );
   }
 }
 

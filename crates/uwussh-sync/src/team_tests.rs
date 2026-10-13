@@ -1198,7 +1198,7 @@ fn a_member_whose_key_changed_gets_no_key_until_it_was_compared_again() {
 }
 
 #[test]
-fn a_member_somebody_else_let_in_is_taken_as_first_seen_and_not_back_once_removed() {
+fn a_member_somebody_else_let_in_gets_no_key_from_who_did_not_compare_them() {
     let fake = Fake::default();
     let (olive, adam, cleo, mallory) = (Device::new(), Device::new(), Device::new(), Device::new());
     let team = team_of(&fake, &olive, &[(&adam, TeamRole::Admin)]);
@@ -1206,7 +1206,8 @@ fn a_member_somebody_else_let_in_is_taken_as_first_seen_and_not_back_once_remove
     olive.pass(&fake);
     adam.pass(&fake);
 
-    // Adam lets Cleo in. Olive's devices have never seen her.
+    // Adam lets Cleo in. Nobody of Olive's account compared her key, and
+    // nobody of Adam's compared Olive's.
     let invite = adam
         .on(&fake, |teams| teams.invite(team, TeamRole::Editor))
         .unwrap();
@@ -1216,16 +1217,72 @@ fn a_member_somebody_else_let_in_is_taken_as_first_seen_and_not_back_once_remove
     adam.on(&fake, |teams| teams.confirm(team, cleo.account, &seen))
         .unwrap();
     cleo.pass(&fake);
+    let confirmed = |device: &Device| -> Vec<Option<bool>> {
+        let members = device.on(&fake, |teams| teams.members(team)).unwrap();
+        members.iter().map(|member| member.confirmed).collect()
+    };
+    assert_eq!(confirmed(&olive), [Some(true), Some(true), Some(false)]);
+    assert_eq!(confirmed(&adam), [Some(false), Some(true), Some(true)]);
 
-    // Olive's rotation takes her with the key the server lists.
+    // A new key is asked for. Olive makes none: not for Cleo, not for
+    // anybody.
     fake.team(team, |team| team.needs_rotation = true);
     let epoch = fake.epoch(team);
-    assert!(olive.told(&fake, team).attention.is_none());
+    let rotations = fake.state.lock().rotations;
+    let wrap = fake.wrapped(team, cleo.account);
+    let info = olive.told(&fake, team);
+    assert!(info.needs_rotation);
+    let attention = info.attention.expect("something to do");
+    assert_eq!(attention.kind, AttentionKind::MemberUnconfirmed);
+    assert_eq!(attention.account, Some(cleo.account));
+    assert_eq!(attention.member.as_deref(), Some("Cleo"));
+    assert_eq!(fake.epoch(team), epoch);
+    assert_eq!(fake.state.lock().rotations, rotations);
+    assert_eq!(fake.wrapped(team, cleo.account), wrap);
+    // She did not come to hold Cleo's key by having looked.
+    assert_eq!(confirmed(&olive), [Some(true), Some(true), Some(false)]);
+
+    // Neither does Adam, who never compared Olive's.
+    let attention = adam.told(&fake, team).attention.expect("something to do");
+    assert_eq!(attention.kind, AttentionKind::MemberUnconfirmed);
+    assert_eq!(attention.account, Some(olive.account));
+    assert_eq!(fake.epoch(team), epoch);
+
+    // He does. The server hears nothing of it, and he is the one who has
+    // compared them all: the team gets its key from him meanwhile.
+    let olives = olive.fingerprint(&fake);
+    adam.on(&fake, |teams| teams.confirm(team, olive.account, &olives))
+        .unwrap();
+    assert_eq!(fake.epoch(team), epoch);
+    assert_eq!(confirmed(&adam), [Some(true), Some(true), Some(true)]);
+    let info = adam.told(&fake, team);
+    assert!(!info.needs_rotation && info.attention.is_none());
     assert_eq!(fake.epoch(team), epoch + 1);
+    let info = olive.told(&fake, team);
+    assert!(!info.needs_rotation && info.attention.is_none());
     cleo.pass(&fake);
+    assert_eq!(
+        (olive.epoch(team), cleo.epoch(team)),
+        (epoch + 1, epoch + 1)
+    );
     assert_eq!(cleo.hosts(team), ["bastion"]);
 
-    // And with no other from then on.
+    // The next one is Olive's again once she compared Cleo's fingerprint.
+    fake.team(team, |team| team.needs_rotation = true);
+    let attention = olive.told(&fake, team).attention.expect("something to do");
+    assert_eq!(attention.kind, AttentionKind::MemberUnconfirmed);
+    assert_eq!(
+        code_of(olive.on(&fake, |teams| teams.confirm(team, cleo.account, &olives))),
+        "identity-changed"
+    );
+    olive
+        .on(&fake, |teams| teams.confirm(team, cleo.account, &seen))
+        .unwrap();
+    assert_eq!(confirmed(&olive), [Some(true), Some(true), Some(true)]);
+    assert!(olive.told(&fake, team).attention.is_none());
+    assert_eq!(fake.epoch(team), epoch + 2);
+
+    // And goes to that key of hers, to no other.
     mallory.on(&fake, |teams| teams.join("x", "M")).ok();
     let genuine = public_of(&fake, &cleo);
     let swapped = public_of(&fake, &mallory);
@@ -1235,10 +1292,11 @@ fn a_member_somebody_else_let_in_is_taken_as_first_seen_and_not_back_once_remove
     });
     let attention = olive.told(&fake, team).attention.expect("something to do");
     assert_eq!(attention.kind, AttentionKind::MemberKeyChanged);
-    assert_eq!(fake.epoch(team), epoch + 1);
+    assert_eq!(confirmed(&olive), [Some(true), Some(true), Some(false)]);
+    assert_eq!(fake.epoch(team), epoch + 2);
     fake.team(team, |team| team.members[2].public = genuine.clone());
     assert!(olive.told(&fake, team).attention.is_none());
-    assert_eq!(fake.epoch(team), epoch + 2);
+    assert_eq!(fake.epoch(team), epoch + 3);
 
     // Olive takes Cleo out. A server that lists her again, with the key
     // she always had, gets her no new team key from Olive.
@@ -1247,7 +1305,7 @@ fn a_member_somebody_else_let_in_is_taken_as_first_seen_and_not_back_once_remove
         .on(&fake, |teams| teams.remove(team, cleo.account))
         .unwrap();
     assert!(removal.rotated);
-    assert_eq!(fake.epoch(team), epoch + 3);
+    assert_eq!(fake.epoch(team), epoch + 4);
     fake.team(team, |team| {
         team.members.push(kept);
         team.needs_rotation = true;
@@ -1255,14 +1313,109 @@ fn a_member_somebody_else_let_in_is_taken_as_first_seen_and_not_back_once_remove
     let attention = olive.told(&fake, team).attention.expect("something to do");
     assert_eq!(attention.kind, AttentionKind::MemberReturned);
     assert_eq!(attention.account, Some(cleo.account));
-    assert_eq!(fake.epoch(team), epoch + 3);
+    assert_eq!(fake.epoch(team), epoch + 4);
 
     // Until Olive compared her fingerprint again.
     olive
         .on(&fake, |teams| teams.confirm(team, cleo.account, &seen))
         .unwrap();
     assert!(olive.told(&fake, team).attention.is_none());
-    assert_eq!(fake.epoch(team), epoch + 4);
+    assert_eq!(fake.epoch(team), epoch + 5);
+}
+
+#[test]
+fn an_account_only_the_server_says_is_in_gets_no_key() {
+    let fake = Fake::default();
+    let (olive, ben, mallory) = (Device::new(), Device::new(), Device::new());
+    let team = team_of(&fake, &olive, &[(&ben, TeamRole::Editor)]);
+    olive.add(team, "bastion").unwrap();
+    olive.pass(&fake);
+
+    // Nobody let Mallory in. The server lists her as a member and asks
+    // for a new team key.
+    mallory.on(&fake, |teams| teams.join("x", "M")).ok();
+    let public = public_of(&fake, &mallory);
+    fake.team(team, |team| {
+        team.members.push(Member {
+            account: mallory.account,
+            display: "Mallory".into(),
+            role: TeamRole::Editor,
+            state: MemberState::Active,
+            public,
+            wrapped: None,
+            epoch: None,
+        });
+        team.needs_rotation = true;
+    });
+    let epoch = fake.epoch(team);
+    let rotations = fake.state.lock().rotations;
+    for _ in 0..2 {
+        let info = olive.told(&fake, team);
+        assert!(info.needs_rotation);
+        let attention = info.attention.expect("something to do");
+        assert_eq!(attention.kind, AttentionKind::MemberUnconfirmed);
+        assert_eq!(attention.account, Some(mallory.account));
+        assert_eq!(attention.member.as_deref(), Some("Mallory"));
+    }
+    assert_eq!(fake.epoch(team), epoch);
+    assert_eq!(fake.state.lock().rotations, rotations);
+    assert_eq!(fake.wrapped(team, mallory.account), None);
+
+    // Taking somebody else out does not get her one either: the key is
+    // owed, and stays owed.
+    let removal = olive
+        .on(&fake, |teams| teams.remove(team, ben.account))
+        .unwrap();
+    assert!(!removal.rotated);
+    assert_eq!(fake.wrapped(team, mallory.account), None);
+    assert_eq!(fake.epoch(team), epoch);
+    let state = olive.store(team).team_state().unwrap().unwrap();
+    assert!(state.rotation_owed);
+
+    // Out she goes, and the team has its new key.
+    let removal = olive
+        .on(&fake, |teams| teams.remove(team, mallory.account))
+        .unwrap();
+    assert!(removal.rotated);
+    assert_eq!(fake.epoch(team), epoch + 1);
+    let info = olive.told(&fake, team);
+    assert!(!info.needs_rotation && info.attention.is_none());
+    let state = olive.store(team).team_state().unwrap().unwrap();
+    assert!(!state.rotation_owed);
+}
+
+#[test]
+fn a_removal_from_a_device_without_the_team_is_owed_by_the_account() {
+    let fake = Fake::default();
+    let (laptop, ben) = (Device::new(), Device::new());
+    let team = team_of(&fake, &laptop, &[(&ben, TeamRole::Editor)]);
+    laptop.add(team, "bastion").unwrap();
+    laptop.pass(&fake);
+
+    // The phone has never opened the team, and does not get to now.
+    let phone = laptop.second();
+    fake.state.lock().unlisted = true;
+    let removal = phone
+        .on(&fake, |teams| teams.remove(team, ben.account))
+        .unwrap();
+    assert!(!removal.rotated);
+    assert!(phone.space(team).is_none());
+    // What it owes is kept with the account, where its devices find it.
+    assert!(phone.spaces.main().team_owes_key(team).unwrap());
+
+    // The server says nothing of a rotation being needed. The account
+    // knows, and pays once.
+    fake.state.lock().unlisted = false;
+    fake.team(team, |team| team.needs_rotation = false);
+    let epoch = fake.epoch(team);
+    let rotations = fake.state.lock().rotations;
+    let info = phone.told(&fake, team);
+    assert!(!info.needs_rotation && info.attention.is_none());
+    assert_eq!(fake.epoch(team), epoch + 1);
+    assert!(!phone.spaces.main().team_owes_key(team).unwrap());
+    phone.pass(&fake);
+    assert_eq!(fake.state.lock().rotations, rotations + 1, "once");
+    assert_eq!(phone.hosts(team), ["bastion"]);
 }
 
 #[test]

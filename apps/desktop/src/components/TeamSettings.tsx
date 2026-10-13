@@ -1,5 +1,5 @@
 import { Button, Card, Hint, Icon, ICONS, Select, Tag } from '@uwusuite/design';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { t, useLanguage } from '../lib/i18n';
 import {
   teamConfirm,
@@ -17,11 +17,14 @@ import {
 } from '../lib/teamCommands';
 import {
   asTeamFailure,
+  attentionNotice,
+  confirmedBefore,
   failureCase,
   assignableRoles,
   INVITE_ROLES,
   may,
   mayConfirm,
+  mayReconfirm,
   mayRemove,
   sortMembers,
   teamServers,
@@ -35,6 +38,7 @@ import {
 import { ago, copy, SyncRow } from './SyncParts';
 import {
   AskDialog,
+  attentionText,
   Fingerprint,
   FormDialog,
   NoticeDialog,
@@ -193,6 +197,7 @@ function ServerSection({
                     </Button>
                   </>
                 )}
+                <TeamAttentionNote team={team} />
               </li>
             ))}
           </ul>
@@ -293,6 +298,22 @@ function ServerSection({
         />
       )}
     </section>
+  );
+}
+
+/** What stands in the way of a team, as one line on it. */
+function TeamAttentionNote({ team, children }: { team: TeamInfo; children?: ReactNode }) {
+  const notice = attentionNotice(team);
+  if (!notice) return null;
+  return (
+    <Hint
+      tone={notice.kind === 'unavailable' ? 'info' : 'warning'}
+      className="team-attention"
+      data-attention={notice.kind}
+    >
+      <span>{attentionText(notice)}</span>
+      {children}
+    </Hint>
   );
 }
 
@@ -475,6 +496,14 @@ function TeamDetail({
     refresh();
   };
 
+  const notice = attentionNotice(team);
+  // The member the notice is about, once the list says which key to compare.
+  const due = notice?.confirm
+    ? members?.find(
+        (member) => member.accountId === notice.confirm?.account && member.state === 'active',
+      )
+    : undefined;
+
   return (
     <div className="sync-spaces">
       <section className="sync-space" aria-label={team.name}>
@@ -496,7 +525,24 @@ function TeamDetail({
             {t('Die Hosts des Teams kommen mit dem nächsten Sync auf dieses Gerät.')}
           </p>
         )}
-        {manage && team.needsRotation && (
+        <TeamAttentionNote team={team}>
+          {notice?.confirm && (
+            <Button
+              size="sm"
+              variant="primary"
+              disabled={!due}
+              onClick={() => due && setConfirming(due)}
+            >
+              {notice.confirm.again ? t('Neu bestätigen…') : t('Bestätigen…')}
+            </Button>
+          )}
+          {notice?.leave && (
+            <Button size="sm" icon={ICONS.signOut} onClick={() => setLeaving(true)}>
+              {t('Verlassen…')}
+            </Button>
+          )}
+        </TeamAttentionNote>
+        {manage && team.needsRotation && !notice?.confirm && (
           <p className="setting-description team-note">
             {t('Der Schlüssel des Teams wird gerade erneuert.')}
           </p>
@@ -519,6 +565,9 @@ function TeamDetail({
                         <span className="team-name">{member.displayName}</span>
                         {member.me && <Tag tone="pink">{t('du')}</Tag>}
                         {member.state === 'pending' && <Tag tone="warning">{t('wartet')}</Tag>}
+                        {mayReconfirm(team.role, member) && (
+                          <Tag tone="warning">{t('nicht bestätigt')}</Tag>
+                        )}
                       </b>
                       <small>
                         {roles.length === 0 && `${t(ROLE_NAMES[member.role])} · `}
@@ -553,6 +602,13 @@ function TeamDetail({
                     {mayConfirm(team.role, member) && (
                       <Button size="sm" variant="primary" onClick={() => setConfirming(member)}>
                         {t('Bestätigen…')}
+                      </Button>
+                    )}
+                    {mayReconfirm(team.role, member) && (
+                      <Button size="sm" onClick={() => setConfirming(member)}>
+                        {confirmedBefore(team.attention, member.accountId)
+                          ? t('Neu bestätigen…')
+                          : t('Bestätigen…')}
                       </Button>
                     )}
                     {mayRemove(team.role, member) && (
@@ -691,9 +747,11 @@ function TeamDetail({
           // After a reload the key the server names now, not the one from before.
           member={
             members?.find(
-              (member) => member.accountId === confirming.accountId && member.state === 'pending',
+              (member) =>
+                member.accountId === confirming.accountId && member.state === confirming.state,
             ) ?? confirming
           }
+          again={confirmedBefore(team.attention, confirming.accountId)}
           onStale={load}
           onCancel={() => setConfirming(null)}
           onDone={() => {
@@ -812,11 +870,16 @@ function TeamDetail({
  * Letting a waiting member in. This is where the team key is handed over, so
  * the dialog shows the key the server names and asks for it to be compared
  * with the person, away from this server, before anything is sent.
+ *
+ * For a member who is in already it is this account taking their key as
+ * compared: somebody else let them in, or the key is not the one it knew.
+ * The next team key from this account goes to that key, and waits for it.
  */
 function ConfirmMember({
   server,
   team,
   member,
+  again,
   onStale,
   onCancel,
   onDone,
@@ -824,6 +887,8 @@ function ConfirmMember({
   server: string;
   team: TeamInfo;
   member: TeamMember;
+  /** This account compared a key of theirs before, and it is not this one. */
+  again: boolean;
   /** The member's key is another one by now: load the members again. */
   onStale: () => void;
   onCancel: () => void;
@@ -838,7 +903,7 @@ function ConfirmMember({
   return (
     <>
       <Modal
-        title={t('{name} bestätigen?', { name })}
+        title={again ? t('{name} neu bestätigen?', { name }) : t('{name} bestätigen?', { name })}
         tone="warning"
         onCancel={() => !task.busy && onCancel()}
         footer={
@@ -870,11 +935,16 @@ function ConfirmMember({
         }
       >
         <p className="dialog-lead">
-          {t('{name} bekommt den Schlüssel von {team} – als {role}.', {
-            name,
-            team: team.name,
-            role: t(ROLE_NAMES[member.role]),
-          })}
+          {member.state === 'active'
+            ? t(
+                '{name} ist schon Mitglied von {team}. Der nächste Team-Schlüssel wartet, bis du diesen Fingerabdruck verglichen hast – und geht dann an genau ihn.',
+                { name, team: team.name },
+              )
+            : t('{name} bekommt den Schlüssel von {team} – als {role}.', {
+                name,
+                team: team.name,
+                role: t(ROLE_NAMES[member.role]),
+              })}
         </p>
         <Card className="team-code-card p-4">
           <span className="setting-description">{t('Fingerabdruck von {name}', { name })}</span>

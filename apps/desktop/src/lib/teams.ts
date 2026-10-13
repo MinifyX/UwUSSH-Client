@@ -37,9 +37,12 @@ export type TeamInfo = {
  * - `member-key-changed`: `member`'s key changed; no new team key until an
  *   admin confirmed them again (the normal confirm, with `account`).
  * - `member-returned`: `member` was removed here and is listed again.
+ * - `member-unconfirmed`: `member` is in, and nobody of this account ever
+ *   compared their key: somebody else let them in. Same way out.
  */
 export type TeamAttention = {
-  kind: 'unavailable' | 'key-refused' | 'member-key-changed' | 'member-returned';
+  kind:
+    'unavailable' | 'key-refused' | 'member-key-changed' | 'member-returned' | 'member-unconfirmed';
   account?: string;
   member?: string;
 };
@@ -65,6 +68,11 @@ export type TeamMember = {
   fingerprint: string;
   joinedMs: number;
   me: boolean;
+  /**
+   * For an active member: whether this account compared the key they are
+   * listed with. Absent for somebody who waits, and from an older backend.
+   */
+  confirmed?: boolean;
 };
 
 /** `code` only right after the invite was made. */
@@ -118,8 +126,11 @@ export function asTeamFailure(error: unknown): TeamFailure {
 /** The backend's word, inside an `error`, for a member key that is not the one shown. */
 const IDENTITY_CHANGED = 'identity-changed';
 
+/** The server's word, inside an `error`, for too many tries in too little time. */
+const RATE_LIMITED = 'rate-limited';
+
 /** What a failure is about: its kind, or one of the errors the pages have words for. */
-export type TeamFailureCase = TeamFailure['kind'] | 'identity-changed';
+export type TeamFailureCase = TeamFailure['kind'] | 'identity-changed' | 'rate-limited';
 
 /**
  * Confirming hands the team key to exactly the key that was on screen. When
@@ -128,9 +139,9 @@ export type TeamFailureCase = TeamFailure['kind'] | 'identity-changed';
  * the new key compared.
  */
 export function failureCase(failure: TeamFailure): TeamFailureCase {
-  if (failure.kind === 'error' && failure.message?.includes(IDENTITY_CHANGED)) {
-    return 'identity-changed';
-  }
+  if (failure.kind !== 'error') return failure.kind;
+  if (failure.message?.includes(IDENTITY_CHANGED)) return 'identity-changed';
+  if (failure.message?.includes(RATE_LIMITED)) return 'rate-limited';
   return failure.kind;
 }
 
@@ -216,6 +227,56 @@ export function mayRemove(mine: TeamRole, member: { role: TeamRole; me: boolean 
 /** Letting a waiting member in. Nobody confirms their own key. */
 export function mayConfirm(mine: TeamRole, member: { state: TeamState; me: boolean }): boolean {
   return manages(mine) && member.state === 'pending' && !member.me;
+}
+
+/**
+ * Comparing the key of somebody who is in already: this account never did
+ * (somebody else let them in), or the key is not the one it compared. The
+ * team gets no new key from this account until then.
+ */
+export function mayReconfirm(
+  mine: TeamRole,
+  member: { state: TeamState; me: boolean; confirmed?: boolean },
+): boolean {
+  return manages(mine) && member.state === 'active' && !member.me && member.confirmed === false;
+}
+
+/**
+ * Whether this account has compared a key of this member before: then it is
+ * asked to confirm them again, not for the first time.
+ */
+export function confirmedBefore(attention: TeamAttention | undefined, account: string): boolean {
+  if (!attention || attention.account !== account) return false;
+  return attention.kind === 'member-key-changed' || attention.kind === 'member-returned';
+}
+
+/** What the page says about a team something stands in the way of. */
+export type AttentionNotice = {
+  kind: TeamAttention['kind'];
+  /** The member it is about, as the server names them. Null: no name to show. */
+  member: string | null;
+  /** The member whose fingerprint this account can compare to get on. */
+  confirm: { account: string; again: boolean } | null;
+  /** Leaving the team is the way out. */
+  leave: boolean;
+};
+
+export function attentionNotice(
+  team: Pick<TeamInfo, 'role' | 'state' | 'attention'>,
+): AttentionNotice | null {
+  const attention = team.attention;
+  if (!attention) return null;
+  const about =
+    attention.kind === 'member-key-changed' ||
+    attention.kind === 'member-returned' ||
+    attention.kind === 'member-unconfirmed';
+  const account = about && may(team, 'manage') ? attention.account : undefined;
+  return {
+    kind: attention.kind,
+    member: about ? attention.member?.trim() || null : null,
+    confirm: account ? { account, again: confirmedBefore(attention, account) } : null,
+    leave: attention.kind === 'key-refused',
+  };
 }
 
 /** Who waits comes first, then by role, then by name. */

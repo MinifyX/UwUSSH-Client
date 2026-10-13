@@ -18,6 +18,8 @@ import type { SpaceInfo, SpacesStatus, SyncStatus } from '../src/lib/sync.ts';
 import {
   asTeamFailure,
   assignableRoles,
+  attentionNotice,
+  confirmedBefore,
   failureCase,
   filingGroups,
   fingerprintRows,
@@ -27,6 +29,7 @@ import {
   inviteRemaining,
   may,
   mayConfirm,
+  mayReconfirm,
   mayRemove,
   readOnlySpaces,
   sortMembers,
@@ -244,6 +247,68 @@ test('who may be removed and confirmed', () => {
   assert.equal(mayConfirm('reader', { state: 'pending', me: false }), false);
 });
 
+test('a member this account never compared is confirmed by who manages the team', () => {
+  const member = { state: 'active', me: false, confirmed: false } as const;
+  assert.equal(mayReconfirm('owner', member), true);
+  assert.equal(mayReconfirm('admin', member), true);
+  assert.equal(mayReconfirm('editor', member), false);
+  assert.equal(mayReconfirm('reader', member), false);
+  assert.equal(mayReconfirm('owner', { ...member, confirmed: true }), false);
+  // An older backend says nothing: nobody is marked.
+  assert.equal(mayReconfirm('owner', { state: 'active', me: false }), false);
+  assert.equal(mayReconfirm('owner', { ...member, me: true }), false);
+  // Somebody who waits is let in, not confirmed again.
+  assert.equal(mayReconfirm('owner', { ...member, state: 'pending' }), false);
+});
+
+test('what stands in the way of a team, and the way out', () => {
+  const team = (
+    attention: TeamInfo['attention'],
+    role: TeamRole = 'owner',
+  ): Pick<TeamInfo, 'role' | 'state' | 'attention'> => ({ role, state: 'active', attention });
+  assert.equal(attentionNotice(team(undefined)), null);
+  assert.deepEqual(attentionNotice(team({ kind: 'unavailable' })), {
+    kind: 'unavailable',
+    member: null,
+    confirm: null,
+    leave: false,
+  });
+  // The way out of a key that does not follow is to leave. A name or an
+  // account that came along means nothing there.
+  assert.deepEqual(attentionNotice(team({ kind: 'key-refused', account: 'a', member: 'Ben' })), {
+    kind: 'key-refused',
+    member: null,
+    confirm: null,
+    leave: true,
+  });
+  assert.deepEqual(
+    attentionNotice(team({ kind: 'member-unconfirmed', account: 'a', member: ' Cleo ' })),
+    {
+      kind: 'member-unconfirmed',
+      member: 'Cleo',
+      confirm: { account: 'a', again: false },
+      leave: false,
+    },
+  );
+  for (const kind of ['member-key-changed', 'member-returned'] as const) {
+    const attention = { kind, account: 'a', member: 'Ben' };
+    assert.deepEqual(attentionNotice(team(attention, 'admin'))?.confirm, {
+      account: 'a',
+      again: true,
+    });
+    // Nothing to press for who does not manage the team, or without an account.
+    assert.equal(attentionNotice(team(attention, 'editor'))?.confirm, null);
+    assert.equal(attentionNotice(team({ kind, member: 'Ben' }))?.confirm, null);
+    assert.equal(attentionNotice(team({ kind, account: 'a' }))?.member, null);
+  }
+
+  assert.equal(confirmedBefore({ kind: 'member-key-changed', account: 'a' }, 'a'), true);
+  assert.equal(confirmedBefore({ kind: 'member-returned', account: 'a' }, 'a'), true);
+  assert.equal(confirmedBefore({ kind: 'member-returned', account: 'a' }, 'b'), false);
+  assert.equal(confirmedBefore({ kind: 'member-unconfirmed', account: 'a' }, 'a'), false);
+  assert.equal(confirmedBefore(undefined, 'a'), false);
+});
+
 test('members: who waits first, then by role and name', () => {
   const member = (displayName: string, role: TeamRole, state: 'active' | 'pending' = 'active') => ({
     displayName,
@@ -323,6 +388,9 @@ test('a wrong fingerprint on confirm is its own case, every other failure its ki
     failureCase(asTeamFailure({ kind: 'error', message: 'identity-changed' })),
     'identity-changed',
   );
+  // Too many tries has a sentence of its own, too.
+  assert.equal(failureCase({ kind: 'error', message: 'rate-limited: slow down' }), 'rate-limited');
+  assert.equal(failureCase({ kind: 'limit', message: 'rate-limited' }), 'limit');
 });
 
 test('a group with a read-only host cannot be renamed, moved or dissolved', () => {

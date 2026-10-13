@@ -19,9 +19,12 @@
 //! - the **key record** of a team: the epoch this account last took a key
 //!   for, and the mark of that key. A team that is offered again — on a new
 //!   device, or after its space went — has to come after it.
-//! - the **confirmed key** of a member: the public key this account wrapped
-//!   the team key for, or first saw the member with. A rotation by this
-//!   account wraps for those keys and never for another under that account.
+//! - the **confirmed key** of a member: the public key somebody of this
+//!   account compared the fingerprint of. A rotation by this account wraps
+//!   for those keys and for no other; a member it has none for stops it.
+//! - a **key that is owed**: this account took a member out of a team that
+//!   is not on the device it did that from. Whichever of its devices has
+//!   the team gives it the new key.
 //!
 //! An earlier build kept confirmed keys in the team's store. Nothing reads
 //! those any more; [`Store::team_drop_mailbox_pin`] clears them away.
@@ -78,6 +81,12 @@ fn pin_id(team: Uuid, account: Uuid) -> Uuid {
 /// store.
 fn key_record_id(team: Uuid) -> Uuid {
     derived_id(b"uwussh/team/key-record/v1", team, None)
+}
+
+/// The record id under which an account keeps that it owes a team a new
+/// key, in the account's own store.
+fn owed_id(team: Uuid) -> Uuid {
+    derived_id(b"uwussh/team/key-owed/v1", team, None)
 }
 
 /// A team's epoch as the database holds it. SQLite's integers are signed;
@@ -581,8 +590,8 @@ impl Store {
             }))
     }
 
-    /// Write down that this account took a member out. Unlike nothing at
-    /// all, that is not overwritten by seeing the member listed.
+    /// Write down that this account took a member out: listed again, they
+    /// are somebody who came back, not somebody new.
     pub fn team_bar_member(&self, team: Uuid, account: Uuid) -> Result<()> {
         self.note_put(pin_id(team, account), &[])
     }
@@ -590,6 +599,25 @@ impl Store {
     /// Forget what was written down about a member: the team is left.
     pub fn team_unpin_member(&self, team: Uuid, account: Uuid) -> Result<()> {
         self.note_forget(pin_id(team, account))
+    }
+
+    /// Write down, in the account's own store, that this account owes a
+    /// team a new key, or that it does not any more. For a team that has no
+    /// space on the device: one that has keeps it there
+    /// ([`Store::team_owe_rotation`]).
+    pub fn team_owe_key(&self, team: Uuid, owed: bool) -> Result<()> {
+        if owed {
+            self.note_put(owed_id(team), &[1])
+        } else if self.team_owes_key(team)? {
+            self.note_forget(owed_id(team))
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Whether this account wrote down that it owes a team a new key.
+    pub fn team_owes_key(&self, team: Uuid) -> Result<bool> {
+        Ok(self.note_get(owed_id(team))?.is_some())
     }
 
     /// A confirmed key in the team's own store, as an earlier build wrote
@@ -936,6 +964,23 @@ mod tests {
             .unwrap()
             .team_owe_rotation(true)
             .is_err());
+    }
+
+    #[test]
+    fn a_key_that_is_owed_is_kept_in_the_accounts_own_store() {
+        let store = own();
+        assert!(!store.team_owes_key(team()).unwrap());
+        // Nothing owed, nothing written.
+        store.team_owe_key(team(), false).unwrap();
+        assert_eq!(dirty(&store, "secrets"), 0);
+        store.team_owe_key(team(), true).unwrap();
+        assert!(store.team_owes_key(team()).unwrap());
+        assert!(!store.team_owes_key(Uuid::from_u128(9)).unwrap());
+        // It goes to the account's other devices, and is no pin and no key.
+        assert_eq!(dirty(&store, "secrets"), 1);
+        assert_eq!(store.team_key_record(team()).unwrap(), None);
+        store.team_owe_key(team(), false).unwrap();
+        assert!(!store.team_owes_key(team()).unwrap());
     }
 
     #[test]

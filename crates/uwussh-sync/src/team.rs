@@ -23,11 +23,13 @@
 //! - **A newcomer gets the key for the public key somebody compared.** A
 //!   confirmation names a fingerprint; the key the server lists has to have
 //!   it, or nothing is wrapped.
-//! - **A member's key does not change under this account.** The key an
-//!   account confirmed a member with, or first saw them with, is written
-//!   down. Listed with another, or listed again after this account took
-//!   them out, the member stops this account's rotation instead of
-//!   receiving the key, until somebody compared fingerprints again.
+//! - **A new key goes to nobody this account did not compare.** The key an
+//!   account confirmed a member with is written down. A member listed with
+//!   another, listed again after this account took them out, or listed
+//!   without this account ever having confirmed them stops this account's
+//!   rotation instead of receiving the key, until somebody of this account
+//!   compared fingerprints. Somebody else who manages the team and did
+//!   compare them all rotates in the meantime.
 //! - **A new key has to come after the one this account had.** The epoch
 //!   and the mark of the key an account took for a team are written down
 //!   too. A wrap that does not carry that mark, an epoch that went
@@ -37,10 +39,8 @@
 //! - **A team goes from the device when the server says so about the team
 //!   itself,** not when a list comes without it.
 //!
-//! What it does not: a member this account has never seen is taken with the
-//! key the server lists for them. Somebody else may have confirmed them;
-//! this account cannot tell. And a new key proves that its maker had the
-//! one before, which a former member does (see `uwussh_vault::team`).
+//! What it does not: a new key proves that its maker had the one before,
+//! which a former member does (see `uwussh_vault::team`).
 
 use crate::engine::{sync_once, SyncError, Transport, TransportError};
 use crate::http::{decode_base64, encode_base64, read_limited, Server, MAX_PAGE_BYTES};
@@ -112,6 +112,11 @@ pub enum TeamError {
         /// Listed again after being taken out, rather than with a new key.
         returned: bool,
     },
+    /// A member is listed as active whom this account never confirmed:
+    /// somebody else let them in, or the server says so by itself. This
+    /// account wraps nothing for them until it compared their fingerprint.
+    #[error("member-unconfirmed: {name} has not been confirmed by this account")]
+    MemberUnconfirmed { account: Uuid, name: String },
     #[error(transparent)]
     Store(StoreError),
     #[error(transparent)]
@@ -132,6 +137,7 @@ impl TeamError {
         match self {
             Self::Refused { code, .. } => Some(code),
             Self::MemberChanged { .. } => Some("identity-changed"),
+            Self::MemberUnconfirmed { .. } => Some("member-unconfirmed"),
             _ => None,
         }
     }
@@ -151,9 +157,11 @@ impl TeamError {
                 "teams-disabled" => "unsupported",
                 _ => "error",
             },
-            Self::Untrusted(_) | Self::MemberChanged { .. } | Self::Store(_) | Self::Sync(_) => {
-                "error"
-            }
+            Self::Untrusted(_)
+            | Self::MemberChanged { .. }
+            | Self::MemberUnconfirmed { .. }
+            | Self::Store(_)
+            | Self::Sync(_) => "error",
         }
     }
 
@@ -642,6 +650,9 @@ pub enum AttentionKind {
     MemberKeyChanged,
     /// A member this account took out is listed again.
     MemberReturned,
+    /// A member this account never confirmed is listed as active: no new
+    /// team key from this account until it did.
+    MemberUnconfirmed,
 }
 
 impl Attention {
@@ -668,6 +679,11 @@ impl Attention {
                 } else {
                     AttentionKind::MemberKeyChanged
                 },
+                account: Some(*account),
+                member: Some(name.clone()),
+            }),
+            TeamError::MemberUnconfirmed { account, name } => Some(Self {
+                kind: AttentionKind::MemberUnconfirmed,
                 account: Some(*account),
                 member: Some(name.clone()),
             }),
@@ -709,6 +725,11 @@ pub struct TeamMember {
     pub fingerprint: String,
     pub joined_ms: u64,
     pub me: bool,
+    /// For an active member: whether this account compared the key they are
+    /// listed with. Always so for the account itself; absent for somebody
+    /// who waits.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confirmed: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -943,6 +964,7 @@ impl<'a, A: TeamApi> Teams<'a, A> {
                     if mine {
                         // The rotation this device began did happen.
                         space.store.team_owe_rotation(false)?;
+                        own.team_owe_key(team.id, false)?;
                     }
                     self.spaces.reseal_chain();
                 } else if pending.is_some() {
@@ -1106,11 +1128,13 @@ impl<'a, A: TeamApi> Teams<'a, A> {
             return Ok(done);
         };
         done.records_changed = synced.changed;
-        // What this device owes the team it owes whatever the server says.
+        // What this device owes the team it owes whatever the server says,
+        // and so does what the account owes it from a device without it.
         let owed = space
             .store
             .team_state()?
-            .is_some_and(|state| state.rotation_owed);
+            .is_some_and(|state| state.rotation_owed)
+            || self.own_store()?.team_owes_key(team.id)?;
         done.needs_rotation = synced.needs_rotation || (owed && team.role.manages());
         if done.needs_rotation && team.role.manages() {
             // Somebody who had the key left. Whoever manages the team and
@@ -1133,7 +1157,7 @@ impl<'a, A: TeamApi> Teams<'a, A> {
     /// Give a team a new key: pull to the end, wrap a fresh key for every
     /// active member, have the server switch, and send every record again
     /// under the new key. Stops, and wraps for nobody, when a member is not
-    /// who this account took them to be.
+    /// who this account took them to be, or is nobody it ever confirmed.
     fn rotate(&self, member: &MemberKey, team: Uuid) -> Result<()> {
         let account = self.account()?;
         let own = self.own_store()?;
@@ -1156,7 +1180,7 @@ impl<'a, A: TeamApi> Teams<'a, A> {
                 .checked_add(1)
                 .ok_or(TeamError::Untrusted("an epoch nothing comes after"))?;
             // Everybody is looked at before anything is wrapped or written.
-            let mut unseen = Vec::new();
+            let mut unconfirmed = None;
             for listed in &members {
                 if listed.account == account {
                     if listed.public != member.public() {
@@ -1175,14 +1199,19 @@ impl<'a, A: TeamApi> Teams<'a, A> {
                             returned: pin == MemberPin::Removed,
                         });
                     }
-                    // Never seen by this account: somebody else let them
-                    // in. Their key is the one the server lists, and from
-                    // here on no other.
-                    None => unseen.push(listed),
+                    // Never confirmed by this account. Somebody else may
+                    // have let them in, or the server lists whom nobody
+                    // did: from here that looks the same.
+                    None => {
+                        unconfirmed.get_or_insert(listed);
+                    }
                 }
             }
-            for listed in unseen {
-                own.team_pin_member(wire.id, listed.account, &listed.public)?;
+            if let Some(listed) = unconfirmed {
+                return Err(TeamError::MemberUnconfirmed {
+                    account: listed.account,
+                    name: listed.name.clone(),
+                });
             }
             let fresh = new_team_key();
             let earlier = keys.handed_on();
@@ -1212,6 +1241,7 @@ impl<'a, A: TeamApi> Teams<'a, A> {
                     let mark = key_mark(&fresh);
                     space.store.team_rekey(epoch, fresh, Rekey::Lead)?;
                     space.store.team_owe_rotation(false)?;
+                    own.team_owe_key(wire.id, false)?;
                     own.team_note_key(wire.id, TeamKeyRecord { epoch, mark })?;
                     self.spaces.reseal_chain();
                     let now = WireTeam {
@@ -1331,6 +1361,7 @@ impl<'a, A: TeamApi> Teams<'a, A> {
         }
         let own = self.own_store()?;
         own.team_forget_key(team)?;
+        own.team_owe_key(team, false)?;
         for member in members {
             own.team_unpin_member(team, *member)?;
         }
@@ -1405,6 +1436,7 @@ impl<'a, A: TeamApi> Teams<'a, A> {
 
     pub fn members(&self, team: Uuid) -> Result<Vec<TeamMember>> {
         let account = self.account()?;
+        let own = self.own_store()?;
         let members = self.api.members(team)?;
         if members.len() > MAX_MEMBERS {
             return Err(TeamError::Untrusted("more members than there can be"));
@@ -1412,14 +1444,25 @@ impl<'a, A: TeamApi> Teams<'a, A> {
         members
             .into_iter()
             .map(|member| {
+                let public = key32(&member.public_key)?;
+                let me = member.account_id == account;
+                let confirmed = match member.state {
+                    MemberState::Pending => None,
+                    MemberState::Active if me => Some(true),
+                    MemberState::Active => Some(
+                        own.team_pin(team, member.account_id)?
+                            == Some(MemberPin::Confirmed(public)),
+                    ),
+                };
                 Ok(TeamMember {
                     account_id: member.account_id,
                     display_name: clean(&member.display_name, MAX_DISPLAY_NAME),
                     role: member.role,
                     state: member.state,
-                    fingerprint: fingerprint(&key32(&member.public_key)?),
+                    fingerprint: fingerprint(&public),
                     joined_ms: member.joined_ms,
-                    me: member.account_id == account,
+                    me,
+                    confirmed,
                 })
             })
             .collect()
@@ -1430,8 +1473,9 @@ impl<'a, A: TeamApi> Teams<'a, A> {
     /// key that has it, or not at all.
     ///
     /// For a member who is in already it is this account taking their key
-    /// as compared: after the key changed, or after they came back. Nothing
-    /// is wrapped then; the next rotation is.
+    /// as compared: somebody else let them in, their key changed, or they
+    /// came back. Nothing is wrapped then and the server hears nothing; the
+    /// next rotation is.
     pub fn confirm(&self, team: Uuid, account: Uuid, seen: &str) -> Result<()> {
         let member = self.member_key()?;
         let own = self.own_store()?;
@@ -1508,12 +1552,18 @@ impl<'a, A: TeamApi> Teams<'a, A> {
             Err(_) => true,
         };
         let space = || self.spaces.team_space(self.server, team);
+        // Kept with the team's space, where this device has one. Where not,
+        // in the account's own store: the team may never open here, and one
+        // of the account's other devices has it.
         let owe = |owed: bool| -> Result<bool> {
-            let Some(space) = space() else {
-                return Ok(false);
+            let state = match space() {
+                Some(space) => space.store.team_state()?.map(|state| (space, state)),
+                None => None,
             };
-            let Some(state) = space.store.team_state()? else {
-                return Ok(false);
+            let Some((space, state)) = state else {
+                let before = own.team_owes_key(team)?;
+                own.team_owe_key(team, owed)?;
+                return Ok(before);
             };
             space.store.team_owe_rotation(owed)?;
             Ok(state.rotation_owed)

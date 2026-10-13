@@ -1521,6 +1521,27 @@
   padding: 10px 0 0;
 }
 
+/* What stands in the way of a team: one line, its way out at the end. */
+.team-attention {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.team-attention > span {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.sync-device-list li:has(> .team-attention) {
+  flex-wrap: wrap;
+}
+
+.sync-device-list li > .team-attention {
+  flex: 1 0 100%;
+}
+
 .team-invite-new {
   display: flex;
   flex-wrap: wrap;

@@ -116,5 +116,16 @@
   "Auch die Teams dieses Servers verschwinden von diesem Gerät: {teams}. Auf dem Server bleiben sie bestehen.": "This server's teams disappear from this device too: {teams}. They stay on the server.",
   "Enthält Hosts aus einem Team, in dem du nur lesen darfst – die Gruppe lässt sich deshalb nicht ändern.": "Contains hosts from a team you have read-only access to – so the group cannot be changed.",
   "Klicken zum Auf-/Zuklappen. {reason}": "Click to expand or collapse. {reason}",
-  "{name} gehört zu einem Team, in dem du nur lesen darfst: Seine Tunnel lassen sich starten und stoppen, aber nicht ändern.": "{name} belongs to a team you have read-only access to: its tunnels can be started and stopped, but not changed."
+  "{name} gehört zu einem Team, in dem du nur lesen darfst: Seine Tunnel lassen sich starten und stoppen, aber nicht ändern.": "{name} belongs to a team you have read-only access to: its tunnels can be started and stopped, but not changed.",
+  "Zu viele Versuche. Bitte später erneut.": "Too many attempts. Please try again later.",
+  "Ein Mitglied": "A member",
+  "Der Server bietet dieses Team gerade nicht an. Was auf diesem Gerät liegt, bleibt erhalten.": "The server is not offering this team right now. What is on this device is kept.",
+  "Der Server bietet einen Schlüssel an, der nicht an den bekannten anschließt. Das Team wird nicht synchronisiert. Wende dich an den Inhaber – oder verlass das Team.": "The server offers a key that does not follow the one this device knows. The team is not syncing. Contact the team's owner – or leave the team.",
+  "Der Schlüssel von {name} hat sich geändert. Der neue Team-Schlüssel wartet, bis {name} neu bestätigt ist.": "{name}'s key has changed. The new team key waits until {name} has been confirmed again.",
+  "{name} wurde entfernt und steht wieder im Team. Der neue Team-Schlüssel wartet, bis {name} neu bestätigt ist.": "{name} was removed and is listed in the team again. The new team key waits until {name} has been confirmed again.",
+  "{name} wurde von jemand anderem aufgenommen. Der neue Team-Schlüssel wartet, bis du {name} bestätigt hast.": "{name} was let in by somebody else. The new team key waits until you have confirmed {name}.",
+  "Neu bestätigen…": "Confirm again…",
+  "nicht bestätigt": "not confirmed",
+  "{name} neu bestätigen?": "Confirm {name} again?",
+  "{name} ist schon Mitglied von {team}. Der nächste Team-Schlüssel wartet, bis du diesen Fingerabdruck verglichen hast – und geht dann an genau ihn.": "{name} is already a member of {team}. The next team key waits until you have compared this fingerprint – and then goes to exactly this one."
 }
