@@ -7,7 +7,7 @@ use crate::{Result, StoreError};
 use rusqlite::{params, Connection, OptionalExtension};
 use uuid::Uuid;
 
-pub const SCHEMA_VERSION: i64 = 10;
+pub const SCHEMA_VERSION: i64 = 11;
 
 /// The sync header (`id`, `vault_id`, clock, `rev`, `deleted`) is on every
 /// syncable table from the start; see the crate docs for why.
@@ -394,6 +394,39 @@ CREATE INDEX port_forwards_by_host ON port_forwards (host_id) WHERE deleted = 0;
 UPDATE sync_state SET cursor = 0 WHERE id = 1;
 "#;
 
+const V11: &str = r#"
+-- Local only, never synced: what `device_unlock` becomes when another server
+-- is made the main one. It is written before the list of servers is swapped
+-- and takes the place of `device_unlock` after it, so a start in between
+-- finds either all old keys or all new ones. `forget = 1` means that nothing
+-- is kept afterwards.
+CREATE TABLE device_unlock_staged (
+    id                  INTEGER PRIMARY KEY CHECK (id = 1),
+    forget              INTEGER NOT NULL DEFAULT 0,
+    vault_id            TEXT    NOT NULL,
+    protected           BLOB    NOT NULL,
+    check_nonce         BLOB    NOT NULL,
+    check_blob          BLOB    NOT NULL,
+    created_ms          INTEGER NOT NULL
+);
+
+-- Only a store that is a team's vault has this row: the team, the number of
+-- the key the store is sealed under, a value that tells that key from a wrong
+-- one, and the key of a rotation this device began, sealed under the current
+-- one, until the server has been seen to carry it.
+CREATE TABLE team_state (
+    id            INTEGER PRIMARY KEY CHECK (id = 1),
+    team_id       TEXT    NOT NULL,
+    epoch         INTEGER NOT NULL,
+    check_nonce   BLOB    NOT NULL,
+    check_blob    BLOB    NOT NULL,
+    requeue       INTEGER NOT NULL DEFAULT 0,
+    pending_epoch INTEGER,
+    pending_nonce BLOB,
+    pending_blob  BLOB
+);
+"#;
+
 /// The command assistant: its settings and its answer cache, both synced
 /// (see `crate::assist`).
 const V9: &str = r#"
@@ -671,6 +704,14 @@ pub fn migrate(conn: &mut Connection) -> Result<()> {
         tx.pragma_update(None, "user_version", 10)?;
         tx.commit()?;
         tracing::info!("store migrated to schema 10");
+    }
+
+    if version < 11 {
+        let tx = conn.transaction()?;
+        tx.execute_batch(V11)?;
+        tx.pragma_update(None, "user_version", 11)?;
+        tx.commit()?;
+        tracing::info!("store migrated to schema 11");
     }
 
     Ok(())
@@ -1127,7 +1168,7 @@ mod tests {
         assert_eq!(keymaps, 0);
         assert_eq!(settings, 1, "what was there stays");
         assert_eq!(cursor, 0, "keymaps an older build passed over come in now");
-        assert_eq!(version, 10);
+        assert_eq!(version, SCHEMA_VERSION);
     }
 
     #[test]

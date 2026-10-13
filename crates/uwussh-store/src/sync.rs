@@ -1514,9 +1514,19 @@ fn insert_record(
             )?;
         }
         EntityKind::Keymap => {
-            // Checked, then kept as it came, like the assistant's settings.
-            let _: KeymapPayload = from_payload(payload)?;
-            let body = String::from_utf8(payload.to_vec()).map_err(|_| StoreError::Invalid {
+            // Held to what a keymap saved here is held to: whatever
+            // `save_keymap` would have refused is left out, and the rest is
+            // kept. One that needed nothing left out is kept as it came.
+            let arrived: KeymapPayload = from_payload(payload)?;
+            let mut keymap = arrived.clone();
+            crate::keymap::sanitise_synced(&mut keymap);
+            let body = if keymap == arrived {
+                String::from_utf8(payload.to_vec()).ok()
+            } else {
+                tracing::warn!(%env.id, "a keymap with entries no device may save, cut down");
+                serde_json::to_string(&keymap).ok()
+            };
+            let body = body.ok_or(StoreError::Invalid {
                 field: "record",
                 problem: "unreadable",
             })?;

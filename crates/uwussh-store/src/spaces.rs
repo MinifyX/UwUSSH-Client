@@ -73,8 +73,47 @@ pub const MAX_SERVERS: usize = 2;
 pub enum SpaceKind {
     /// A store that syncs with a server of its own.
     Server,
-    /// A team's vault, reached through a server connection. Not built yet.
+    /// A team's vault, reached through the connection of the server space
+    /// it is a child of.
     Team,
+}
+
+/// What this account may do in a team. The server enforces it; here it
+/// decides whether a team's space takes writes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TeamRole {
+    Owner,
+    Admin,
+    Editor,
+    Reader,
+}
+
+impl TeamRole {
+    /// Whether this role pushes records.
+    pub fn writes(self) -> bool {
+        !matches!(self, Self::Reader)
+    }
+
+    /// Whether this role invites, confirms, renames and rotates.
+    pub fn manages(self) -> bool {
+        matches!(self, Self::Owner | Self::Admin)
+    }
+}
+
+/// The longest team name kept, in characters: the server's bound.
+const MAX_TEAM_NAME: usize = 80;
+
+/// A team's name as it is kept and shown: no control characters, no more
+/// than the server allows.
+fn clean_label(label: &str) -> String {
+    label
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(MAX_TEAM_NAME)
+        .collect::<String>()
+        .trim()
+        .to_string()
 }
 
 /// Where a new entry of each workspace goes.
@@ -91,6 +130,14 @@ pub struct SpaceHandle {
     pub main: bool,
     pub kind: SpaceKind,
     pub read_only: bool,
+    /// For a team: the server space it is reached through.
+    pub parent: Option<String>,
+    /// For a team: its id on that server.
+    pub team: Option<Uuid>,
+    /// For a team: its name.
+    pub label: Option<String>,
+    /// For a team: what this account may do in it.
+    pub role: Option<TeamRole>,
     pub store: Arc<Store>,
 }
 
@@ -123,6 +170,14 @@ struct RegistryEntry {
     kind: SpaceKind,
     #[serde(default)]
     read_only: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    parent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    team: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    role: Option<TeamRole>,
 }
 
 /// A host on its way from one store to another.
@@ -146,6 +201,15 @@ struct RegistryFile {
     defaults: SpaceDefaults,
     #[serde(default)]
     journal: Option<Journal>,
+    /// The server that was main until the swap this file was written by, for
+    /// as long as the keys kept on this device are not all in their new
+    /// place. See [`Spaces::make_main`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    handover: Option<String>,
+    /// A server whose entries began to move away because it is being taken
+    /// from this device, and are not all gone yet. See [`Spaces::remove`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    leaving: Option<String>,
 }
 
 struct Paths {
@@ -189,13 +253,34 @@ impl Paths {
         let uuid = Uuid::parse_str(id).ok()?;
         (uuid.hyphenated().to_string() == id).then(|| self.folder.join(format!("{uuid}.db")))
     }
+
+    /// The file that says a store in the spaces folder is still being set
+    /// up. Only a store with this beside it is ever cleared away unasked.
+    fn marker(&self, id: &str) -> Option<PathBuf> {
+        let uuid = Uuid::parse_str(id).ok()?;
+        (uuid.hyphenated().to_string() == id).then(|| self.folder.join(format!("{uuid}.{PENDING}")))
+    }
+
+    /// Where an unreadable registry is set aside.
+    fn aside(&self) -> PathBuf {
+        let mut aside = self.registry.as_os_str().to_owned();
+        aside.push(".unreadable");
+        PathBuf::from(aside)
+    }
 }
+
+/// The ending of the file [`Paths::marker`] names.
+const PENDING: &str = "pending";
 
 struct Entry {
     id: String,
     file: String,
     kind: SpaceKind,
     read_only: bool,
+    parent: Option<String>,
+    team: Option<Uuid>,
+    label: Option<String>,
+    role: Option<TeamRole>,
     store: Arc<Store>,
 }
 
@@ -204,6 +289,8 @@ struct Inner {
     entries: Vec<Entry>,
     defaults: SpaceDefaults,
     journal: Option<Journal>,
+    handover: Option<String>,
+    leaving: Option<String>,
     /// The registry on disk could not be read. It is set aside, not
     /// overwritten, the next time there is something to write.
     unreadable: bool,
@@ -216,6 +303,10 @@ impl Inner {
             main: entry.id == self.main,
             kind: entry.kind,
             read_only: entry.read_only,
+            parent: entry.parent.clone(),
+            team: entry.team,
+            label: entry.label.clone(),
+            role: entry.role,
             store: entry.store.clone(),
         }
     }
@@ -232,10 +323,16 @@ impl Inner {
                     file: entry.file.clone(),
                     kind: entry.kind,
                     read_only: entry.read_only,
+                    parent: entry.parent.clone(),
+                    team: entry.team,
+                    label: entry.label.clone(),
+                    role: entry.role,
                 })
                 .collect(),
             defaults: self.defaults.clone(),
             journal: self.journal.clone(),
+            handover: self.handover.clone(),
+            leaving: self.leaving.clone(),
         }
     }
 }
@@ -288,7 +385,16 @@ fn write_registry(path: &Path, file: &RegistryFile) -> std::io::Result<()> {
         out.write_all(&bytes)?;
         out.sync_all()?;
     }
-    std::fs::rename(&temporary, path)
+    std::fs::rename(&temporary, path)?;
+    // The rename itself is only on disk once the folder is.
+    #[cfg(unix)]
+    if let Some(folder) = path
+        .parent()
+        .filter(|folder| !folder.as_os_str().is_empty())
+    {
+        std::fs::File::open(folder)?.sync_all()?;
+    }
+    Ok(())
 }
 
 /// The registry as it is on disk. `Ok(None)` when there is none.
@@ -448,6 +554,8 @@ struct MovedKey {
     public_key: String,
     private_key: Revealed,
     passphrase: Option<Revealed>,
+    /// Fields a newer build wrote that this one does not know.
+    extra: Option<String>,
 }
 
 /// A host with everything it takes along. The secrets are in memory that
@@ -458,6 +566,33 @@ struct MovedHost {
     key: Option<MovedKey>,
     tunnels: Vec<TunnelRecord>,
     known: Option<KnownHostRecord>,
+    /// Fields a newer build wrote that this one does not know: the host's,
+    /// its login's, and each tunnel's by its id.
+    extra: Option<String>,
+    login_extra: Option<String>,
+    tunnel_extra: HashMap<Uuid, String>,
+}
+
+/// What a newer build wrote into a row and this one only carries.
+fn extra_of(conn: &rusqlite::Connection, table: &str, id: &str) -> Result<Option<String>> {
+    Ok(conn
+        .query_row(
+            &format!("SELECT sync_extra FROM {table} WHERE id = ?1"),
+            [id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten())
+}
+
+fn keep_extra(tx: &Transaction, table: &str, id: &str, extra: Option<&String>) -> Result<()> {
+    if let Some(extra) = extra {
+        tx.execute(
+            &format!("UPDATE {table} SET sync_extra = ?2 WHERE id = ?1"),
+            params![id, extra],
+        )?;
+    }
+    Ok(())
 }
 
 /// Whether a row exists, and if so whether it is a tombstone.
@@ -530,6 +665,7 @@ fn import_key(
             clock.device,
         ],
     )?;
+    keep_extra(tx, "keys", &id.to_string(), key.extra.as_ref())?;
     Ok(id.to_string())
 }
 
@@ -540,7 +676,9 @@ impl Store {
             private_key,
             passphrase,
         } = self.reveal_key(id)?;
+        let extra = extra_of(&self.conn.lock(), "keys", &id.to_string())?;
         Ok(MovedKey {
+            extra,
             id,
             label: record.label,
             key_type: record.key_type,
@@ -574,13 +712,41 @@ impl Store {
             Some(key) => Some(self.export_moved_key(key)?),
             None => None,
         };
-        let tunnels = self
+        let tunnels: Vec<TunnelRecord> = self
             .list_tunnels()?
             .into_iter()
             .filter(|tunnel| tunnel.host_id == id)
             .collect();
         let known = self.moved_known_host(&host.address, host.port)?;
+        let (extra, login_extra, tunnel_extra) = {
+            let conn = self.conn.lock();
+            let login: Option<String> = conn
+                .query_row(
+                    "SELECT identity_id FROM hosts WHERE id = ?1",
+                    [id.to_string()],
+                    |row| row.get::<_, Option<String>>(0),
+                )
+                .optional()?
+                .flatten();
+            let mut of_tunnels = HashMap::new();
+            for tunnel in &tunnels {
+                if let Some(extra) = extra_of(&conn, "port_forwards", &tunnel.id.to_string())? {
+                    of_tunnels.insert(tunnel.id, extra);
+                }
+            }
+            (
+                extra_of(&conn, "hosts", &id.to_string())?,
+                match login {
+                    Some(login) => extra_of(&conn, "identities", &login)?,
+                    None => None,
+                },
+                of_tunnels,
+            )
+        };
         Ok(MovedHost {
+            extra,
+            login_extra,
+            tunnel_extra,
             host,
             password,
             key,
@@ -670,6 +836,8 @@ impl Store {
             ],
         )?;
 
+        keep_extra(&tx, "identities", &identity, moved.login_extra.as_ref())?;
+
         let group = match &host.group_path {
             Some(name) => Some(ensure_group(
                 &tx,
@@ -703,6 +871,8 @@ impl Store {
             ],
         )?;
 
+        keep_extra(&tx, "hosts", &id.to_string(), moved.extra.as_ref())?;
+
         for tunnel in &moved.tunnels {
             // A tunnel keeps its id unless a row here already holds it — its
             // own tombstone from an earlier stay, which no later write beats.
@@ -731,6 +901,12 @@ impl Store {
                     clock.counter,
                     clock.device,
                 ],
+            )?;
+            keep_extra(
+                &tx,
+                "port_forwards",
+                &tunnel_id.to_string(),
+                moved.tunnel_extra.get(&tunnel.id),
             )?;
         }
 
@@ -784,22 +960,39 @@ impl Store {
     /// with its login, password and tunnels, and its key and host key unless
     /// another host here still uses them. Needs no vault.
     fn drop_moved_host(&self, id: Uuid) -> Result<()> {
-        let Some(host) = self.get_host(id)? else {
+        // Read from the row whether or not the host is still there: stopped
+        // after the host went and before the rest did, this is asked again,
+        // and the row of a deleted host still says what it used.
+        let row: Option<(Option<String>, String, u16)> = self
+            .conn
+            .lock()
+            .query_row(
+                "SELECT i.key_id, h.address, h.port FROM hosts h
+                   LEFT JOIN identities i ON i.id = h.identity_id
+                  WHERE h.id = ?1",
+                [id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get::<_, i64>(2)? as u16)),
+            )
+            .optional()?;
+        let Some((key, address, port)) = row else {
             return Ok(());
         };
-        self.delete_host(id)?;
-        if let Some(key) = host.key_id {
+        match self.delete_host(id) {
+            Ok(()) | Err(StoreError::UnknownHost(_)) => {}
+            Err(error) => return Err(error),
+        }
+        if let Some(key) = key.and_then(|key| Uuid::parse_str(&key).ok()) {
             match self.delete_key(key) {
                 Ok(()) | Err(StoreError::KeyInUse { .. }) | Err(StoreError::UnknownKey(_)) => {}
                 Err(error) => return Err(error),
             }
         }
-        let address = host.address.trim().to_ascii_lowercase();
+        let address = address.trim().to_ascii_lowercase();
         let shared = self.list_hosts()?.iter().any(|other| {
-            other.port == host.port && other.address.trim().to_ascii_lowercase() == address
+            other.port == port && other.address.trim().to_ascii_lowercase() == address
         });
         if !shared {
-            self.forget_host_key(&address, host.port)?;
+            self.forget_host_key(&address, port)?;
         }
         Ok(())
     }
@@ -1349,12 +1542,18 @@ impl Spaces {
                 file: paths.base_name.clone(),
                 kind: SpaceKind::Server,
                 read_only: false,
+                parent: None,
+                team: None,
+                label: None,
+                role: None,
             }],
             defaults: SpaceDefaults {
                 private: FIRST.to_string(),
                 business: FIRST.to_string(),
             },
             journal: None,
+            handover: None,
+            leaving: None,
         };
         let mut file = read.ok().flatten().unwrap_or_else(single);
 
@@ -1378,7 +1577,32 @@ impl Spaces {
             }
             planned.push((entry, path));
         }
-        if !planned.iter().any(|(entry, _)| entry.id == file.main) {
+        // A team hangs on a server that is in the list, and names its team.
+        // One that does not is left alone on disk like any other stray.
+        let servers: HashSet<String> = planned
+            .iter()
+            .filter(|(entry, _)| entry.kind == SpaceKind::Server)
+            .map(|(entry, _)| entry.id.clone())
+            .collect();
+        planned.retain(|(entry, _)| match entry.kind {
+            SpaceKind::Server => true,
+            SpaceKind::Team => {
+                let whole = entry.team.is_some()
+                    && entry.role.is_some()
+                    && entry
+                        .parent
+                        .as_ref()
+                        .is_some_and(|parent| servers.contains(parent));
+                if !whole {
+                    tracing::warn!("a team in the list belongs to no server, left out");
+                }
+                whole
+            }
+        });
+        if !planned
+            .iter()
+            .any(|(entry, _)| entry.id == file.main && entry.kind == SpaceKind::Server)
+        {
             tracing::warn!("the list of servers names no main one, starting with one server");
             unreadable = true;
             file = single();
@@ -1396,10 +1620,22 @@ impl Spaces {
                 id: entry.id,
                 file: entry.file,
                 kind: entry.kind,
-                read_only: entry.read_only,
+                read_only: match entry.kind {
+                    SpaceKind::Server => entry.read_only,
+                    SpaceKind::Team => !entry.role.is_some_and(TeamRole::writes),
+                },
+                parent: entry.parent.filter(|_| entry.kind == SpaceKind::Team),
+                team: entry.team.filter(|_| entry.kind == SpaceKind::Team),
+                label: entry.label.map(|label| clean_label(&label)),
+                role: entry.role.filter(|_| entry.kind == SpaceKind::Team),
             });
         }
-        let known = |id: &String| entries.iter().any(|entry| entry.id == *id);
+        let known = |id: &String| {
+            entries
+                .iter()
+                .any(|entry| entry.id == *id && entry.kind == SpaceKind::Server)
+        };
+        let any = |id: &String| entries.iter().any(|entry| entry.id == *id);
         let defaults = SpaceDefaults {
             private: Some(file.defaults.private)
                 .filter(known)
@@ -1410,7 +1646,11 @@ impl Spaces {
         };
         let journal = file
             .journal
-            .filter(|journal| known(&journal.from) && known(&journal.to));
+            .filter(|journal| journal.from != journal.to && any(&journal.from) && any(&journal.to));
+
+        let handover = file.handover.filter(|old| *old != file.main && known(old));
+
+        let leaving = file.leaving.filter(known);
 
         let spaces = Self {
             inner: RwLock::new(Inner {
@@ -1418,6 +1658,8 @@ impl Spaces {
                 entries,
                 defaults,
                 journal,
+                handover,
+                leaving,
                 unreadable,
             }),
             paths,
@@ -1428,15 +1670,21 @@ impl Spaces {
         }
         {
             let _ops = spaces.ops.lock();
+            spaces.settle_handover()?;
             spaces.recover()?;
         }
         Ok(spaces)
     }
 
-    /// Store files in the spaces folder that no registry entry names: a
-    /// second server whose setup never finished. Only files this module
-    /// names itself are touched.
+    /// Stores in the spaces folder whose setup never finished: the ones that
+    /// still have their marker beside them and that no registry entry names.
+    /// A store file without a marker is never touched, whoever it belongs to
+    /// — and nothing is while a registry that could not be read lies beside
+    /// the one in use, because that one may name what this one forgot.
     fn sweep_leftovers(&self) {
+        if self.paths.aside().exists() {
+            return;
+        }
         let Ok(folder) = std::fs::read_dir(&self.paths.folder) else {
             return;
         };
@@ -1449,26 +1697,26 @@ impl Spaces {
             .collect();
         for file in folder.flatten() {
             let name = file.file_name();
-            let Some(name) = name.to_str() else { continue };
-            let stem = ["-wal", "-shm", ""]
-                .iter()
-                .find_map(|suffix| name.strip_suffix(&format!(".db{suffix}")));
-            let Some(path) = stem.and_then(|stem| self.paths.resolve(&format!("spaces/{stem}.db")))
+            let Some(id) = name
+                .to_str()
+                .and_then(|name| name.strip_suffix(&format!(".{PENDING}")))
             else {
+                continue;
+            };
+            let Some(path) = self.paths.resolve(&format!("spaces/{id}.db")) else {
                 continue;
             };
             if !kept.contains(&path) {
                 tracing::info!("a server that was never set up to the end is cleared away");
-                let _ = std::fs::remove_file(file.path());
+                remove_store_files(&path);
             }
+            let _ = std::fs::remove_file(file.path());
         }
     }
 
     fn persist(&self, inner: &mut Inner) -> Result<()> {
         if inner.unreadable {
-            let mut aside = self.paths.registry.as_os_str().to_owned();
-            aside.push(".unreadable");
-            let _ = std::fs::rename(&self.paths.registry, PathBuf::from(aside));
+            let _ = std::fs::rename(&self.paths.registry, self.paths.aside());
             inner.unreadable = false;
         }
         write_registry(&self.paths.registry, &inner.file())?;
@@ -1570,11 +1818,27 @@ impl Spaces {
             return Err(invalid("space", "limit"));
         }
         let id = Uuid::new_v4().to_string();
+        Ok((id.clone(), Arc::new(self.begin_store(&id)?)))
+    }
+
+    /// A new store file in the spaces folder, marked as being set up before
+    /// it exists.
+    fn begin_store(&self, id: &str) -> Result<Store> {
         let path = self
             .paths
             .resolve(&format!("spaces/{id}.db"))
             .ok_or_else(unknown_space)?;
-        Ok((id, Arc::new(Store::open(&path)?)))
+        let marker = self.paths.marker(id).ok_or_else(unknown_space)?;
+        std::fs::create_dir_all(&self.paths.folder)?;
+        std::fs::write(&marker, b"")?;
+        Store::open(&path)
+    }
+
+    /// A store that is in the registry is no longer being set up.
+    fn settled(&self, id: &str) {
+        if let Some(marker) = self.paths.marker(id) {
+            let _ = std::fs::remove_file(marker);
+        }
     }
 
     /// Make a prepared store the second server and chain its key.
@@ -1602,6 +1866,10 @@ impl Spaces {
                 file,
                 kind: SpaceKind::Server,
                 read_only: false,
+                parent: None,
+                team: None,
+                label: None,
+                role: None,
                 store,
             });
             if let Err(error) = self.persist(&mut inner) {
@@ -1609,6 +1877,7 @@ impl Spaces {
                 return Err(error);
             }
         }
+        self.settled(id);
         self.reseal_chain();
         Ok(())
     }
@@ -1621,6 +1890,7 @@ impl Spaces {
         if let Some(path) = self.paths.resolve(&format!("spaces/{id}.db")) {
             remove_store_files(&path);
         }
+        self.settled(id);
     }
 
     // -- one password -----------------------------------------------------
@@ -1902,10 +2172,13 @@ impl Spaces {
         let Some(journal) = self.journal() else {
             return Ok(());
         };
-        let arrived = match self.get(&journal.to) {
-            Some(target) => target.store.get_host(journal.target_host)?.is_some(),
-            None => false,
-        };
+        // A move is between two servers. A note that names one twice would
+        // take the host away from the only place it is in.
+        let arrived = journal.from != journal.to
+            && match self.get(&journal.to) {
+                Some(target) => target.store.get_host(journal.target_host)?.is_some(),
+                None => false,
+            };
         if arrived {
             if let Some(source) = self.get(&journal.from) {
                 source.store.drop_moved_host(journal.host)?;
@@ -2187,7 +2460,9 @@ impl Spaces {
     /// sealed by `protect`, the operating system — is from then on the new
     /// main vault's, and the old main's key is chained to it instead. The
     /// registry is swapped in one rename: before it the old server is main in
-    /// every respect, after it the new one is.
+    /// every respect, after it the new one is — the keys are prepared beside
+    /// the ones in use before the swap and take their place after it, which a
+    /// start finishes when this did not get to.
     pub fn make_main(
         &self,
         id: &str,
@@ -2198,6 +2473,16 @@ impl Spaces {
     }
 
     fn make_main_locked(
+        &self,
+        id: &str,
+        protect: &dyn Fn(&[u8]) -> std::io::Result<Vec<u8>>,
+    ) -> Result<()> {
+        self.swap_main(id, protect)?;
+        self.settle_handover()
+    }
+
+    /// The first half of [`Self::make_main`]: up to and including the swap.
+    fn swap_main(
         &self,
         id: &str,
         protect: &dyn Fn(&[u8]) -> std::io::Result<Vec<u8>>,
@@ -2220,23 +2505,77 @@ impl Spaces {
         new.store.import_personal(&personal)?;
         drop(personal);
 
-        // What opened the old main without a password now opens the new one.
-        if old.vault_is_remembered()? {
-            new.store.remember_vault(protect)?;
-        } else {
-            new.store.forget_remembered_vault()?;
+        // Every key this device keeps is prepared for the new order first
+        // and put in place after the swap: what opened the old main without
+        // a password is to open the new one, and every other open vault's
+        // key is sealed by the new main's.
+        let prepared = (|| -> Result<()> {
+            let remembered = old.vault_is_remembered()?;
+            new.store.stage_unlock(remembered.then_some(protect))?;
+            for space in self.all().into_iter().filter(|space| space.id != id) {
+                if !matches!(space.store.vault_status()?, VaultStatus::Unlocked) {
+                    continue;
+                }
+                let seal = |key: &[u8]| new.store.seal_for_space(&space.id, key);
+                space.store.stage_unlock(Some(&seal))?;
+            }
+            Ok(())
+        })();
+        if let Err(error) = prepared {
+            self.drop_staged();
+            return Err(error);
         }
         {
             let mut inner = self.inner.write();
             let before = std::mem::replace(&mut inner.main, id.to_string());
+            inner.handover = Some(before.clone());
             if let Err(error) = self.persist(&mut inner) {
                 inner.main = before;
+                inner.handover = None;
+                drop(inner);
+                self.drop_staged();
                 return Err(error);
             }
         }
-        self.reseal_chain();
-        old.clear_personal()?;
         Ok(())
+    }
+
+    fn drop_staged(&self) {
+        for space in self.all() {
+            if let Err(error) = space.store.drop_staged_unlock() {
+                tracing::warn!(%error, "a prepared key could not be cleared away");
+            }
+        }
+    }
+
+    /// The second half of [`Self::make_main`], and what a start does when the
+    /// first half was the last thing that happened: put every prepared key
+    /// in place and take the personal records out of the old main server.
+    /// Needs no vault, and doing it again changes nothing. Without a swap to
+    /// finish, keys that were prepared for one that never happened go.
+    fn settle_handover(&self) -> Result<()> {
+        let Some(old) = self.inner.read().handover.clone() else {
+            self.drop_staged();
+            return Ok(());
+        };
+        for space in self.all() {
+            space.store.promote_staged_unlock()?;
+        }
+        if let Some(old) = self.get(&old) {
+            old.store.clear_personal()?;
+        }
+        let mut inner = self.inner.write();
+        inner.handover = None;
+        self.persist(&mut inner)
+    }
+
+    /// Whether a server's entries began to move away and are not all gone:
+    /// [`Self::remove`] stopped half way. Until it is asked again and gets
+    /// through, the server must not sync — what already left it is deleted
+    /// on this device only, and a pass would delete it for its other devices
+    /// too.
+    pub fn is_leaving(&self, id: &str) -> bool {
+        self.inner.read().leaving.as_deref() == Some(id)
     }
 
     /// Take a server away from this device. With `keep`, its hosts — with
@@ -2254,17 +2593,42 @@ impl Spaces {
         let rest = self.other(id).ok_or_else(|| invalid("space", "last"))?;
 
         if keep {
-            for host in gone.store.list_hosts()? {
-                self.move_between(host.id, id, &rest.id)?;
-            }
-            for key in gone.store.list_keys()? {
-                self.key_in(key.id, &rest)?;
-            }
-            for group in gone.store.list_groups()? {
-                match rest.store.create_group(group.workspace, &group.name) {
-                    Ok(_) | Err(StoreError::Invalid { .. }) => {}
-                    Err(error) => return Err(error),
+            // Written down before the first entry moves: from then on this
+            // server must not sync until it is gone.
+            let resumed = self.is_leaving(id);
+            if !resumed {
+                let mut inner = self.inner.write();
+                inner.leaving = Some(id.to_string());
+                if let Err(error) = self.persist(&mut inner) {
+                    inner.leaving = None;
+                    return Err(error);
                 }
+            }
+            let mut moved = resumed;
+            let taken = (|| -> Result<()> {
+                for host in gone.store.list_hosts()? {
+                    self.move_between(host.id, id, &rest.id)?;
+                    moved = true;
+                }
+                for key in gone.store.list_keys()? {
+                    self.key_in(key.id, &rest)?;
+                }
+                for group in gone.store.list_groups()? {
+                    match rest.store.create_group(group.workspace, &group.name) {
+                        Ok(_) | Err(StoreError::Invalid { .. }) => {}
+                        Err(error) => return Err(error),
+                    }
+                }
+                Ok(())
+            })();
+            if let Err(error) = taken {
+                if !moved {
+                    // Nothing left it: it is as it was.
+                    let mut inner = self.inner.write();
+                    inner.leaving = None;
+                    let _ = self.persist(&mut inner);
+                }
+                return Err(error);
             }
         }
         if gone.main {
@@ -2286,6 +2650,9 @@ impl Spaces {
                 inner.defaults.business = rest.id.clone();
             }
             inner.journal = None;
+            if inner.leaving.as_deref() == Some(id) {
+                inner.leaving = None;
+            }
             self.persist(&mut inner)?;
             path
         };
@@ -2939,6 +3306,51 @@ mod tests {
         assert_eq!(spaces.all().len(), 2);
     }
 
+    #[test]
+    fn a_second_server_outlives_a_list_that_did_not_read_once() {
+        let folder = Folder::new();
+        let (spaces, second) = two(&folder);
+        drop(spaces);
+        let file = folder.0.join("spaces").join(format!("{second}.db"));
+        std::fs::write(folder.registry(), b"not a list").unwrap();
+        // The first start falls back to one server and writes that down.
+        let spaces = folder.open();
+        let main = spaces.main_id();
+        spaces.set_default(Workspace::Business, &main).unwrap();
+        drop(spaces);
+        // The second one reads a list that does not name the other server.
+        let spaces = folder.open();
+        assert_eq!(spaces.all().len(), 1);
+        assert!(file.exists());
+        // Not even a setup that never finished goes while the old list is
+        // there to be looked at.
+        let (id, store) = spaces.prepare().unwrap();
+        drop(store);
+        drop(spaces);
+        drop(folder.open());
+        assert!(file.exists());
+        assert!(folder.0.join("spaces").join(format!("{id}.db")).exists());
+
+        // A store file nothing marks as being set up stays, list or no list.
+        let folder = Folder::new();
+        let (spaces, second) = two(&folder);
+        let stray = folder
+            .0
+            .join("spaces")
+            .join(format!("{}.db", Uuid::new_v4()));
+        std::fs::copy(folder.0.join("spaces").join(format!("{second}.db")), &stray).unwrap();
+        drop(spaces);
+        let spaces = folder.open();
+        assert_eq!(spaces.all().len(), 2);
+        assert!(stray.exists());
+        // And a registered one loses its marker, not its file.
+        assert!(!folder
+            .0
+            .join("spaces")
+            .join(format!("{second}.pending"))
+            .exists());
+    }
+
     // -- one password -----------------------------------------------------------
 
     #[test]
@@ -3460,6 +3872,138 @@ mod tests {
         assert_eq!(spaces.list_hosts().unwrap().len(), 2);
     }
 
+    #[test]
+    fn a_note_of_a_move_from_a_server_to_itself_takes_no_host_away() {
+        let folder = Folder::new();
+        let m = movable(&folder);
+        let (main, a) = (m.main.clone(), m.a);
+        {
+            let mut inner = m.spaces.inner.write();
+            inner.journal = Some(Journal {
+                host: a,
+                target_host: a,
+                from: main.clone(),
+                to: main.clone(),
+            });
+            m.spaces.persist(&mut inner).unwrap();
+        }
+        // Not followed while running either.
+        m.spaces.recover().unwrap();
+        assert!(m.spaces.main().get_host(a).unwrap().is_some());
+        {
+            let mut inner = m.spaces.inner.write();
+            inner.journal = Some(Journal {
+                host: a,
+                target_host: a,
+                from: main.clone(),
+                to: main.clone(),
+            });
+            m.spaces.persist(&mut inner).unwrap();
+        }
+        drop(m);
+        let spaces = folder.open();
+        assert!(spaces.journal().is_none());
+        assert_eq!(spaces.space_of_host(a).unwrap(), Some(main));
+        assert_eq!(spaces.list_hosts().unwrap().len(), 2);
+
+        // Nor one that names a server there is none of.
+        let mut registry: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(folder.registry()).unwrap()).unwrap();
+        registry["journal"] = serde_json::json!({
+            "host": a, "targetHost": a, "from": "nobody", "to": spaces.main_id(),
+        });
+        drop(spaces);
+        std::fs::write(folder.registry(), registry.to_string()).unwrap();
+        let spaces = folder.open();
+        assert!(spaces.journal().is_none());
+        assert_eq!(spaces.list_hosts().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn a_move_stopped_after_the_host_left_still_takes_its_key_and_host_key_along() {
+        let folder = Folder::new();
+        let m = movable(&folder);
+        let source = m.spaces.main();
+        let moved = source.export_moved_host(m.a).unwrap();
+        m.spaces
+            .store(Some(&m.second))
+            .unwrap()
+            .import_moved_host(&moved, m.a)
+            .unwrap();
+        // Nothing else here uses what the host used.
+        source.delete_host(m.b).unwrap();
+        // Only the first step of letting go happened.
+        source.delete_host(m.a).unwrap();
+        assert!(source.get_key(m.key).unwrap().is_some());
+        let known = |store: &Store| {
+            store
+                .moved_known_host(&moved.host.address, moved.host.port)
+                .unwrap()
+                .is_some()
+        };
+        let had_host_key = known(&source);
+        source.drop_moved_host(m.a).unwrap();
+        assert!(source.get_key(m.key).unwrap().is_none());
+        assert!(!known(&source));
+        assert_eq!(
+            had_host_key,
+            known(&m.spaces.store(Some(&m.second)).unwrap())
+        );
+        // Asked once more, it has nothing left to do.
+        source.drop_moved_host(m.a).unwrap();
+        source.drop_moved_host(Uuid::now_v7()).unwrap();
+    }
+
+    #[test]
+    fn a_move_keeps_what_a_newer_build_wrote_into_the_rows() {
+        let folder = Folder::new();
+        let m = movable(&folder);
+        let source = m.spaces.main();
+        let extra = r#"{"future":"kept"}"#;
+        {
+            let conn = source.conn.lock();
+            for (table, id) in [
+                ("hosts", m.a.to_string()),
+                ("port_forwards", m.tunnel.to_string()),
+                ("keys", m.key.to_string()),
+            ] {
+                conn.execute(
+                    &format!("UPDATE {table} SET sync_extra = ?2 WHERE id = ?1"),
+                    params![id, extra],
+                )
+                .unwrap();
+            }
+            conn.execute(
+                "UPDATE identities SET sync_extra = ?2
+                  WHERE id = (SELECT identity_id FROM hosts WHERE id = ?1)",
+                params![m.a.to_string(), extra],
+            )
+            .unwrap();
+        }
+        let id = m.spaces.move_host_to(m.a, &m.second).unwrap();
+        let target = m.spaces.store(Some(&m.second)).unwrap();
+        let conn = target.conn.lock();
+        let login: String = conn
+            .query_row(
+                "SELECT identity_id FROM hosts WHERE id = ?1",
+                [id.to_string()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        for (table, id) in [
+            ("hosts", id.to_string()),
+            ("port_forwards", m.tunnel.to_string()),
+            ("keys", m.key.to_string()),
+            ("identities", login),
+        ] {
+            assert_eq!(
+                extra_of(&conn, table, &id).unwrap().as_deref(),
+                Some(extra),
+                "{table}"
+            );
+        }
+    }
+
     // -- groups and order -----------------------------------------------------------
 
     fn order(spaces: &Spaces, group: &str) -> Vec<(String, i64)> {
@@ -3848,6 +4392,73 @@ mod tests {
             .unwrap());
     }
 
+    #[test]
+    fn a_swap_of_the_main_server_cut_short_opens_with_one_password_afterwards() {
+        // Stopped right after the list of servers was swapped: the keys are
+        // prepared, none is in place.
+        let folder = Folder::new();
+        let (spaces, second) = two(&folder);
+        let first = spaces.main_id();
+        spaces.main().remember_vault(os).unwrap();
+        spaces.swap_main(&second, &os).unwrap();
+        drop(spaces);
+        assert!(std::fs::read_to_string(folder.registry())
+            .unwrap()
+            .contains("handover"));
+
+        // The next start puts them in place with every vault closed.
+        let spaces = folder.open();
+        assert_eq!(spaces.main_id(), second);
+        assert!(!std::fs::read_to_string(folder.registry())
+            .unwrap()
+            .contains("handover"));
+        assert!(spaces.main().unlock_remembered_vault(os_open).unwrap());
+        spaces.unlock_chain();
+        assert!(!spaces.is_locked(&first));
+        assert!(matches!(
+            spaces.store(Some(&first)).unwrap().vault_status().unwrap(),
+            VaultStatus::Unlocked
+        ));
+        drop(spaces);
+
+        // Stopped before the swap: the old order holds, and what was
+        // prepared for the new one is gone.
+        let folder = Folder::new();
+        let (spaces, second) = two(&folder);
+        let first = spaces.main_id();
+        spaces.main().remember_vault(os).unwrap();
+        let new = spaces.store(Some(&second)).unwrap();
+        new.stage_unlock(Some(&os)).unwrap();
+        let seal = |key: &[u8]| new.seal_for_space(&first, key);
+        spaces.main().stage_unlock(Some(&seal)).unwrap();
+        drop(new);
+        drop(spaces);
+        let spaces = folder.open();
+        assert_eq!(spaces.main_id(), first);
+        assert!(spaces.main().unlock_remembered_vault(os_open).unwrap());
+        spaces.unlock_chain();
+        assert!(!spaces.is_locked(&second));
+        for space in spaces.all() {
+            let staged: i64 = space
+                .store
+                .conn
+                .lock()
+                .query_row("SELECT count(*) FROM device_unlock_staged", [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(staged, 0);
+        }
+        // And the swap still goes through afterwards.
+        spaces.make_main(&second, &os).unwrap();
+        drop(spaces);
+        let spaces = folder.open();
+        assert_eq!(spaces.main_id(), second);
+        assert!(spaces.main().unlock_remembered_vault(os_open).unwrap());
+        spaces.unlock_chain();
+        assert!(!spaces.is_locked(&first));
+    }
+
     // -- removing a server ---------------------------------------------------------
 
     #[test]
@@ -3882,6 +4493,60 @@ mod tests {
         let spaces = folder.open();
         assert_eq!(spaces.all().len(), 1);
         assert_eq!(spaces.main_id(), main);
+    }
+
+    #[test]
+    fn a_removal_stopped_half_way_keeps_the_server_from_syncing_until_it_is_done() {
+        let folder = Folder::new();
+        let (spaces, second) = two(&folder);
+        let main = spaces.main_id();
+        // The other vault is closed: an entry with a password cannot move.
+        spaces.main().lock_vault();
+        let secret = spaces
+            .save_host(on(
+                &second,
+                with_password(draft("secret", "secret.example"), "hunter2"),
+            ))
+            .unwrap()
+            .host
+            .id;
+        assert!(matches!(
+            spaces.remove(&second, true, &os),
+            Err(StoreError::VaultLocked)
+        ));
+        // Nothing left it, so nothing holds it back.
+        assert!(!spaces.is_leaving(&second));
+
+        let plain = spaces
+            .save_host(on(&second, draft("plain", "plain.example")))
+            .unwrap()
+            .host
+            .id;
+        spaces
+            .move_host(plain, Workspace::Private, None, Some(secret))
+            .unwrap();
+        let there = spaces.store(Some(&second)).unwrap().list_hosts().unwrap();
+        assert_eq!(there[0].name, "plain");
+        assert!(spaces.remove(&second, true, &os).is_err());
+        assert!(spaces.is_leaving(&second));
+        assert!(!spaces.is_leaving(&main));
+        assert_eq!(spaces.all().len(), 2);
+        drop(spaces);
+
+        // A start in between does not forget it.
+        let spaces = folder.open();
+        assert!(spaces.is_leaving(&second));
+        spaces.main().unlock_vault(b"main").unwrap();
+        spaces.unlock_chain();
+        spaces.remove(&second, true, &os).unwrap();
+        assert!(!spaces.is_leaving(&second));
+        assert_eq!(spaces.all().len(), 1);
+        let mut left: Vec<String> = names(&spaces).into_iter().map(|(name, _)| name).collect();
+        left.sort();
+        assert_eq!(left, vec!["plain".to_string(), "secret".to_string()]);
+        assert!(!std::fs::read_to_string(folder.registry())
+            .unwrap()
+            .contains("leaving"));
     }
 
     #[test]

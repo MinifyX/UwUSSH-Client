@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use uuid::Uuid;
 use uwussh_proto::{KeymapPayload, KeymapTextPayload};
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 /// One key with its modifiers, as the page sends and reads it.
 pub use uwussh_proto::ChordPayload as Chord;
@@ -122,6 +122,95 @@ fn valid_action(id: &str) -> bool {
 
 fn valid_code(code: &str) -> bool {
     (1..=MAX_CODE_CHARS).contains(&code.len()) && code.bytes().all(|b| b.is_ascii_alphanumeric())
+}
+
+/// What keeps one binding out of a keymap, wherever it comes from: the page
+/// or another device.
+fn binding_problem(action: &str, chords: &[Chord]) -> Option<StoreError> {
+    if !valid_action(action) {
+        return Some(invalid("action", "invalid"));
+    }
+    if chords.len() > MAX_CHORDS {
+        return Some(invalid("chords", "too-many"));
+    }
+    if !chords.iter().all(|chord| valid_code(&chord.code)) {
+        return Some(invalid("code", "invalid"));
+    }
+    None
+}
+
+/// What keeps a text's label, already trimmed, out of a keymap.
+fn label_problem(label: &str) -> Option<StoreError> {
+    if label.chars().count() > MAX_LABEL_CHARS {
+        return Some(invalid("label", "too-long"));
+    }
+    if label.chars().any(char::is_control) {
+        return Some(invalid("label", "invalid"));
+    }
+    None
+}
+
+/// A binding stays when it is for one of the app's own actions, or for a text
+/// the keymap holds.
+fn binding_has_its_text(action: &str, texts: &BTreeMap<String, KeymapTextPayload>) -> bool {
+    match text_of_action(action) {
+        None => true,
+        Some(Some(text)) => texts.contains_key(&text.to_string()),
+        Some(None) => false,
+    }
+}
+
+/// A keymap that arrived by sync, cut down to what [`Store::save_keymap`]
+/// would have written: the server, or a device gone wrong, must not get more
+/// into the store than the page can. Nothing here fails — one bad entry is
+/// left out and the rest of the record is kept, so it can never stall a sync.
+///
+/// A binding that would have been refused is dropped, which leaves that
+/// action with the shortcut the app ships with. A text under an id that is
+/// not a UUID as this build writes it is dropped; a label is cut to what a
+/// label may be. Beyond the limits, the first bindings by action id and the
+/// first texts by position stay. Fields a newer build added are not touched.
+pub(crate) fn sanitise_synced(keymap: &mut KeymapPayload) {
+    keymap
+        .texts
+        .retain(|id, _| Uuid::parse_str(id).is_ok_and(|parsed| parsed.to_string() == *id));
+    if keymap.texts.len() > MAX_TEXTS {
+        let mut order: Vec<(u32, &String)> = keymap
+            .texts
+            .iter()
+            .map(|(id, text)| (text.position, id))
+            .collect();
+        order.sort();
+        let gone: BTreeSet<String> = order
+            .into_iter()
+            .skip(MAX_TEXTS)
+            .map(|(_, id)| id.clone())
+            .collect();
+        keymap.texts.retain(|id, _| !gone.contains(id));
+    }
+    for text in keymap.texts.values_mut() {
+        let trimmed = text.label.trim();
+        if trimmed.len() != text.label.len() || label_problem(trimmed).is_some() {
+            let kept: String = text
+                .label
+                .chars()
+                .filter(|c| !c.is_control())
+                .collect::<String>()
+                .trim()
+                .chars()
+                .take(MAX_LABEL_CHARS)
+                .collect();
+            text.label = kept.trim_end().to_owned();
+        }
+    }
+
+    let texts = &keymap.texts;
+    keymap.bindings.retain(|action, chords| {
+        binding_problem(action, chords).is_none() && binding_has_its_text(action, texts)
+    });
+    if let Some(first_gone) = keymap.bindings.keys().nth(MAX_ACTIONS).cloned() {
+        keymap.bindings.split_off(&first_gone);
+    }
 }
 
 /// The text of the user's action a binding is for, when it is for one.
@@ -244,14 +333,8 @@ impl Store {
             return Err(invalid("bindings", "too-many"));
         }
         for (action, chords) in &draft.bindings {
-            if !valid_action(action) {
-                return Err(invalid("action", "invalid"));
-            }
-            if chords.len() > MAX_CHORDS {
-                return Err(invalid("chords", "too-many"));
-            }
-            if !chords.iter().all(|chord| valid_code(&chord.code)) {
-                return Err(invalid("code", "invalid"));
+            if let Some(problem) = binding_problem(action, chords) {
+                return Err(problem);
             }
         }
         if draft.texts.len() > MAX_TEXTS {
@@ -264,11 +347,8 @@ impl Store {
                 return Err(invalid("texts", "duplicate"));
             }
             let label = text.label.trim();
-            if label.chars().count() > MAX_LABEL_CHARS {
-                return Err(invalid("label", "too-long"));
-            }
-            if label.chars().any(char::is_control) {
-                return Err(invalid("label", "invalid"));
+            if let Some(problem) = label_problem(label) {
+                return Err(problem);
             }
             let set = match &text.text {
                 PasswordChange::Set { value } => Some(normalised_text(value.expose())?),
@@ -332,11 +412,7 @@ impl Store {
         keymap.bindings = draft
             .bindings
             .into_iter()
-            .filter(|(action, _)| match text_of_action(action) {
-                None => true,
-                Some(Some(text)) => keymap.texts.contains_key(&text.to_string()),
-                Some(None) => false,
-            })
+            .filter(|(action, _)| binding_has_its_text(action, &keymap.texts))
             .collect();
 
         write(&tx, self.device, id, &keymap)?;
@@ -371,8 +447,14 @@ impl Store {
             }
         };
         let revealed = self.reveal_secret(secret)?;
-        let text = String::from_utf8(revealed.to_vec()).map_err(|_| invalid("text", "invalid"))?;
-        Ok(Some((Zeroizing::new(text), enter)))
+        match String::from_utf8(revealed.to_vec()) {
+            Ok(text) => Ok(Some((Zeroizing::new(text), enter))),
+            Err(error) => {
+                // The error carries the opened bytes; they go before it does.
+                error.into_bytes().zeroize();
+                Err(invalid("text", "invalid"))
+            }
+        }
     }
 }
 
@@ -838,6 +920,218 @@ mod tests {
             store.keymap_text("mac", id).unwrap().unwrap().0.as_str(),
             "x"
         );
+    }
+
+    /// A keymap as another device pushed it, sealed for this vault and
+    /// applied the way a pull applies it.
+    fn sync_in(store: &Store, family: &str, body: &serde_json::Value) -> crate::ApplyReport {
+        let id = keymap_id(family).unwrap();
+        let clock = uwussh_proto::Hlc {
+            wall_ms: 4_000_000_000_000,
+            counter: 0,
+            device: 7,
+        };
+        let envelope = {
+            let guard = store.vault.lock();
+            let vault = guard.as_ref().unwrap();
+            let sealed = vault
+                .seal_synced(
+                    id,
+                    uwussh_proto::EntityKind::Keymap,
+                    clock,
+                    false,
+                    body.to_string().as_bytes(),
+                )
+                .unwrap();
+            uwussh_proto::Envelope {
+                id,
+                vault_id: vault.vault_id(),
+                kind: uwussh_proto::EntityKind::Keymap,
+                updated_at: clock,
+                base_seq: 0,
+                deleted: false,
+                nonce: sealed.nonce,
+                blob: sealed.blob,
+                seq: Some(1),
+            }
+        };
+        store.apply_envelopes(&[envelope]).unwrap()
+    }
+
+    fn stored_body(store: &Store) -> String {
+        store
+            .conn
+            .lock()
+            .query_row("SELECT body FROM keymaps", [], |row| row.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn a_synced_keymap_that_could_have_been_saved_here_is_kept_as_it_came() {
+        let store = store();
+        let text = Uuid::now_v7();
+        // With fields a newer build added, and written as no build here
+        // writes it (a null, a default spelled out): no reason to touch it.
+        let body = serde_json::json!({
+            "texts": {text.to_string(): {
+                "label": "root werden", "enter": true, "secret_id": null,
+                "position": 0, "colour": "red"
+            }},
+            "sequences": {"leader": "KeyB"},
+            "bindings": {
+                "tab:new": [{"meta": true, "code": "KeyT"}, {"ctrl": true, "shift": true, "code": "KeyT"}],
+                "terminal:clear": [],
+                format!("text:{text}"): [{"alt": true, "code": "Digit1"}]
+            }
+        });
+        let report = sync_in(&store, "mac", &body);
+        assert_eq!((report.applied, report.rejected), (1, 0));
+        assert_eq!(stored_body(&store), body.to_string());
+
+        let view = store.keymap("mac").unwrap();
+        assert_eq!(view.bindings.len(), 3);
+        assert_eq!(view.bindings["tab:new"].len(), 2);
+        assert_eq!(view.texts[0].label, "root werden");
+        assert!(!view.texts[0].has_text);
+    }
+
+    #[test]
+    fn a_synced_keymap_loses_what_a_save_here_would_have_refused() {
+        let store = store();
+        let (kept, unbound) = (Uuid::now_v7(), Uuid::now_v7());
+        let ok = serde_json::json!([{"ctrl": true, "code": "KeyK"}]);
+        let nine = serde_json::json!(vec![serde_json::json!({"code": "KeyK"}); 9]);
+        let body = serde_json::json!({
+            "bindings": {
+                "tab:new": ok,
+                "terminal:clear": [],
+                format!("text:{kept}"): ok,
+                format!("text:{unbound}"): ok,
+                "text:not-an-id": ok,
+                "Tab:Close": ok,
+                "a".repeat(81): ok,
+                "pane:split": nine,
+                "pane:close": [{"code": "K".repeat(33)}],
+                "pane:next": [{"code": "KeyN"}, {"code": "Key N"}],
+                "pane:prev": [{"code": ""}]
+            },
+            "texts": {
+                kept.to_string(): {"label": format!("  zwei\nzeilen {}", "l".repeat(200)), "enter": true},
+                kept.to_string().to_uppercase(): {"label": "doppelt"},
+                "kein-text": {"label": "x"}
+            },
+            "sequences": {"leader": "KeyB"}
+        });
+        // Applied, not refused: a record that failed here would be asked for
+        // again on every pull.
+        let report = sync_in(&store, "other", &body);
+        assert_eq!((report.applied, report.rejected), (1, 0));
+
+        let view = store.keymap("other").unwrap();
+        assert_eq!(
+            view.bindings.keys().map(String::as_str).collect::<Vec<_>>(),
+            vec!["tab:new", "terminal:clear", format!("text:{kept}").as_str()]
+        );
+        assert_eq!(view.texts.len(), 1);
+        assert_eq!(view.texts[0].id, kept);
+        assert_eq!(
+            view.texts[0].label,
+            format!("zweizeilen {}", "l".repeat(MAX_LABEL_CHARS - 11))
+        );
+
+        let json: serde_json::Value = serde_json::from_str(&stored_body(&store)).unwrap();
+        assert_eq!(json["sequences"]["leader"], "KeyB");
+        assert_eq!(json["texts"].as_object().unwrap().len(), 1);
+        // And a save here takes what is left without complaint.
+        assert!(store
+            .save_keymap(
+                "other",
+                KeymapDraft {
+                    bindings: view.bindings.clone(),
+                    texts: vec![super::KeymapTextDraft {
+                        id: kept,
+                        label: view.texts[0].label.clone(),
+                        enter: true,
+                        text: PasswordChange::Keep,
+                    }],
+                },
+            )
+            .is_ok());
+    }
+
+    #[test]
+    fn a_synced_keymap_is_cut_to_as_many_entries_as_a_save_allows() {
+        let store = store();
+        let ok = serde_json::json!([{"code": "KeyK"}]);
+        let ids: Vec<Uuid> = (0..MAX_TEXTS + 5).map(|_| Uuid::now_v7()).collect();
+        let mut bindings = serde_json::Map::new();
+        for n in 0..MAX_ACTIONS + 5 {
+            bindings.insert(format!("a{n:04}"), ok.clone());
+        }
+        let mut texts = serde_json::Map::new();
+        for (n, id) in ids.iter().enumerate() {
+            // The list runs backwards through the ids: the first hundred by
+            // position stay, wherever they stand in the map.
+            let position = ids.len() - 1 - n;
+            texts.insert(
+                id.to_string(),
+                serde_json::json!({"label": format!("t{position}"), "position": position}),
+            );
+        }
+        let report = sync_in(
+            &store,
+            "mac",
+            &serde_json::json!({"bindings": bindings, "texts": texts}),
+        );
+        assert_eq!((report.applied, report.rejected), (1, 0));
+
+        let view = store.keymap("mac").unwrap();
+        assert_eq!(view.bindings.len(), MAX_ACTIONS);
+        assert!(view.bindings.contains_key("a0299"));
+        assert!(!view.bindings.contains_key("a0300"));
+        assert_eq!(view.texts.len(), MAX_TEXTS);
+        assert_eq!(view.texts[0].label, "t0");
+        assert_eq!(view.texts[MAX_TEXTS - 1].label, "t99");
+    }
+
+    #[test]
+    fn a_text_that_is_not_text_is_refused_and_not_handed_out() {
+        let store = store();
+        let id = Uuid::now_v7();
+        store
+            .save_keymap(
+                "mac",
+                KeymapDraft {
+                    bindings: BTreeMap::new(),
+                    texts: vec![text(id, "t", set("x"))],
+                },
+            )
+            .unwrap();
+        // The secret is replaced by one that opens to bytes no text has.
+        {
+            let conn = store.conn.lock();
+            let guard = store.vault.lock();
+            let tx = conn.unchecked_transaction().unwrap();
+            let sealed = seal_secret(
+                &tx,
+                store.device,
+                guard.as_ref().unwrap(),
+                &[0xff, 0xfe, b'x'],
+            )
+            .unwrap();
+            let body: String = tx
+                .query_row("SELECT body FROM keymaps", [], |row| row.get(0))
+                .unwrap();
+            let mut json: serde_json::Value = serde_json::from_str(&body).unwrap();
+            json["texts"][id.to_string()]["secret_id"] = sealed.into();
+            tx.execute("UPDATE keymaps SET body = ?1", [json.to_string()])
+                .unwrap();
+            tx.commit().unwrap();
+        }
+        assert!(matches!(
+            store.keymap_text("mac", id),
+            Err(StoreError::Invalid { field: "text", .. })
+        ));
     }
 
     #[test]

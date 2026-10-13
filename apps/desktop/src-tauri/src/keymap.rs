@@ -120,12 +120,76 @@ pub(crate) async fn keyboard_layout() -> Option<String> {
         .flatten()
 }
 
+/// What a helper program prints, when it ends well, soon and briefly.
 fn output_of(program: &str, args: &[&str]) -> Option<String> {
-    let output = Command::new(program).args(args).output().ok()?;
-    output
-        .status
-        .success()
-        .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+    output_within(program, args, std::time::Duration::from_secs(2))
+}
+
+/// Run a program and hand back what it printed. Nothing when it cannot be
+/// started, fails, is not done in `timeout` or prints more than a layout's
+/// name could ever take: it is killed then, and reaped either way.
+#[cfg_attr(windows, allow(dead_code))]
+fn output_within(program: &str, args: &[&str], timeout: std::time::Duration) -> Option<String> {
+    use std::io::Read;
+    use std::process::Stdio;
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+
+    /// As much output as is read.
+    const LIMIT: usize = 64 * 1024;
+
+    let deadline = Instant::now() + timeout;
+    let mut child = Command::new(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+
+    // Read on a thread of its own, so that a program that says nothing and
+    // never ends costs the timeout and no more. One byte past the limit is
+    // asked for, which tells too much from just enough.
+    let output = child
+        .stdout
+        .take()
+        .and_then(|stdout| {
+            let (sender, receiver) = mpsc::channel();
+            std::thread::Builder::new()
+                .name("keymap-helper".into())
+                .spawn(move || {
+                    let mut out = Vec::new();
+                    let read = stdout.take(LIMIT as u64 + 1).read_to_end(&mut out);
+                    let _ = sender.send(read.ok().map(|_| out));
+                })
+                .ok()?;
+            receiver.recv_timeout(timeout).ok().flatten()
+        })
+        .filter(|out| out.len() <= LIMIT);
+
+    // Its output ended, so it is ending: the end of the pipe and the exit
+    // are a moment apart at most. One that closed its output and stays is
+    // given until the deadline, not longer.
+    let status = output.as_ref().and_then(|_| loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            _ => break None,
+        }
+    });
+    if status.is_none() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    match (output, status) {
+        (Some(out), Some(status)) if status.success() => {
+            Some(String::from_utf8_lossy(&out).into_owned())
+        }
+        _ => None,
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -284,6 +348,52 @@ mod tests {
         assert_eq!(typed("ls -la", true), b"ls -la\r");
         assert_eq!(typed("a\r\nb\nc\n", true), b"a\rb\rc\r");
         assert_eq!(typed("a\tb\x03\x1b[2J", false), b"a\tb[2J");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_helper_program_is_read_when_it_ends_well() {
+        let long = std::time::Duration::from_secs(30);
+        assert_eq!(
+            output_within("sh", &["-c", "printf 'layout: de'"], long).as_deref(),
+            Some("layout: de")
+        );
+        assert_eq!(output_of("sh", &["-c", "printf de"]).as_deref(), Some("de"));
+        assert_eq!(output_within("sh", &["-c", "echo de; exit 3"], long), None);
+        assert_eq!(output_within("uwussh-no-such-program", &[], long), None);
+        // Its input is closed and what it says on the side goes nowhere.
+        assert_eq!(
+            output_within("sh", &["-c", "cat; echo oops >&2"], long).as_deref(),
+            Some("")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_helper_program_that_hangs_or_floods_is_cut_off() {
+        let started = std::time::Instant::now();
+        let short = std::time::Duration::from_millis(100);
+        // Silent and never done.
+        assert_eq!(output_within("sh", &["-c", "exec sleep 600"], short), None);
+        // Done talking, but not done.
+        assert_eq!(
+            output_within("sh", &["-c", "echo de; exec >&-; exec sleep 600"], short),
+            None
+        );
+        // More than is ever read.
+        let long = std::time::Duration::from_secs(30);
+        assert_eq!(
+            output_within("sh", &["-c", "exec head -c 70000 /dev/zero"], long),
+            None
+        );
+        assert_eq!(
+            output_within("sh", &["-c", "exec head -c 65536 /dev/zero"], long).map(|out| out.len()),
+            Some(65536)
+        );
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(20),
+            "nothing waited for a program that would not end"
+        );
     }
 
     #[test]

@@ -468,6 +468,13 @@ pub(crate) fn pass(app: &AppHandle, store: &Arc<Store>, sync: &Sync) -> SyncResu
             "this server was removed from this device",
         ));
     }
+    if sync.held.load(Ordering::SeqCst) {
+        // The same while it is being removed, however the pass was asked for.
+        sync.running.store(false, Ordering::SeqCst);
+        return Err(SyncFailure::error(
+            "this server is being removed from this device",
+        ));
+    }
     let on_lock = store.lock_state().map(|s| s.active).unwrap_or(false);
     let outcome = (|| {
         if on_lock {
@@ -566,6 +573,14 @@ pub(crate) fn start(app: &AppHandle) {
 pub(crate) fn start_space(app: &AppHandle, id: &str) {
     if !app.state::<Syncs>().started.lock().insert(id.to_string()) {
         return;
+    }
+    // A removal that stopped half way, in this run or an earlier one, keeps
+    // the server from syncing until it is asked again and gets through.
+    if app.state::<AppState>().spaces.is_leaving(id) {
+        app.state::<Syncs>()
+            .of(id)
+            .held
+            .store(true, Ordering::SeqCst);
     }
     let (worker_app, worker_id) = (app.clone(), id.to_string());
     std::thread::Builder::new()
@@ -699,6 +714,11 @@ pub(crate) async fn setting_up<T: Send + 'static>(
             Err(failure) => {
                 if new && one_step {
                     discard_new(&app);
+                }
+                if !new {
+                    // A step that failed late may have changed the key
+                    // before it did.
+                    crate::spaces::rechain(&app);
                 }
                 Err(failure)
             }

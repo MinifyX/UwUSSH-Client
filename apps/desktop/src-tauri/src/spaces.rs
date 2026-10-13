@@ -282,8 +282,11 @@ pub(crate) async fn space_remove(
             removed
         });
         if let Err(failure) = removed {
-            sync.held.store(false, Ordering::SeqCst);
-            // A part of the entries may have moved already.
+            // With a part of the entries moved already, the server stays
+            // held: what left it is deleted on this device only, and a pass
+            // would delete it on the server too. Asking again finishes it.
+            sync.held
+                .store(state.spaces.is_leaving(&id), Ordering::SeqCst);
             changed(app);
             return Err(failure);
         }
