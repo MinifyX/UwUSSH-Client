@@ -121,6 +121,7 @@ pub(crate) async fn keyboard_layout() -> Option<String> {
 }
 
 /// What a helper program prints, when it ends well, soon and briefly.
+#[cfg_attr(windows, allow(dead_code))]
 fn output_of(program: &str, args: &[&str]) -> Option<String> {
     output_within(program, args, std::time::Duration::from_secs(2))
 }
@@ -128,6 +129,7 @@ fn output_of(program: &str, args: &[&str]) -> Option<String> {
 /// Run a program and hand back what it printed. Nothing when it cannot be
 /// started, fails, is not done in `timeout` or prints more than a layout's
 /// name could ever take: it is killed then, and reaped either way.
+#[cfg_attr(windows, allow(dead_code))]
 #[cfg_attr(windows, allow(dead_code))]
 fn output_within(program: &str, args: &[&str], timeout: std::time::Duration) -> Option<String> {
     use std::io::Read;
