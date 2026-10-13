@@ -130,7 +130,6 @@ fn output_of(program: &str, args: &[&str]) -> Option<String> {
 /// started, fails, is not done in `timeout` or prints more than a layout's
 /// name could ever take: it is killed then, and reaped either way.
 #[cfg_attr(windows, allow(dead_code))]
-#[cfg_attr(windows, allow(dead_code))]
 fn output_within(program: &str, args: &[&str], timeout: std::time::Duration) -> Option<String> {
     use std::io::Read;
     use std::process::Stdio;
