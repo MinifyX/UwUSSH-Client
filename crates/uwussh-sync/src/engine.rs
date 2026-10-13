@@ -40,6 +40,16 @@ pub trait Transport {
     fn take_reset(&self) -> bool {
         false
     }
+    /// Whether devices publish what they hold here and check each other's.
+    /// A team's mailbox has no manifests: not everybody in it may write.
+    fn manifests(&self) -> bool {
+        true
+    }
+    /// Whether this device may push here at all. Somebody who only reads a
+    /// team does not offer what the server would refuse.
+    fn writes(&self) -> bool {
+        true
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -123,10 +133,18 @@ pub fn sync_once<T: Transport>(store: &Store, transport: &T) -> Result<SyncRepor
     let mut report = SyncReport::default();
     for round in 1..=MAX_ROUNDS {
         report.rounds = round;
-        let conflicts =
-            push_all(store, transport, &mut report)? + push_apart(store, transport, &mut report)?;
+        let conflicts = if transport.writes() {
+            push_all(store, transport, &mut report)? + push_apart(store, transport, &mut report)?
+        } else {
+            0
+        };
         let complete = pull_all(store, transport, &mut report)?;
         if conflicts == 0 {
+            if !transport.manifests() {
+                report.complete = complete;
+                report.cursor = store.sync_state()?.cursor;
+                return Ok(report);
+            }
             let complete = complete && publish_manifest(store, transport, &mut report)?;
             report.complete = complete;
             report.withheld = check(store, transport, &mut report, complete)?;

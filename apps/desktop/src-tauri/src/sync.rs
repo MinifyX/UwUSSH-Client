@@ -213,6 +213,8 @@ pub(crate) struct Sync {
     /// there: to remove it there, if the person wants.
     pub(crate) left_behind: Mutex<Option<(Arc<Server>, Uuid)>>,
     pub(crate) last: Mutex<Option<LastPass>>,
+    /// The server's teams, as the last pass over them found them.
+    pub(crate) teams: Mutex<Option<uwussh_sync::ServerTeams>>,
     pub(crate) running: AtomicBool,
     /// The last pass found the server keeping records back, and the window
     /// has been told.
@@ -301,7 +303,7 @@ pub(crate) fn connected(store: &Store) -> bool {
 /// and there is no second yet.
 pub(crate) fn can_add(spaces: &Spaces) -> bool {
     let main = spaces.main();
-    spaces.all().len() == 1 && spaces.has_room() && connected(&main) && open(&main)
+    spaces.servers().len() == 1 && spaces.has_room() && connected(&main) && open(&main)
 }
 
 /// Which server `space` means: none is the main one, `new` the second one
@@ -343,6 +345,9 @@ pub(crate) fn target(app: &AppHandle, space: Option<&str>, begin: bool) -> SyncR
     let space = state
         .spaces
         .get(&id)
+        // A team is no server: it has no connection, password or devices of
+        // its own.
+        .filter(|space| space.kind == uwussh_store::SpaceKind::Server)
         .ok_or_else(|| SyncFailure::error("this server is not connected on this device"))?;
     Ok(Target {
         sync: syncs.of(&id),
@@ -538,7 +543,7 @@ pub(crate) fn pass(app: &AppHandle, store: &Arc<Store>, sync: &Sync) -> SyncResu
     outcome
 }
 
-fn describe(failure: &SyncFailure) -> String {
+pub(crate) fn describe(failure: &SyncFailure) -> String {
     match failure {
         SyncFailure::VaultLocked => "the vault is locked".into(),
         SyncFailure::PasswordWrong => "wrong password".into(),
@@ -563,7 +568,7 @@ fn describe(failure: &SyncFailure) -> String {
 /// Starts every server's worker, and the thread that listens to UwULock.
 pub(crate) fn start(app: &AppHandle) {
     app.manage(Syncs::default());
-    for space in app.state::<AppState>().spaces.all() {
+    for space in app.state::<AppState>().spaces.servers() {
         start_space(app, &space.id);
     }
 }
@@ -623,6 +628,7 @@ fn worker(app: AppHandle, id: String) {
             .map(|s| s.active && s.signed_in)
             .unwrap_or(false);
         let unlocked = matches!(store.vault_status(), Ok(VaultStatus::Unlocked));
+        crate::teams::without_server(&app, &id, &store, &sync);
         if !(paired || on_lock) || !unlocked {
             continue;
         }
@@ -640,6 +646,7 @@ fn worker(app: AppHandle, id: String) {
             Ok(_) => {
                 next_pull = Instant::now() + PULL_EVERY;
                 not_before = Instant::now();
+                crate::teams::after_pass(&app, &id, &store, &sync);
             }
             Err(SyncFailure::SwitchedOff) => {
                 tracing::info!("UwULock has app sync switched off; looking again later");
@@ -789,7 +796,7 @@ impl SyncStatus {
 
     /// A server nothing is known of yet: the second one, before its form
     /// was sent for the first time.
-    fn blank() -> Self {
+    pub(crate) fn blank() -> Self {
         let nothing = Sync::default();
         SyncStatus {
             paired: false,
@@ -1284,7 +1291,12 @@ pub(crate) async fn sync_pass_now(app: AppHandle, space: Option<String>) -> Sync
         let state = handle.state::<AppState>();
         let syncs = handle.state::<Syncs>();
         let mut passed = false;
-        for space in state.spaces.all().into_iter().filter(|space| !space.main) {
+        for space in state
+            .spaces
+            .servers()
+            .into_iter()
+            .filter(|space| !space.main)
+        {
             passed |= pass_now(&handle, &space.store, &syncs.of(&space.id)).unwrap_or(false);
         }
         passed

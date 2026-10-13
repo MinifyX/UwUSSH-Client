@@ -16,5 +16,7 @@ rand.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
 zeroize.workspace = true
+# X25519 for the member keys of a team. The version russh already builds.
+curve25519-dalek = { version = "5", default-features = false, features = ["zeroize"] }
 hkdf = "0.13"
 sha2 = "0.11"

@@ -43,6 +43,9 @@ pub(crate) struct SpaceInfo {
     /// Its vault did not open with the main vault's key.
     locked: bool,
     read_only: bool,
+    /// For a team: the server it is on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parent: Option<String>,
     status: SyncStatus,
 }
 
@@ -71,7 +74,7 @@ fn host_of(url: &str) -> String {
     host.to_string()
 }
 
-fn label(store: &Store) -> String {
+pub(crate) fn label(store: &Store) -> String {
     let lock = store.lock_state().ok().filter(|state| state.active);
     let url = match lock {
         Some(lock) => lock.server_url,
@@ -81,6 +84,20 @@ fn label(store: &Store) -> String {
 }
 
 fn info(state: &AppState, syncs: &Syncs, space: SpaceHandle) -> SyncResult<SpaceInfo> {
+    if space.kind == SpaceKind::Team {
+        // A team is named by its name, opens with the key its server
+        // hands out, and syncs with its server: no state of its own.
+        return Ok(SpaceInfo {
+            label: space.label.unwrap_or_default(),
+            locked: false,
+            status: SyncStatus::blank(),
+            id: space.id,
+            main: false,
+            kind: space.kind,
+            read_only: space.read_only,
+            parent: space.parent,
+        });
+    }
     Ok(SpaceInfo {
         label: label(&space.store),
         locked: state.spaces.is_locked(&space.id),
@@ -89,6 +106,7 @@ fn info(state: &AppState, syncs: &Syncs, space: SpaceHandle) -> SyncResult<Space
         main: space.main,
         kind: space.kind,
         read_only: space.read_only,
+        parent: None,
     })
 }
 

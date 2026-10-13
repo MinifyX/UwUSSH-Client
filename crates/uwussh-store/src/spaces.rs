@@ -101,8 +101,11 @@ impl TeamRole {
     }
 }
 
+/// As many teams as one device opens. A server allows fewer.
+const MAX_TEAM_SPACES: usize = 64;
+
 /// The longest team name kept, in characters: the server's bound.
-const MAX_TEAM_NAME: usize = 80;
+pub const MAX_TEAM_NAME: usize = 80;
 
 /// A team's name as it is kept and shown: no control characters, no more
 /// than the server allows.
@@ -350,6 +353,18 @@ fn invalid(field: &'static str, problem: &'static str) -> StoreError {
 
 fn unknown_space() -> StoreError {
     invalid("space", "unknown")
+}
+
+/// A team this account only reads takes no write.
+fn read_only() -> StoreError {
+    invalid("space", "read-only")
+}
+
+fn writable(space: &SpaceHandle) -> Result<()> {
+    if space.read_only {
+        return Err(read_only());
+    }
+    Ok(())
 }
 
 fn valid_id(id: &str) -> bool {
@@ -1740,12 +1755,59 @@ impl Spaces {
         self.inner.read().main.clone()
     }
 
-    /// Every space, the main one first.
+    /// Every space: the main server first, and each server followed by the
+    /// teams on it, by name.
     pub fn all(&self) -> Vec<SpaceHandle> {
         let inner = self.inner.read();
-        let mut all: Vec<SpaceHandle> = inner.entries.iter().map(|e| inner.handle(e)).collect();
-        all.sort_by_key(|space| !space.main);
+        let of = |kind: SpaceKind| {
+            inner
+                .entries
+                .iter()
+                .filter(move |entry| entry.kind == kind)
+                .map(|entry| inner.handle(entry))
+        };
+        let mut servers: Vec<SpaceHandle> = of(SpaceKind::Server).collect();
+        servers.sort_by_key(|space| !space.main);
+        let mut teams: Vec<SpaceHandle> = of(SpaceKind::Team).collect();
+        teams.sort_by_cached_key(|team| {
+            (
+                team.label.clone().unwrap_or_default().to_lowercase(),
+                team.id.clone(),
+            )
+        });
+        let mut all = Vec::with_capacity(servers.len() + teams.len());
+        for server in servers {
+            let (here, rest): (Vec<_>, Vec<_>) = teams
+                .into_iter()
+                .partition(|team| team.parent.as_deref() == Some(server.id.as_str()));
+            teams = rest;
+            all.push(server);
+            all.extend(here);
+        }
         all
+    }
+
+    /// The servers, the main one first.
+    pub fn servers(&self) -> Vec<SpaceHandle> {
+        self.all()
+            .into_iter()
+            .filter(|space| space.kind == SpaceKind::Server)
+            .collect()
+    }
+
+    /// The teams on a server that are open on this device, by name.
+    pub fn teams_of(&self, server: &str) -> Vec<SpaceHandle> {
+        self.all()
+            .into_iter()
+            .filter(|space| space.parent.as_deref() == Some(server))
+            .collect()
+    }
+
+    /// The space of a team on a server.
+    pub fn team_space(&self, server: &str, team: Uuid) -> Option<SpaceHandle> {
+        self.teams_of(server)
+            .into_iter()
+            .find(|space| space.team == Some(team))
     }
 
     pub fn get(&self, id: &str) -> Option<SpaceHandle> {
@@ -1765,9 +1827,9 @@ impl Spaces {
         }
     }
 
-    /// The one other space there is beside `id`, while there are two.
+    /// The one other server there is beside `id`, while there are two.
     pub fn other(&self, id: &str) -> Option<SpaceHandle> {
-        self.all().into_iter().find(|space| space.id != id)
+        self.servers().into_iter().find(|space| space.id != id)
     }
 
     pub fn defaults(&self) -> SpaceDefaults {
@@ -1787,7 +1849,12 @@ impl Spaces {
 
     pub fn set_default(&self, workspace: Workspace, id: &str) -> Result<()> {
         let mut inner = self.inner.write();
-        if !inner.entries.iter().any(|entry| entry.id == id) {
+        // New entries go to a server unless a team is chosen for one.
+        if !inner
+            .entries
+            .iter()
+            .any(|entry| entry.id == id && entry.kind == SpaceKind::Server)
+        {
             return Err(unknown_space());
         }
         match workspace {
@@ -1891,6 +1958,154 @@ impl Spaces {
             remove_store_files(&path);
         }
         self.settled(id);
+    }
+
+    // -- teams ------------------------------------------------------------
+
+    /// Open a team on this device: a store of its own under the team's key,
+    /// a child of the server the team is on, its key kept under the main
+    /// vault's like a second server's.
+    pub fn add_team(
+        &self,
+        server: &str,
+        team: Uuid,
+        name: &str,
+        role: TeamRole,
+        epoch: u64,
+        key: Zeroizing<[u8; 32]>,
+    ) -> Result<SpaceHandle> {
+        let _ops = self.ops.lock();
+        {
+            let inner = self.inner.read();
+            if !inner
+                .entries
+                .iter()
+                .any(|entry| entry.id == server && entry.kind == SpaceKind::Server)
+            {
+                return Err(unknown_space());
+            }
+            let teams = inner
+                .entries
+                .iter()
+                .filter(|entry| entry.kind == SpaceKind::Team);
+            if teams
+                .clone()
+                .any(|entry| entry.parent.as_deref() == Some(server) && entry.team == Some(team))
+            {
+                return Err(invalid("space", "exists"));
+            }
+            if teams.count() >= MAX_TEAM_SPACES {
+                return Err(invalid("space", "limit"));
+            }
+        }
+        let id = Uuid::new_v4().to_string();
+        let file = format!("spaces/{id}.db");
+        let made = self.begin_store(&id).and_then(|store| {
+            store.team_begin(team, epoch, key)?;
+            Ok(Arc::new(store))
+        });
+        let store = match made {
+            Ok(store) => store,
+            Err(error) => {
+                self.discard(&id);
+                return Err(error);
+            }
+        };
+        {
+            let mut inner = self.inner.write();
+            inner.entries.push(Entry {
+                id: id.clone(),
+                file,
+                kind: SpaceKind::Team,
+                read_only: !role.writes(),
+                parent: Some(server.to_string()),
+                team: Some(team),
+                label: Some(clean_label(name)),
+                role: Some(role),
+                store: store.clone(),
+            });
+            if let Err(error) = self.persist(&mut inner) {
+                inner.entries.retain(|entry| entry.id != id);
+                drop(inner);
+                store.lock_vault();
+                drop(store);
+                self.discard(&id);
+                return Err(error);
+            }
+        }
+        drop(store);
+        self.settled(&id);
+        self.reseal_chain();
+        self.get(&id).ok_or_else(unknown_space)
+    }
+
+    /// Take over a team's name and this account's role in it, as the server
+    /// has them. `Ok(true)` when either changed.
+    pub fn update_team(&self, id: &str, name: &str, role: TeamRole) -> Result<bool> {
+        let mut inner = self.inner.write();
+        let name = clean_label(name);
+        let Some(entry) = inner
+            .entries
+            .iter_mut()
+            .find(|entry| entry.id == id && entry.kind == SpaceKind::Team)
+        else {
+            return Err(unknown_space());
+        };
+        if entry.label.as_deref() == Some(name.as_str()) && entry.role == Some(role) {
+            return Ok(false);
+        }
+        let before = (entry.label.replace(name), entry.role.replace(role));
+        entry.read_only = !role.writes();
+        if let Err(error) = self.persist(&mut inner) {
+            if let Some(entry) = inner.entries.iter_mut().find(|entry| entry.id == id) {
+                (entry.label, entry.role) = before;
+                entry.read_only = !entry.role.is_some_and(TeamRole::writes);
+            }
+            return Err(error);
+        }
+        Ok(true)
+    }
+
+    /// Take a team from this device: its space and its file. The team itself
+    /// and what it holds on the server are not touched.
+    pub fn remove_team(&self, id: &str) -> Result<()> {
+        let _ops = self.ops.lock();
+        let gone = self.get(id).ok_or_else(unknown_space)?;
+        if gone.kind != SpaceKind::Team {
+            return Err(unknown_space());
+        }
+        // A host on its way in or out arrives or stays first.
+        self.recover()?;
+        let path = {
+            let mut inner = self.inner.write();
+            let path = inner
+                .entries
+                .iter()
+                .find(|entry| entry.id == id)
+                .and_then(|entry| self.paths.resolve(&entry.file));
+            inner.entries.retain(|entry| entry.id != id);
+            self.persist(&mut inner)?;
+            path
+        };
+        gone.store.lock_vault();
+        drop(gone);
+        if let Some(path) = path {
+            self.remove_marked(id, &path);
+        }
+        Ok(())
+    }
+
+    /// Delete a store's files. Should one still be held open somewhere and
+    /// stay, the marker beside it has the next start clear it away.
+    fn remove_marked(&self, id: &str, path: &Path) {
+        let marker = self.paths.marker(id);
+        if let Some(marker) = &marker {
+            let _ = std::fs::write(marker, b"");
+        }
+        remove_store_files(path);
+        if let Some(marker) = marker.filter(|_| !path.exists()) {
+            let _ = std::fs::remove_file(marker);
+        }
     }
 
     // -- one password -----------------------------------------------------
@@ -2045,6 +2260,7 @@ impl Spaces {
         let target = match draft.id {
             Some(id) => {
                 let current = self.host_space(id)?.ok_or(StoreError::UnknownHost(id))?;
+                writable(&current)?;
                 match space.as_deref().filter(|space| *space != current.id) {
                     Some(to) => {
                         draft.id = Some(self.move_between(id, &current.id, to)?);
@@ -2059,6 +2275,7 @@ impl Spaces {
             },
         };
 
+        writable(&target)?;
         // A key that only lives on the other server comes along.
         if let Some(key) = draft.key_id {
             draft.key_id = Some(self.key_in(key, &target)?);
@@ -2089,23 +2306,36 @@ impl Spaces {
 
     pub fn delete_host(&self, id: Uuid) -> Result<()> {
         let _ops = self.ops.lock();
-        self.store_of_host(id)?.delete_host(id)
+        let space = self.host_space(id)?.ok_or(StoreError::UnknownHost(id))?;
+        writable(&space)?;
+        space.store.delete_host(id)
     }
 
     pub fn set_host_password(&self, id: Uuid, change: PasswordChange) -> Result<SpaceHost> {
         let space = self.host_space(id)?.ok_or(StoreError::UnknownHost(id))?;
+        writable(&space)?;
         Ok(SpaceHost {
             host: space.store.set_host_password(id, change)?,
             space: space.id,
         })
     }
 
+    /// Note that a host was connected to. In a team that is only read,
+    /// nothing is noted: nobody else would ever see it.
     pub fn mark_connected(&self, id: Uuid) -> Result<()> {
-        self.store_of_host(id)?.mark_connected(id)
+        let space = self.host_space(id)?.ok_or(StoreError::UnknownHost(id))?;
+        if space.read_only {
+            return Ok(());
+        }
+        space.store.mark_connected(id)
     }
 
     pub fn set_host_os(&self, id: Uuid, os: Option<&str>) -> Result<()> {
-        self.store_of_host(id)?.set_host_os(id, os)
+        let space = self.host_space(id)?.ok_or(StoreError::UnknownHost(id))?;
+        if space.read_only {
+            return Ok(());
+        }
+        space.store.set_host_os(id, os)
     }
 
     /// Move a host to another server. Returns the id it has there: its own,
@@ -2128,9 +2358,9 @@ impl Spaces {
         self.recover()?;
         let source = self.get(from).ok_or_else(unknown_space)?;
         let target = self.get(to).ok_or_else(unknown_space)?;
-        if target.read_only {
-            return Err(invalid("space", "read-only"));
-        }
+        // Leaving a space is a write there as much as arriving is here.
+        writable(&source)?;
+        writable(&target)?;
         let moved = source.store.export_moved_host(id)?;
         let needs_vault = moved.password.is_some() || moved.key.is_some();
         if needs_vault && !matches!(target.store.vault_status()?, VaultStatus::Unlocked) {
@@ -2202,6 +2432,7 @@ impl Spaces {
     ) -> Result<SpaceHost> {
         let _ops = self.ops.lock();
         let space = self.host_space(id)?.ok_or(StoreError::UnknownHost(id))?;
+        writable(&space)?;
         let group = group_name(group.map(str::to_string))?;
         let members: Vec<SpaceHost> = self
             .list_hosts()?
@@ -2219,8 +2450,12 @@ impl Spaces {
         for (index, other) in members.iter().enumerate() {
             let position = if index >= at { index + 1 } else { index } as i64;
             if other.host.position != position {
-                self.store(Some(&other.space))?
-                    .place_host(other.host.id, None, position)?;
+                // A host in a team that is only read keeps the place the
+                // team gave it.
+                let Some(space) = self.get(&other.space).filter(|space| !space.read_only) else {
+                    continue;
+                };
+                space.store.place_host(other.host.id, None, position)?;
             }
         }
         Ok(SpaceHost {
@@ -2266,6 +2501,11 @@ impl Spaces {
         }
         if found.is_empty() {
             return Err(invalid("groupPath", "unknown"));
+        }
+        // A group is one thing wherever it is: changing it on some servers
+        // and not in a team that is only read would make two of it.
+        if found.iter().any(|space| space.read_only) {
+            return Err(read_only());
         }
         Ok(found)
     }
@@ -2362,7 +2602,10 @@ impl Spaces {
         if spaces.is_empty() {
             return Err(StoreError::UnknownKey(id));
         }
-        for space in spaces {
+        if spaces.iter().all(|space| space.read_only) {
+            return Err(read_only());
+        }
+        for space in spaces.iter().filter(|space| !space.read_only) {
             space.store.rename_key(id, label)?;
         }
         Ok(())
@@ -2375,7 +2618,11 @@ impl Spaces {
         if key.hosts > 0 {
             return Err(StoreError::KeyInUse { hosts: key.hosts });
         }
-        for space in self.spaces_with_key(id)? {
+        let spaces = self.spaces_with_key(id)?;
+        if spaces.iter().all(|space| space.read_only) {
+            return Err(read_only());
+        }
+        for space in spaces.iter().filter(|space| !space.read_only) {
             space.store.delete_key(id)?;
         }
         Ok(())
@@ -2441,12 +2688,19 @@ impl Spaces {
 
     /// A tunnel is saved where its host is.
     pub fn save_tunnel(&self, draft: TunnelDraft) -> Result<TunnelRecord> {
-        self.store_of_host(draft.host_id)?.save_tunnel(draft)
+        let space = self
+            .host_space(draft.host_id)?
+            .ok_or(StoreError::UnknownHost(draft.host_id))?;
+        writable(&space)?;
+        space.store.save_tunnel(draft)
     }
 
     pub fn delete_tunnel(&self, id: Uuid) -> Result<()> {
         match self.tunnel_space(id)? {
-            Some(space) => space.store.delete_tunnel(id),
+            Some(space) => {
+                writable(&space)?;
+                space.store.delete_tunnel(id)
+            }
             None => Err(invalid("tunnel", "unknown")),
         }
     }
@@ -2491,9 +2745,10 @@ impl Spaces {
         if new.main {
             return Ok(());
         }
-        if new.kind != SpaceKind::Server || new.read_only {
-            return Err(invalid("space", "read-only"));
+        if new.kind != SpaceKind::Server {
+            return Err(unknown_space());
         }
+        writable(&new)?;
         let old = self.main();
         for store in [&old, &new.store] {
             if !matches!(store.vault_status()?, VaultStatus::Unlocked) {
@@ -2590,6 +2845,9 @@ impl Spaces {
     ) -> Result<()> {
         let _ops = self.ops.lock();
         let gone = self.get(id).ok_or_else(unknown_space)?;
+        if gone.kind != SpaceKind::Server {
+            return Err(unknown_space());
+        }
         let rest = self.other(id).ok_or_else(|| invalid("space", "last"))?;
 
         if keep {
@@ -2635,6 +2893,7 @@ impl Spaces {
             self.make_main_locked(&rest.id, protect)?;
         }
 
+        let mut teams: Vec<(String, PathBuf, Arc<Store>)> = Vec::new();
         let path = {
             let mut inner = self.inner.write();
             let path = inner
@@ -2642,7 +2901,17 @@ impl Spaces {
                 .iter()
                 .find(|entry| entry.id == id)
                 .and_then(|entry| self.paths.resolve(&entry.file));
-            inner.entries.retain(|entry| entry.id != id);
+            // The teams on it are reached through it, and go with it.
+            for entry in &inner.entries {
+                if entry.kind == SpaceKind::Team && entry.parent.as_deref() == Some(id) {
+                    if let Some(path) = self.paths.resolve(&entry.file) {
+                        teams.push((entry.id.clone(), path, entry.store.clone()));
+                    }
+                }
+            }
+            inner
+                .entries
+                .retain(|entry| entry.id != id && entry.parent.as_deref() != Some(id));
             if inner.defaults.private == id {
                 inner.defaults.private = rest.id.clone();
             }
@@ -2662,10 +2931,23 @@ impl Spaces {
         if let Some(path) = path {
             remove_store_files(&path);
         }
+        for (team, path, store) in teams {
+            store.lock_vault();
+            drop(store);
+            self.remove_marked(&team, &path);
+        }
         Ok(())
     }
 
     // -- import and export ------------------------------------------------------
+
+    fn team_ids(&self) -> HashSet<String> {
+        self.all()
+            .into_iter()
+            .filter(|space| space.kind == SpaceKind::Team)
+            .map(|space| space.id)
+            .collect()
+    }
 
     fn host_owners(&self) -> Result<HashMap<(String, u16, String), String>> {
         let mut owners = HashMap::new();
@@ -2692,6 +2974,8 @@ impl Spaces {
         }
         let main = self.main_id();
         let owners = self.host_owners()?;
+        let teams = self.team_ids();
+        let mut in_teams = 0;
         let ImportSet {
             groups,
             hosts,
@@ -2713,6 +2997,11 @@ impl Spaces {
                 .get(&host_match(&host.address, host.port, username))
                 .cloned()
                 .unwrap_or_else(|| self.default_for(host.workspace).id);
+            if teams.contains(&target) {
+                // A team has it already. Nothing of an import goes to a team.
+                in_teams += 1;
+                continue;
+            }
             let part = parts.entry(target).or_default();
             let identity_index = match (host.identity, identity) {
                 (Some(index), Some(identity)) => Some(match part.identities.get(&index) {
@@ -2800,7 +3089,10 @@ impl Spaces {
             }
         }
 
-        let mut total = ImportOutcome::default();
+        let mut total = ImportOutcome {
+            hosts_skipped: in_teams,
+            ..ImportOutcome::default()
+        };
         for (id, part) in parts {
             add_outcome(&mut total, self.store(Some(&id))?.import(part.set)?);
         }
@@ -2867,6 +3159,8 @@ impl Spaces {
         }
         let main = self.main_id();
         let owners = self.host_owners()?;
+        let teams = self.team_ids();
+        let mut in_teams = 0;
         let Backup {
             groups,
             hosts,
@@ -2879,13 +3173,19 @@ impl Spaces {
         let mut parts: BTreeMap<String, Backup> = BTreeMap::new();
         let mut key_at: HashMap<(String, usize), usize> = HashMap::new();
         // Where each host of the file went: its server and its index there.
-        let mut host_at: Vec<(String, usize)> = Vec::with_capacity(hosts.len());
+        let mut host_at: Vec<Option<(String, usize)>> = Vec::with_capacity(hosts.len());
         let mut used_keys = HashSet::new();
         for host in hosts {
             let target = owners
                 .get(&host_match(&host.address, host.port, &host.username))
                 .cloned()
                 .unwrap_or_else(|| self.default_for(host.workspace).id);
+            if teams.contains(&target) {
+                // A team has it already. Nothing of a backup goes to a team.
+                in_teams += 1;
+                host_at.push(None);
+                continue;
+            }
             let part = parts.entry(target.clone()).or_default();
             let key = match host.key.filter(|key| *key < keys.len()) {
                 Some(key) => {
@@ -2898,10 +3198,10 @@ impl Spaces {
                 None => None,
             };
             part.hosts.push(BackupHost { key, ..host });
-            host_at.push((target, part.hosts.len() - 1));
+            host_at.push(Some((target, part.hosts.len() - 1)));
         }
         for tunnel in tunnels {
-            let Some((target, index)) = host_at.get(tunnel.host) else {
+            let Some(Some((target, index))) = host_at.get(tunnel.host) else {
                 continue;
             };
             parts
@@ -2945,7 +3245,10 @@ impl Spaces {
             }
         }
 
-        let mut total = ImportOutcome::default();
+        let mut total = ImportOutcome {
+            hosts_skipped: in_teams,
+            ..ImportOutcome::default()
+        };
         for (id, part) in parts {
             add_outcome(&mut total, self.store(Some(&id))?.import_backup(part)?);
         }
@@ -4861,6 +5164,275 @@ mod tests {
             .iter()
             .any(|g| g.name == "empty"));
         assert_eq!(spaces.default_for(Workspace::Business).id, main);
+    }
+
+    // -- teams ------------------------------------------------------------------
+
+    fn team_key(byte: u8) -> Zeroizing<[u8; 32]> {
+        Zeroizing::new([byte; 32])
+    }
+
+    fn refused(result: Result<impl Sized>) -> bool {
+        matches!(
+            result,
+            Err(StoreError::Invalid {
+                field: "space",
+                problem: "read-only"
+            })
+        )
+    }
+
+    #[test]
+    fn a_team_is_a_space_under_its_server_and_opens_with_the_main_password() {
+        let folder = Folder::new();
+        let (spaces, second) = two(&folder);
+        let main = spaces.main_id();
+        let (ops, admins) = (Uuid::new_v4(), Uuid::new_v4());
+        let zeta = spaces
+            .add_team(
+                &main,
+                ops,
+                "  Zeta\n ops ",
+                TeamRole::Editor,
+                1,
+                team_key(1),
+            )
+            .unwrap();
+        let alpha = spaces
+            .add_team(&main, admins, "alpha", TeamRole::Reader, 3, team_key(2))
+            .unwrap();
+        let far = spaces
+            .add_team(&second, ops, "Far", TeamRole::Owner, 1, team_key(3))
+            .unwrap();
+        assert_eq!(zeta.kind, SpaceKind::Team);
+        assert_eq!(zeta.parent.as_deref(), Some(main.as_str()));
+        assert!(!zeta.read_only && alpha.read_only);
+        assert!(!zeta.label.as_deref().unwrap().contains('\n'));
+        // One team once per server; an unknown server has none.
+        assert!(spaces
+            .add_team(&main, ops, "again", TeamRole::Editor, 1, team_key(1))
+            .is_err());
+        assert!(spaces
+            .add_team(
+                &zeta.id,
+                Uuid::new_v4(),
+                "x",
+                TeamRole::Editor,
+                1,
+                team_key(1)
+            )
+            .is_err());
+
+        let order = |spaces: &Spaces| -> Vec<String> {
+            spaces.all().into_iter().map(|space| space.id).collect()
+        };
+        let expected = vec![
+            main.clone(),
+            alpha.id.clone(),
+            zeta.id.clone(),
+            second.clone(),
+            far.id.clone(),
+        ];
+        assert_eq!(order(&spaces), expected);
+        assert_eq!(spaces.servers().len(), 2);
+        assert!(!spaces.has_room());
+        assert_eq!(spaces.other(&main).unwrap().id, second);
+        assert_eq!(spaces.team_space(&main, ops).unwrap().id, zeta.id);
+        assert_eq!(spaces.team_space(&second, ops).unwrap().id, far.id);
+        assert!(spaces.team_space(&second, admins).is_none());
+        // New entries never default to a team, and a team is never main.
+        assert!(spaces.set_default(Workspace::Private, &zeta.id).is_err());
+        assert!(spaces.make_main(&zeta.id, &os).is_err());
+        assert!(spaces.remove(&zeta.id, false, &os).is_err());
+
+        let host = spaces
+            .save_host(on(&zeta.id, draft("shared", "192.0.2.40")))
+            .unwrap();
+        assert_eq!(host.space, zeta.id);
+        assert!(spaces
+            .update_team(&zeta.id, "Ops", TeamRole::Reader)
+            .unwrap());
+        assert!(!spaces
+            .update_team(&zeta.id, "Ops", TeamRole::Reader)
+            .unwrap());
+        assert!(spaces.get(&zeta.id).unwrap().read_only);
+
+        drop((zeta, alpha, far));
+        let (zeta, far) = (expected[2].clone(), expected[4].clone());
+        drop(spaces);
+        let spaces = folder.open();
+        assert_eq!(order(&spaces)[..2], expected[..2]);
+        assert_eq!(order(&spaces).len(), 5);
+        let again = spaces.get(&zeta).unwrap();
+        assert_eq!(again.label.as_deref(), Some("Ops"));
+        assert_eq!(again.role, Some(TeamRole::Reader));
+        assert_eq!(again.team, Some(ops));
+        assert!(again.read_only);
+        // The main password is the only one asked for.
+        spaces.main().unlock_vault(b"main").unwrap();
+        spaces.unlock_chain();
+        for id in [&zeta, &far] {
+            let store = spaces.store(Some(id)).unwrap();
+            assert!(matches!(store.vault_status(), Ok(VaultStatus::Unlocked)));
+        }
+        assert!(spaces
+            .store(Some(&zeta))
+            .unwrap()
+            .team_key_is(&[1; 32])
+            .unwrap());
+        assert_eq!(
+            spaces
+                .store(Some(&zeta))
+                .unwrap()
+                .list_hosts()
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_team_that_is_only_read_takes_no_write() {
+        let folder = Folder::new();
+        let spaces = folder.open();
+        spaces.main().create_vault_with(b"main", FAST).unwrap();
+        let main = spaces.main_id();
+        let team = spaces
+            .add_team(
+                &main,
+                Uuid::new_v4(),
+                "ops",
+                TeamRole::Editor,
+                1,
+                team_key(7),
+            )
+            .unwrap()
+            .id;
+        let mut draft = grouped("shared", "Rack");
+        draft.address = "192.0.2.41".into();
+        let shared = spaces.save_host(on(&team, draft)).unwrap().host.id;
+        let own = spaces
+            .save_host(on(&main, grouped("own", "Rack")))
+            .unwrap()
+            .host
+            .id;
+        let forward = spaces.save_tunnel(tunnel(shared)).unwrap().id;
+        spaces.update_team(&team, "ops", TeamRole::Reader).unwrap();
+
+        let mut edit = grouped("renamed", "Rack");
+        edit.id = Some(shared);
+        assert!(refused(spaces.save_host(on(&team, edit))));
+        assert!(refused(spaces.save_host(on(&team, grouped("new", "Rack")))));
+        let mut pull = grouped("own", "Rack");
+        pull.id = Some(own);
+        assert!(refused(spaces.save_host(on(&team, pull))));
+        assert!(refused(spaces.delete_host(shared)));
+        assert!(refused(spaces.set_host_password(
+            shared,
+            PasswordChange::Set {
+                value: SecretText::new("meow")
+            }
+        )));
+        assert!(refused(spaces.move_host_to(shared, &main)));
+        assert!(refused(spaces.move_host_to(own, &team)));
+        assert!(refused(spaces.save_tunnel(tunnel(shared))));
+        assert!(refused(spaces.delete_tunnel(forward)));
+        assert!(refused(spaces.rename_group(
+            Workspace::Private,
+            "Rack",
+            "Room"
+        )));
+        assert!(refused(spaces.delete_group(Workspace::Private, "Rack")));
+        // Using it is not writing to it.
+        spaces.mark_connected(shared).unwrap();
+        spaces.set_host_os(shared, Some("debian")).unwrap();
+
+        let store = spaces.store(Some(&team)).unwrap();
+        let host = store.get_host(shared).unwrap().unwrap();
+        assert_eq!(host.name, "shared");
+        assert!(host.last_connected_ms.is_none() && host.os.is_none());
+        assert!(!host.has_password);
+        assert_eq!(store.list_tunnels().unwrap().len(), 1);
+        // What is its own stays as free as it was.
+        spaces.mark_connected(own).unwrap();
+        assert!(spaces
+            .main()
+            .get_host(own)
+            .unwrap()
+            .unwrap()
+            .last_connected_ms
+            .is_some());
+
+        // An import leaves what a team already has to the team.
+        let set = ImportSet {
+            identities: vec![IdentityInput {
+                username: Some(store.get_host(shared).unwrap().unwrap().username),
+                ..IdentityInput::default()
+            }],
+            hosts: vec![HostInput {
+                name: "shared again".into(),
+                address: "192.0.2.41".into(),
+                port: 22,
+                group_path: None,
+                identity: Some(0),
+                workspace: Workspace::Private,
+                position: None,
+            }],
+            ..ImportSet::default()
+        };
+        let outcome = spaces.import(set).unwrap();
+        assert_eq!((outcome.hosts_added, outcome.hosts_skipped), (0, 1));
+        assert_eq!(store.list_hosts().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_team_leaves_this_device_alone_or_with_its_server() {
+        let folder = Folder::new();
+        let (spaces, second) = two(&folder);
+        let main = spaces.main_id();
+        let file = |id: &str| folder.0.join("spaces").join(format!("{id}.db"));
+        let near = spaces
+            .add_team(
+                &main,
+                Uuid::new_v4(),
+                "near",
+                TeamRole::Owner,
+                1,
+                team_key(1),
+            )
+            .unwrap()
+            .id;
+        let far = spaces
+            .add_team(
+                &second,
+                Uuid::new_v4(),
+                "far",
+                TeamRole::Owner,
+                1,
+                team_key(2),
+            )
+            .unwrap()
+            .id;
+        spaces
+            .save_host(on(&far, draft("shared", "192.0.2.42")))
+            .unwrap();
+        assert!(file(&near).exists() && file(&far).exists());
+        assert!(spaces.remove_team(&main).is_err());
+
+        spaces.remove_team(&near).unwrap();
+        assert!(!file(&near).exists());
+        assert!(spaces.get(&near).is_none());
+
+        // Its hosts are the team's: they are not taken over with the
+        // server's own.
+        spaces.remove(&second, true, &os).unwrap();
+        assert!(!file(&far).exists() && !file(&second).exists());
+        assert_eq!(spaces.all().len(), 1);
+        assert!(names(&spaces).is_empty());
+        drop(spaces);
+        let spaces = folder.open();
+        assert_eq!(spaces.all().len(), 1);
+        assert_eq!(spaces.main_id(), main);
     }
 
     #[test]

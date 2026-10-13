@@ -137,6 +137,13 @@ impl<'a> Running<'a> {
     }
 }
 
+impl<'a> Running<'a> {
+    /// The flag, when no pass runs right now.
+    pub(crate) fn try_take(sync: &'a Sync) -> Option<Self> {
+        (!sync.running.swap(true, Ordering::SeqCst)).then_some(Self(sync))
+    }
+}
+
 impl Drop for Running<'_> {
     fn drop(&mut self) {
         self.0.running.store(false, Ordering::SeqCst);

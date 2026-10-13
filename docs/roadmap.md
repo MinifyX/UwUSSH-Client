@@ -267,7 +267,12 @@ Where the distance to the commercial clients actually opens up.
 ## M6 · Mobile and teams
 
 - Android and iOS, since Tauri 2 does mobile and `russh` runs there
-- Shared vaults with per-host ACLs
+- ~~Shared vaults~~ — done as **teams** on UwUSync: a team is a vault of its
+  own with owners, admins, editors and readers, joined by invite code and a
+  compared fingerprint, re-keyed when somebody leaves (see "Teams" in
+  `docs/architecture.md`). Roles are per team, not per host; per-host ACLs
+  are still open, as are teams on UwULock, a notice in the interface when a
+  team's key is not accepted, and live updates instead of the minute's pull
 
 ## Open questions
 
@@ -287,5 +292,4 @@ Things I haven't decided, roughly in the order they'll bite:
 5. **File-based sync as a third option** — would Syncthing or Nextcloud as a
    transport, next to "local only" and "own server", be the shortest path for
    most homelabs?
-6. **Shared vaults** — leave them out of v1 entirely, or keep the data model
-   ready? `vault_id` already exists, so keeping the door open costs nothing.
+6. ~~**Shared vaults**~~ — settled: teams, one vault per team, see M6.

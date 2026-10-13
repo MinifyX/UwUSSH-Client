@@ -53,6 +53,19 @@ impl MemoryServer {
         Self::default()
     }
 
+    /// An empty server whose sequence numbers go on from `seq`: a team's
+    /// mailbox after its key was rotated.
+    pub fn starting_at(seq: u64) -> Self {
+        let server = Self::default();
+        server.inner.lock().seq = seq;
+        server
+    }
+
+    /// The highest sequence number handed out.
+    pub fn cursor(&self) -> u64 {
+        self.inner.lock().seq
+    }
+
     /// Everything the server holds — which is what an attacker who took the
     /// server would get. Tests read it to check that it is unreadable.
     pub fn records(&self) -> Vec<Envelope> {

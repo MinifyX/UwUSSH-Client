@@ -16,6 +16,7 @@
 //! - [`sync`] — Settings → Sync and the thread that keeps devices in step
 //! - [`lock`] — the same through UwULock: signing in, the move from UwUSync,
 //!   the realtime channel
+//! - [`teams`] — vaults several accounts share, on a UwUSync server
 //! - [`system`] — updates, links, a fresh start for a reloaded page
 //! - [`updates`] — finding, downloading and installing new versions; only in
 //!   builds with the `self-update` feature, which the Mac App Store's is not
@@ -49,6 +50,7 @@ mod sessions;
 mod spaces;
 mod sync;
 mod system;
+mod teams;
 mod tunnels;
 #[cfg(feature = "self-update")]
 mod updates;
@@ -343,6 +345,19 @@ pub fn run() {
             spaces::space_unlock,
             spaces::space_remove,
             spaces::space_discard_new,
+            teams::teams_status,
+            teams::team_create,
+            teams::team_rename,
+            teams::team_delete,
+            teams::team_leave,
+            teams::team_invite,
+            teams::team_invites,
+            teams::team_revoke_invite,
+            teams::team_join,
+            teams::team_members,
+            teams::team_confirm,
+            teams::team_set_role,
+            teams::team_remove,
             lock::lock_sign_in,
             lock::lock_send_email_code,
             lock::lock_move,

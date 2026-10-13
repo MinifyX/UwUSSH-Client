@@ -43,7 +43,7 @@ const TIMEOUT: Duration = Duration::from_secs(30);
 const WAIT_TIMEOUT: Duration = Duration::from_secs(60);
 /// The most a page of records can weigh: a full batch in base64 inside JSON,
 /// with room to spare. A server that sends more is not sending records.
-const MAX_PAGE_BYTES: u64 = (MAX_BATCH_BYTES as u64) * 2 + (1 << 20);
+pub(crate) const MAX_PAGE_BYTES: u64 = (MAX_BATCH_BYTES as u64) * 2 + (1 << 20);
 /// Everything else the server says is a few hundred bytes.
 const MAX_ANSWER_BYTES: u64 = 256 * 1024;
 
@@ -123,8 +123,31 @@ impl Server {
         self
     }
 
-    fn url(&self, path: &str) -> String {
+    pub(crate) fn url(&self, path: &str) -> String {
         format!("{}{path}", self.base)
+    }
+
+    pub(crate) fn client(&self) -> &Client {
+        &self.client
+    }
+
+    /// The account this device signs in to.
+    pub fn account(&self) -> Option<Uuid> {
+        self.device.as_ref().map(|device| device.account)
+    }
+
+    /// One signed-in request whose answer the caller reads itself, refusals
+    /// included: the team routes decide by the server's error code.
+    pub(crate) fn exchange(
+        &self,
+        build: &impl Fn() -> RequestBuilder,
+    ) -> Result<Response, TransportError> {
+        let first = self.once(build, true)?;
+        if first.status() != StatusCode::UNAUTHORIZED || self.device.is_none() {
+            return Ok(first);
+        }
+        self.sign_in()?;
+        self.once(build, true)
     }
 
     // ── The endpoints that need no token ────────────────────────────────────
@@ -397,7 +420,7 @@ impl Server {
 }
 
 /// The body, or a refusal when it is longer than `limit`.
-fn read_limited(response: Response, limit: u64) -> Result<Vec<u8>, TransportError> {
+pub(crate) fn read_limited(response: Response, limit: u64) -> Result<Vec<u8>, TransportError> {
     use std::io::Read;
     if response
         .content_length()

@@ -570,6 +570,65 @@ listener per space (`Syncs` in the app's `sync.rs`).
 - **A session UwULock ends** locks the app only when it is the main
   server's. The other server just needs signing in again.
 
+### Teams
+
+A team is a vault several accounts share, on a UwUSync server that has teams
+switched on (`GET /v1/teams/policy`; a server from before teams answers 404
+and a UwULock server has none — both are simply "no teams here"). The
+server's side is in its `docs/teams.md`.
+
+- **A team is a space.** On the device it is a store of its own under
+  `spaces/`, a child of the server it is reached through and listed right
+  after it (`kind: team`, `parent`, the team's name as its label). Hosts,
+  keys, tunnels and groups in it work like anywhere else. A team this account
+  only reads is `readOnly`: the store layer refuses every write to it, and
+  the server refuses them again.
+- **Its key is not a password's.** A team store is sealed under the team
+  key. The device keeps that key sealed under the main vault's, like a second
+  server's, so the main password opens everything; a team space never asks
+  for one.
+- **The member key.** Every account has one X25519 key pair for teams. The
+  private half is sealed under the account's vault key and kept by the
+  server, so each device of the account opens it; the public half is what
+  the server lists to others, and its fingerprint (SHA-256, eight groups of
+  four) is what people compare.
+- **A wrap** is the team key in a sealed box for one member, bound to the
+  team, the epoch, the account and the recipient's key, and it carries up to
+  eight earlier team keys. Anybody can make a sealed box, the server too —
+  the earlier keys are what a device checks a new key against (below).
+- **Joining.** An invite code makes the account a waiting member. An owner
+  or admin compares the newcomer's fingerprint with them and confirms: the
+  client wraps the team key only for a listed key that has exactly that
+  fingerprint, and writes the confirmed key into the team's vault as a sealed
+  record. Until then the newcomer sees the team's name and nothing else.
+- **Removing a member** asks for a new key (`needs_rotation`). Whoever
+  manages the team rotates: pull to the end, wrap a fresh key for every
+  active member, have the server switch epoch — it deletes the team's
+  records, sealed under the old key — and push everything again under the
+  new one. A member the server lists as active whose key is not among the
+  confirmed ones stops the rotation instead of receiving the key. The
+  rotation is noted in the store before the request, so one that stopped
+  half way is finished on the next pass; other members follow the new epoch,
+  re-seal, and send what the server did not send back. Removing someone also
+  lists the hosts with a stored password or key: a new team key does not
+  change a login on a machine.
+- **What a device takes from the server.** The first key for a team on a
+  device is taken as it comes. After that a key is accepted only when it
+  comes after the one held: the same key under the same epoch, or a wrap
+  that carries the held key at the right place among its earlier ones. An
+  epoch that went backwards, another key under the same epoch, or a jump of
+  more than eight rotations leaves the team as it is, unsynced, with a line
+  in the log; leaving and joining again is the way out.
+- **Learning about teams** happens in the sync pass of the team's server
+  (the client reads no event stream): list the teams, bring each active
+  one's space to the server's epoch, push and pull its mailbox. A team's
+  mailbox has no manifests; a server that keeps a team's record back is not
+  noticed the way it is in an account's own mailbox. A team this account is
+  no longer in, and every team of a server that was disconnected or moved to
+  UwULock, leaves the device with its file.
+- Shortcuts, stored texts and the assistant's settings are personal and never
+  in a team. A backup or an import does not write into a team.
+
 ## The sync server
 
 One binary, one Docker image, one SQLite file — and deliberately dumb. It hands
