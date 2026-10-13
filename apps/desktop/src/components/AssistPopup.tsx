@@ -1,7 +1,9 @@
-import { Button, Hint, ICONS, Select, Tag } from '@uwusuite/design';
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { Button, Hint, Icon, IconButton, ICONS, Select, Tag } from '@uwusuite/design';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import {
   asAssistFailure,
+  assistCacheDelete,
+  assistCacheList,
   assistErrorText,
   assistGenerate,
   assistPlatform,
@@ -9,6 +11,7 @@ import {
   SHELL_LABELS,
   type AssistFailure,
   type AssistTarget,
+  type CacheEntry,
   type PlatformInfo,
   type Shell,
   type Suggestion,
@@ -38,11 +41,18 @@ function targetKey(target: AssistTarget): string {
   return target.kind === 'local' ? 'local' : `host:${target.os ?? ''}`;
 }
 
+/** How many earlier requests the popup lists. */
+const HISTORY_LENGTH = 30;
+
 /**
  * The command assistant over a terminal: a request in words, one command for
  * this system, typed at the prompt with Enter or "Einfügen" — never run. A
  * close enough request asked before on the same kind of system comes from the
  * cache; "Neu generieren" asks the model anyway.
+ *
+ * Below the field is what was asked before, newest first (the cache is the
+ * history): a click or ↑/↓ brings a request and its command back, ready for
+ * Enter.
  */
 export function AssistPopup({ session, target, targetName, onClose, onInserted, onSetUp }: Props) {
   const language = useLanguage();
@@ -57,6 +67,16 @@ export function AssistPopup({ session, target, targetName, onClose, onInserted, 
   const [unlock, setUnlock] = useState<{ fresh: boolean } | null>(null);
   const requestRef = useRef<HTMLInputElement>(null);
   const run = useRef(0);
+  const [history, setHistory] = useState<CacheEntry[]>([]);
+  /** The entry ↑/↓ stopped at, by id. */
+  const [recalled, setRecalled] = useState<string | null>(null);
+
+  const loadHistory = () =>
+    assistCacheList()
+      .then(setHistory)
+      // Locked, or nothing asked yet: no history to show.
+      .catch(() => undefined);
+  useEffect(() => void loadHistory(), []);
 
   useEffect(() => {
     let current = true;
@@ -81,6 +101,8 @@ export function AssistPopup({ session, target, targetName, onClose, onInserted, 
       setSuggestion(found);
       setCommand(found.command);
       setAsked(text);
+      setRecalled(null);
+      void loadHistory();
     } catch (error) {
       if (mine !== run.current) return;
       const failed = asAssistFailure(error);
@@ -105,8 +127,55 @@ export function AssistPopup({ session, target, targetName, onClose, onInserted, 
   // Enter asks first; once the answer is for what is in the field, Enter
   // types it.
   const answered = suggestion !== null && asked === request.trim();
+  // What was asked before and fits what is typed. A recalled request shows the
+  // whole list, so ↑/↓ keep walking through it.
+  const shown = useMemo(() => {
+    const typed = recalled ? '' : request.trim().toLowerCase();
+    const fits = typed
+      ? history.filter(
+          (entry) =>
+            entry.request.toLowerCase().includes(typed) ||
+            entry.command.toLowerCase().includes(typed),
+        )
+      : history;
+    return fits.slice(0, HISTORY_LENGTH);
+  }, [history, request, recalled]);
+
+  const recall = (entry: CacheEntry) => {
+    run.current++;
+    setBusy(false);
+    setFailure(null);
+    setRecalled(entry.id);
+    setRequest(entry.request);
+    setAsked(entry.request.trim());
+    setCommand(entry.command);
+    setSuggestion({
+      command: entry.command,
+      explanation: entry.explanation,
+      dangerous: entry.dangerous,
+      cached: true,
+      platform: entry.platform,
+    });
+  };
+
+  const forget = (entry: CacheEntry) => {
+    setHistory((list) => list.filter((one) => one.id !== entry.id));
+    if (recalled === entry.id) setRecalled(null);
+    void assistCacheDelete(entry.id).catch(() => void loadHistory());
+  };
+
   const onRequestKey = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+    if (event.nativeEvent.isComposing) return;
+    if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && shown.length > 0) {
+      // ↑ goes back in time like in a shell; the list has the newest on top.
+      event.preventDefault();
+      const at = shown.findIndex((entry) => entry.id === recalled);
+      const next = event.key === 'ArrowUp' ? at + 1 : at - 1;
+      const entry = shown[Math.min(shown.length - 1, Math.max(0, next))];
+      if (entry) recall(entry);
+      return;
+    }
+    if (event.key !== 'Enter') return;
     event.preventDefault();
     if (answered && command.trim()) void insert();
     else void generate(false);
@@ -182,7 +251,10 @@ export function AssistPopup({ session, target, targetName, onClose, onInserted, 
               value={request}
               maxLength={1000}
               placeholder={t('z. B. liste alle Benutzer auf')}
-              onChange={(event) => setRequest(event.target.value)}
+              onChange={(event) => {
+                setRequest(event.target.value);
+                setRecalled(null);
+              }}
               onKeyDown={onRequestKey}
               spellCheck={false}
             />
@@ -240,6 +312,43 @@ export function AssistPopup({ session, target, targetName, onClose, onInserted, 
                 </p>
               )}
             </div>
+          )}
+
+          {shown.length > 0 && (
+            <section className="assist-history" aria-label={t('Verlauf')}>
+              <h3>
+                <Icon icon={ICONS.history} size="xs" />
+                {t('Verlauf')}
+                <span className="assist-history-keys">{t('↑ ↓ blättert')}</span>
+              </h3>
+              <ul>
+                {shown.map((entry) => (
+                  <li key={entry.id} data-current={entry.id === recalled || undefined}>
+                    <button
+                      type="button"
+                      className="assist-history-entry"
+                      onClick={() => {
+                        recall(entry);
+                        requestRef.current?.focus();
+                      }}
+                      title={entry.explanation || undefined}
+                    >
+                      <span className="assist-history-request">{entry.request}</span>
+                      <code data-dangerous={entry.dangerous || undefined}>{entry.command}</code>
+                    </button>
+                    {platform && entry.platform !== platform.key && (
+                      <Tag title={t('Für ein anderes System erzeugt')}>{entry.platform}</Tag>
+                    )}
+                    <IconButton
+                      size="sm"
+                      icon={ICONS.delete}
+                      label={t('Aus dem Verlauf löschen')}
+                      onClick={() => forget(entry)}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </section>
           )}
 
           {failure && (

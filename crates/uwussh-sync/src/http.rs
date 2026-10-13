@@ -435,10 +435,12 @@ fn claimed(request: RequestBuilder, claim: Option<&str>) -> RequestBuilder {
 /// leaves them out for whoever does not ask; one that does not know the
 /// parameter ignores it.
 ///
-/// `assist` says the same for the command assistant's records
-/// (`assist_config`, `assist_cache`): this build skips kinds it does not know
-/// and reads both, so a server that holds them may hand them over. Builds
-/// before 0.3 do not ask and are not sent them.
+/// `assist` says the same for every kind added since: the command assistant's
+/// records (`assist_config`, `assist_cache`) and the keymap (`keymap`). This
+/// build skips kinds it does not know and reads these, so a server that holds
+/// them may hand them over. Builds before 0.3 do not ask and are not sent
+/// them. The parameter keeps its first name; it has long meant "anything 0.2
+/// did not know".
 fn pull_query(since: SyncCursor, limit: usize) -> [(&'static str, String); 4] {
     [
         ("since", since.0.to_string()),
@@ -703,5 +705,6 @@ mod tests {
             serde_json::to_value(EntityKind::AssistCache).unwrap(),
             "assist_cache"
         );
+        assert_eq!(serde_json::to_value(EntityKind::Keymap).unwrap(), "keymap");
     }
 }

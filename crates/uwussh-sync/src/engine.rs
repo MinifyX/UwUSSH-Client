@@ -124,7 +124,7 @@ pub fn sync_once<T: Transport>(store: &Store, transport: &T) -> Result<SyncRepor
     for round in 1..=MAX_ROUNDS {
         report.rounds = round;
         let conflicts =
-            push_all(store, transport, &mut report)? + push_assist(store, transport, &mut report)?;
+            push_all(store, transport, &mut report)? + push_apart(store, transport, &mut report)?;
         let complete = pull_all(store, transport, &mut report)?;
         if conflicts == 0 {
             let complete = complete && publish_manifest(store, transport, &mut report)?;
@@ -293,18 +293,18 @@ fn publish_manifest<T: Transport>(
     pull_all(store, transport, report)
 }
 
-/// The command assistant's records, in requests of their own. A server that
-/// does not know their kinds yet refuses such a request every time — that is
-/// left for the next pass and costs nothing else: hosts, keys and the rest
-/// went out before. Returns the conflicts, like [`push_all`].
-fn push_assist<T: Transport>(
+/// The command assistant's records and the keymap, in requests of their own.
+/// A server that does not know their kinds yet refuses such a request every
+/// time — that is left for the next pass and costs nothing else: hosts, keys
+/// and the rest went out before. Returns the conflicts, like [`push_all`].
+fn push_apart<T: Transport>(
     store: &Store,
     transport: &T,
     report: &mut SyncReport,
 ) -> Result<usize, SyncError> {
     let mut conflicts = 0;
     loop {
-        let (envelopes, oversized) = store.pending_assist_envelopes(MAX_BATCH)?;
+        let (envelopes, oversized) = store.pending_apart_envelopes(MAX_BATCH)?;
         report.oversized += oversized;
         if envelopes.is_empty() {
             return Ok(conflicts);
@@ -312,7 +312,10 @@ fn push_assist<T: Transport>(
         let response = match transport.push(envelopes.clone()) {
             Ok(response) => response,
             Err(TransportError::Refused(error)) => {
-                tracing::info!(%error, "the server does not take the assistant's records yet");
+                tracing::info!(
+                    %error,
+                    "the server does not take the assistant's records and the keymap yet"
+                );
                 return Ok(conflicts);
             }
             Err(error) => return Err(error.into()),

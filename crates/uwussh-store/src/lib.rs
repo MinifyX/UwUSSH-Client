@@ -18,6 +18,7 @@ pub mod device;
 pub mod groups;
 pub mod hosts;
 pub mod import;
+pub mod keymap;
 pub mod keys;
 pub mod known_hosts;
 pub mod lock;
@@ -39,6 +40,9 @@ pub use hosts::{AuthMethod, HostDraft, HostRecord, PasswordChange, Workspace};
 pub use import::{
     GroupInput, HostInput, IdentityInput, ImportOutcome, ImportSet, KeyInput, KnownHostInput,
     SnippetInput,
+};
+pub use keymap::{
+    keymap_id, Chord, KeymapDraft, KeymapText, KeymapTextDraft, KeymapView, KEYMAP_FAMILIES,
 };
 pub use keys::{KeyDraft, KeyRecord};
 pub use known_hosts::KnownHostRecord;

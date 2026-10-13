@@ -7,7 +7,7 @@ use crate::{Result, StoreError};
 use rusqlite::{params, Connection, OptionalExtension};
 use uuid::Uuid;
 
-pub const SCHEMA_VERSION: i64 = 9;
+pub const SCHEMA_VERSION: i64 = 10;
 
 /// The sync header (`id`, `vault_id`, clock, `rev`, `deleted`) is on every
 /// syncable table from the start; see the crate docs for why.
@@ -441,6 +441,32 @@ CREATE INDEX assist_config_pending ON assist_config (dirty) WHERE dirty = 1;
 CREATE INDEX assist_cache_pending  ON assist_cache (dirty)  WHERE dirty = 1;
 "#;
 
+/// The user's keyboard shortcuts, synced (see `crate::keymap`).
+const V10: &str = r#"
+-- One row per family of keyboards (`mac`, `other`), each under a fixed id.
+-- `body` is the synced payload as it is sealed, so fields a newer build added
+-- survive an edit here. The texts a shortcut types are not in it: it points
+-- at sealed rows in `secrets`.
+CREATE TABLE keymaps (
+    id                  TEXT    PRIMARY KEY,
+    vault_id            TEXT    NOT NULL,
+    body                TEXT    NOT NULL,
+    hlc_wall_ms         INTEGER NOT NULL,
+    hlc_counter         INTEGER NOT NULL,
+    hlc_device          INTEGER NOT NULL,
+    rev                 INTEGER NOT NULL DEFAULT 1,
+    deleted             INTEGER NOT NULL DEFAULT 0,
+    dirty               INTEGER NOT NULL DEFAULT 1,
+    server_seq          INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX keymaps_pending ON keymaps (dirty) WHERE dirty = 1;
+
+-- The build before this one passed over keymaps other devices synced, and
+-- its cursor moved on past them. Reading the server from the start once
+-- brings them in; everything else comes back as what is already here.
+UPDATE sync_state SET cursor = 0 WHERE id = 1;
+"#;
+
 pub fn migrate(conn: &mut Connection) -> Result<()> {
     let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
 
@@ -637,6 +663,14 @@ pub fn migrate(conn: &mut Connection) -> Result<()> {
         tx.pragma_update(None, "user_version", 9)?;
         tx.commit()?;
         tracing::info!("store migrated to schema 9");
+    }
+
+    if version < 10 {
+        let tx = conn.transaction()?;
+        tx.execute_batch(V10)?;
+        tx.pragma_update(None, "user_version", 10)?;
+        tx.commit()?;
+        tracing::info!("store migrated to schema 10");
     }
 
     Ok(())
@@ -1001,7 +1035,7 @@ mod tests {
     }
 
     #[test]
-    fn a_v7_database_upgrades_to_v9_with_tunnels_and_an_empty_assistant() {
+    fn a_v7_database_upgrades_with_tunnels_and_an_empty_assistant() {
         let mut conn = Connection::open_in_memory().unwrap();
         for batch in [V1, V2, V3, V4, V4_DROP_GROUP_PATH, V5, V6, V7] {
             conn.execute_batch(batch).unwrap();
@@ -1021,7 +1055,7 @@ mod tests {
     }
 
     #[test]
-    fn a_v8_database_upgrades_to_v9_keeping_its_tunnels_and_its_cursor() {
+    fn a_v8_database_upgrades_keeping_its_tunnels() {
         let mut conn = Connection::open_in_memory().unwrap();
         for batch in [V1, V2, V3, V4, V4_DROP_GROUP_PATH, V5, V6, V7, V8] {
             conn.execute_batch(batch).unwrap();
@@ -1053,8 +1087,47 @@ mod tests {
             )
             .unwrap();
         assert_eq!(tunnels, 1);
-        assert_eq!(cursor, 42, "only the move to v8 reads the server again");
+        assert_eq!(cursor, 0, "the move to v10 reads the server again");
         assert_empty_assistant(&conn);
+    }
+
+    #[test]
+    fn a_v9_database_gets_keymaps_and_reads_the_server_from_the_start_once() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        for batch in [V1, V2, V3, V4, V4_DROP_GROUP_PATH, V5, V6, V7, V8, V9] {
+            conn.execute_batch(batch).unwrap();
+        }
+        conn.execute(
+            "INSERT INTO meta (id, device_id, vault_id) VALUES (1, 1, 'v')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO assist_config (id, vault_id, body, hlc_wall_ms, hlc_counter, hlc_device)
+             VALUES ('a', 'v', '{}', 1, 0, 1)",
+            [],
+        )
+        .unwrap();
+        conn.execute("UPDATE sync_state SET cursor = 42 WHERE id = 1", [])
+            .unwrap();
+        conn.pragma_update(None, "user_version", 9).unwrap();
+
+        migrate(&mut conn).unwrap();
+
+        let (keymaps, settings, cursor, version): (i64, i64, i64, i64) = conn
+            .query_row(
+                "SELECT (SELECT count(*) FROM keymaps),
+                        (SELECT count(*) FROM assist_config),
+                        (SELECT cursor FROM sync_state WHERE id = 1),
+                        (SELECT user_version FROM pragma_user_version)",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(keymaps, 0);
+        assert_eq!(settings, 1, "what was there stays");
+        assert_eq!(cursor, 0, "keymaps an older build passed over come in now");
+        assert_eq!(version, 10);
     }
 
     #[test]

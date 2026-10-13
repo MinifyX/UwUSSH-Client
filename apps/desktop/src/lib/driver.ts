@@ -78,6 +78,15 @@ const TERMINAL_FONT =
   "'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace";
 
 /**
+ * The font family for a terminal: the installed font the settings name
+ * (lib/settings.ts checks the name, so it cannot break out of its quotes),
+ * with the bundled one behind it for glyphs it lacks. Empty is the bundled one.
+ */
+export function terminalFontFamily(name: string): string {
+  return name ? `'${name}', ${TERMINAL_FONT}` : TERMINAL_FONT;
+}
+
+/**
  * A web font loads only once something uses it, and xterm.js measures its
  * cell size once, when it opens: measured with the fallback, every glyph of
  * the real font would sit in a cell of the wrong width. So this waits for the
@@ -96,6 +105,8 @@ function terminalFontReady(size: number): Promise<boolean> {
 export type Renderer = 'webgl' | 'canvas';
 
 export type TerminalOptions = {
+  /** As {@link terminalFontFamily} writes it. */
+  fontFamily: string;
   fontSize: number;
   cursorStyle: 'block' | 'bar' | 'underline';
   cursorBlink: boolean;
@@ -151,7 +162,6 @@ export class TerminalDriver {
   constructor(host: HTMLElement, options: TerminalOptions) {
     this.host = host;
     this.term = new Terminal({
-      fontFamily: TERMINAL_FONT,
       lineHeight: 1.25,
       theme: nyuTheme(),
       allowProposedApi: true,
@@ -183,8 +193,9 @@ export class TerminalDriver {
     void terminalFontReady(options.fontSize).then((loaded) => {
       if (!loaded || this.disposed) return;
       // xterm.js measures again only when the option changes.
+      const family = this.term.options.fontFamily;
       this.term.options.fontFamily = 'monospace';
-      this.term.options.fontFamily = TERMINAL_FONT;
+      this.term.options.fontFamily = family;
       this.refit();
     });
 
@@ -206,9 +217,11 @@ export class TerminalDriver {
     this.resizeObserver.observe(host);
   }
 
-  /** Font size, cursor and scrollback from the settings, applied to a running terminal. */
+  /** Font, font size, cursor and scrollback from the settings, applied to a running terminal. */
   applyOptions(options: TerminalOptions) {
     const { term } = this;
+    if (term.options.fontFamily !== options.fontFamily)
+      term.options.fontFamily = options.fontFamily;
     if (term.options.fontSize !== options.fontSize) term.options.fontSize = options.fontSize;
     if (term.options.cursorStyle !== options.cursorStyle)
       term.options.cursorStyle = options.cursorStyle;

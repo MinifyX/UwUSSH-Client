@@ -154,7 +154,7 @@ fn write_config(tx: &Transaction, device: u32, config: &AssistConfigPayload) -> 
     Ok(())
 }
 
-fn secret_alive(conn: &rusqlite::Connection, id: Uuid) -> Result<bool> {
+pub(crate) fn secret_alive(conn: &rusqlite::Connection, id: Uuid) -> Result<bool> {
     Ok(conn.query_row(
         "SELECT EXISTS (SELECT 1 FROM secrets WHERE id = ?1 AND deleted = 0 AND length(blob) > 0)",
         [id.to_string()],

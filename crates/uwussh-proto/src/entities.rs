@@ -57,11 +57,15 @@ pub enum EntityKind {
     /// number of slots with fixed ids, and a new answer takes the oldest one,
     /// so the cache never grows past them on the server either.
     AssistCache = 11,
+    /// The user's own keyboard shortcuts for one family of keyboards. One
+    /// record per family, each under a fixed id. Texts a shortcut types are
+    /// [`EntityKind::Secret`] records it points at, never part of it.
+    Keymap = 12,
 }
 
 impl EntityKind {
     /// Every kind, in discriminant order.
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 13] = [
         Self::Host,
         Self::Group,
         Self::Identity,
@@ -74,6 +78,7 @@ impl EntityKind {
         Self::Manifest,
         Self::AssistConfig,
         Self::AssistCache,
+        Self::Keymap,
     ];
 
     /// The kind a discriminant stands for, or `None` for one a newer build
@@ -88,7 +93,7 @@ impl EntityKind {
     /// Manifests are not in here on purpose: this list doubles as the list of
     /// record tables, and a manifest sorts last anyway, after the records it
     /// talks about.
-    pub const APPLY_ORDER: [Self; 10] = [
+    pub const APPLY_ORDER: [Self; 11] = [
         Self::Secret,
         Self::Key,
         Self::Identity,
@@ -99,16 +104,18 @@ impl EntityKind {
         Self::KnownHost,
         Self::AssistConfig,
         Self::AssistCache,
+        Self::Keymap,
     ];
 
-    /// Kinds a build before 0.3 does not know. They travel in requests of
-    /// their own, so a server that refuses them refuses only them (see
-    /// `uwussh_sync::engine`), and a pull asks for them by name.
-    pub const ASSIST: [Self; 2] = [Self::AssistConfig, Self::AssistCache];
+    /// Kinds a build before 0.3 does not know: the command assistant's two
+    /// and the keymap. They travel apart from the rest, in requests of their
+    /// own, so a server that refuses them refuses only them (see
+    /// `uwussh_sync::engine`), and a pull asks for them.
+    pub const APART: [Self; 3] = [Self::AssistConfig, Self::AssistCache, Self::Keymap];
 
-    /// Whether this kind is one of [`Self::ASSIST`].
-    pub fn is_assist(self) -> bool {
-        Self::ASSIST.contains(&self)
+    /// Whether this kind is one of [`Self::APART`].
+    pub fn travels_apart(self) -> bool {
+        Self::APART.contains(&self)
     }
 
     /// Where this kind sorts when a batch is applied. Unknown-to-us kinds go
@@ -277,6 +284,64 @@ pub struct AssistCachePayload {
     pub extra: Extra,
 }
 
+/// The user's keyboard shortcuts for one family of keyboards (`mac`, or
+/// `other` for Windows and Linux — ⌘ exists on one and not the other, so the
+/// two are kept apart). `bindings` maps an action's id to the chords that
+/// trigger it; an action that is not in it keeps the shortcut the app ships
+/// with, and one with no chords has none. `texts` are the user's own actions:
+/// a text to type into the terminal, under the action id `text:<id>`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeymapPayload {
+    #[serde(default)]
+    pub bindings: BTreeMap<String, Vec<ChordPayload>>,
+    /// By the text's id, a UUID. A string rather than a [`Uuid`] so that one
+    /// entry a build cannot read does not cost the whole record.
+    #[serde(default)]
+    pub texts: BTreeMap<String, KeymapTextPayload>,
+    #[serde(flatten, default, skip_serializing_if = "extra_is_empty")]
+    pub extra: Extra,
+}
+
+/// One key with its modifiers. `code` is the physical key as the page names
+/// it (`KeyC`, `F5`, `Digit1`), so a shortcut stays on the same key whatever
+/// layout is active.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChordPayload {
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub ctrl: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub shift: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub alt: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub meta: bool,
+    #[serde(default)]
+    pub code: String,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeymapTextPayload {
+    #[serde(default)]
+    pub label: String,
+    /// Press Enter after typing the text.
+    #[serde(default)]
+    pub enter: bool,
+    /// Points at a [`EntityKind::Secret`] record. Never the text itself: it
+    /// may well be a password.
+    #[serde(default)]
+    pub secret_id: Option<Uuid>,
+    /// Where the text stands in the user's list, which the map it lives in
+    /// cannot say.
+    #[serde(default)]
+    pub position: u32,
+    #[serde(flatten, default, skip_serializing_if = "extra_is_empty")]
+    pub extra: Extra,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -365,11 +430,12 @@ mod tests {
         assert_eq!(EntityKind::Manifest as u8, 9);
         assert_eq!(EntityKind::AssistConfig as u8, 10);
         assert_eq!(EntityKind::AssistCache as u8, 11);
+        assert_eq!(EntityKind::Keymap as u8, 12);
         for (index, kind) in EntityKind::ALL.iter().enumerate() {
             assert_eq!(*kind as usize, index, "ALL is in discriminant order");
             assert_eq!(EntityKind::from_discriminant(index as u8), Some(*kind));
         }
-        assert_eq!(EntityKind::from_discriminant(12), None);
+        assert_eq!(EntityKind::from_discriminant(13), None);
     }
 
     #[test]
@@ -383,8 +449,46 @@ mod tests {
             r#""assist_cache""#
         );
         assert!(EntityKind::Secret.apply_rank() < EntityKind::AssistConfig.apply_rank());
-        assert!(EntityKind::AssistCache.is_assist());
-        assert!(!EntityKind::Host.is_assist());
+        assert!(EntityKind::AssistCache.travels_apart());
+        assert!(!EntityKind::Host.travels_apart());
+    }
+
+    #[test]
+    fn a_keymap_has_its_wire_name_and_keeps_what_a_newer_build_added() {
+        assert_eq!(
+            serde_json::to_string(&EntityKind::Keymap).unwrap(),
+            r#""keymap""#
+        );
+        assert!(EntityKind::Keymap.travels_apart());
+        assert!(EntityKind::Secret.apply_rank() < EntityKind::Keymap.apply_rank());
+
+        let id = Uuid::nil();
+        let written = format!(
+            r#"{{"bindings":{{"tab:new":[{{"ctrl":true,"shift":true,"code":"KeyT"}}]}},
+                "texts":{{"{id}":{{"label":"sudo","enter":true,"secret_id":null,"colour":"red"}}}},
+                "sequences":[]}}"#
+        );
+        let keymap: KeymapPayload = serde_json::from_str(&written).unwrap();
+        let chord = &keymap.bindings["tab:new"][0];
+        assert!(chord.ctrl && chord.shift && !chord.alt && !chord.meta);
+        assert_eq!(chord.code, "KeyT");
+        assert!(keymap.texts[&id.to_string()].enter);
+        let json = serde_json::to_value(&keymap).unwrap();
+        assert_eq!(json["sequences"], serde_json::json!([]));
+        assert_eq!(json["texts"][id.to_string()]["colour"], "red");
+
+        // A modifier that is not held is not written at all.
+        assert_eq!(
+            serde_json::to_string(&ChordPayload {
+                meta: true,
+                code: "KeyK".into(),
+                ..Default::default()
+            })
+            .unwrap(),
+            r#"{"meta":true,"code":"KeyK"}"#
+        );
+        let empty: KeymapPayload = serde_json::from_str("{}").unwrap();
+        assert!(empty.bindings.is_empty() && empty.texts.is_empty());
     }
 
     #[test]

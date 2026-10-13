@@ -217,6 +217,21 @@ The point where I can stop using anything else.
   and the assistant's provider setup. Someone who already has hosts, a vault,
   sync or settings never sees it; Settings → Appearance runs it again. See
   [architecture](architecture.md#first-start).
+- **Your own shortcuts, a sidebar that gets out of the way, a terminal font**
+  (0.3.0-beta.4): Settings → Keyboard draws the keyboard that is plugged in
+  (the layout is detected and can be switched) instead of a list. Click a key
+  or press a combination to bind it; besides the built-in actions a key can
+  connect one host or type a stored text into the terminal, with Enter or
+  without. A combination that is taken moves to the new action, with a
+  warning; so do AltGr characters and keys the terminal needs. The bindings
+  sync, separately for macOS and for Windows/Linux, and the texts are sealed
+  in the vault (`EntityKind::Keymap`, `crates/uwussh-store/src/keymap.rs`).
+  The sidebar is dragged wider or narrower and hides completely (button in
+  the tab bar, Ctrl+Shift+B / ⌘B, or drag below the minimum); the count
+  next to Private and Business no longer wraps. The command assistant keeps
+  the requests of this computer in its popup (click or ↑/↓). Settings →
+  Terminal picks any installed monospace font, with a preview. Width and
+  font stay on the device.
 - Accessibility pass, the full Nyu scene set
 
 ## M5 · Homelab

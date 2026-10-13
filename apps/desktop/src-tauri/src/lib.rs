@@ -39,6 +39,7 @@ mod files;
 mod hosts;
 mod import;
 mod keygen;
+mod keymap;
 mod keys;
 mod links;
 mod lock;
@@ -233,6 +234,11 @@ pub fn run() {
             assist::assist_cache_list,
             assist::assist_cache_delete,
             assist::assist_cache_clear,
+            keymap::keymap_get,
+            keymap::keymap_save,
+            keymap::keymap_send_text,
+            keymap::terminal_fonts,
+            keymap::keyboard_layout,
             hosts::list_hosts,
             hosts::save_host,
             hosts::delete_host,

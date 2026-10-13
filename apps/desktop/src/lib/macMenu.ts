@@ -18,7 +18,7 @@ import { desktop } from './shortcuts';
 
 type Options = MacMenuOptions & {
   /** "Tab schließen", on ⌘W: closes the tab in front, or hides the window when there is none. */
-  closeTab: { text: string; action: () => void };
+  closeTab: { text: string; accelerator?: string; action: () => void };
   /** "Fenster schließen", on ⇧⌘W. */
   closeWindow: { text: string; action: () => void };
 };
@@ -28,7 +28,11 @@ function fileEntries(options: Options): MacMenuEntry[] {
   return [
     ...(options.file ?? []),
     ...(options.file?.length ? (['separator'] as const) : []),
-    { text: options.closeTab.text, accelerator: 'CmdOrCtrl+W', action: options.closeTab.action },
+    {
+      text: options.closeTab.text,
+      accelerator: options.closeTab.accelerator,
+      action: options.closeTab.action,
+    },
     {
       text: options.closeWindow.text,
       accelerator: 'CmdOrCtrl+Shift+W',

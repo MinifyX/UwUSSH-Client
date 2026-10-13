@@ -1,6 +1,6 @@
 import { Icon, IconButton, ICONS } from '@uwusuite/design';
 import { t, useLanguage } from '../lib/i18n';
-import { keysFor, keysForTab } from '../lib/shortcuts';
+import { keysForTab, withKeysFor } from '../lib/shortcuts';
 import type { Tab } from '../lib/tabs';
 import { OsIcon } from './OsIcon';
 
@@ -15,6 +15,9 @@ type Props = {
   onAssist: () => void;
   /** The shown tab is a live terminal the assistant can type into. */
   canAssist: boolean;
+  /** The host list is folded away; the button brings it back. */
+  sidebarCollapsed: boolean;
+  onToggleSidebar: () => void;
 };
 
 function stateOf(tab: Tab): 'online' | 'connecting' | 'idle' {
@@ -36,10 +39,23 @@ export function TabBar({
   onNewShell,
   onAssist,
   canAssist,
+  sidebarCollapsed,
+  onToggleSidebar,
 }: Props) {
   useLanguage();
   return (
     <div className="tabbar">
+      <IconButton
+        className="tab-sidebar"
+        size="sm"
+        icon={sidebarCollapsed ? ICONS.sidebarShow : ICONS.sidebarHide}
+        label={withKeysFor(
+          sidebarCollapsed ? t('Seitenleiste einblenden') : t('Seitenleiste ausblenden'),
+          'toggle-sidebar',
+        )}
+        aria-pressed={!sidebarCollapsed}
+        onClick={onToggleSidebar}
+      />
       <div className="tabs" role="tablist" aria-label={t('Offene Sitzungen')}>
         {tabs.map((tab, index) => {
           const active = tab.id === activeId;
@@ -63,7 +79,9 @@ export function TabBar({
                 className="tab-select"
                 aria-selected={active}
                 title={
-                  index < 9 ? t('{name} ({keys})', { name, keys: keysForTab(index + 1) }) : name
+                  index < 9 && keysForTab(index + 1)
+                    ? t('{name} ({keys})', { name, keys: keysForTab(index + 1) })
+                    : name
                 }
                 onClick={() => onSelect(tab.id)}
               >
@@ -83,7 +101,7 @@ export function TabBar({
               <button
                 className="tab-close"
                 onClick={() => onClose(tab.id)}
-                title={t('Tab schließen ({keys})', { keys: keysFor('close-tab') })}
+                title={withKeysFor(t('Tab schließen'), 'close-tab')}
                 aria-label={t('{name} schließen', { name: tab.title })}
               >
                 <Icon icon={ICONS.close} size="xs" />
@@ -100,7 +118,7 @@ export function TabBar({
         disabled={!canAssist}
         label={
           canAssist
-            ? t('Befehl aus Worten ({shortcut})', { shortcut: keysFor('assist') })
+            ? withKeysFor(t('Befehl aus Worten'), 'assist')
             : t('Befehl aus Worten: erst ein Terminal öffnen')
         }
       />
@@ -110,7 +128,7 @@ export function TabBar({
           className="tab-new"
           icon={ICONS.add}
           onClick={onNewShell}
-          label={t('Neue lokale Shell ({keys})', { keys: keysFor('new-shell') })}
+          label={withKeysFor(t('Neue lokale Shell'), 'new-shell')}
         />
       )}
     </div>

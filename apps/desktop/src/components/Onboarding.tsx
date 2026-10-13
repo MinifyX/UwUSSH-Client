@@ -18,7 +18,7 @@ import {
   useSettings,
   type ThemeSetting,
 } from '../lib/settings';
-import { keysFor } from '../lib/shortcuts';
+import { keysFor, keysLabel } from '../lib/shortcuts';
 import { syncStatus, type SyncStatus } from '../lib/sync';
 import { AssistProviderSetup } from './AssistSettings';
 import { ImportDialog } from './ImportDialog';
@@ -506,7 +506,7 @@ function AssistStep({ saved, onSaved }: { saved: boolean; onSaved: () => void })
       <p className="dialog-lead">
         {t(
           'Beschreibe in Worten, was du willst – der Assistent schreibt einen passenden Befehl und tippt ihn ins Terminal. Ausgeführt wird erst mit deinem Enter. Öffnen mit {shortcut}.',
-          { shortcut: keysFor('assist') },
+          { shortcut: keysLabel('assist') },
         )}
       </p>
       {setup ? (

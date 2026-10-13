@@ -103,8 +103,6 @@
   "Das Passwort des Hosts ins Terminal tippen ({keys}). Enter kommt nur dazu, wenn gerade etwas nach einer Eingabe fragt.": "Type the host's password into the terminal ({keys}). Enter is only added when something is asking for input.",
   "Dateien dieses Hosts in einem neuen Tab ({keys})": "This host's files in a new tab ({keys})",
   "{name} ({keys})": "{name} ({keys})",
-  "Tab schließen ({keys})": "Close tab ({keys})",
-  "Neue lokale Shell ({keys})": "New local shell ({keys})",
   "Strg": "Ctrl",
   "Umschalt": "Shift",
   "Alt": "Alt",
