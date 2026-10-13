@@ -816,6 +816,51 @@
   gap: 8px;
 }
 
+/* Two servers: each a section of the usual rows under its name. */
+.sync-spaces {
+  display: grid;
+  gap: var(--uwu-space-5);
+}
+
+.sync-space {
+  display: grid;
+  min-width: 0;
+}
+
+.sync-space-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: var(--uwu-space-2);
+  border-bottom: 1px solid var(--uwu-border);
+}
+
+.sync-space-head > b {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 15px;
+}
+
+/* What becomes of a server's entries when it is disconnected. */
+.sync-remove-choice {
+  display: grid;
+  gap: var(--uwu-space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.sync-remove-choice > legend {
+  padding: 0;
+  margin-bottom: var(--uwu-space-2);
+  font-weight: 600;
+}
+
+.sync-remove-choice .check[data-disabled] {
+  color: var(--uwu-muted);
+}
+
 /* The recovery kit: a Card with a dashed pink edge, so it reads as "keep this". */
 .sync-kit-card {
   gap: 10px;

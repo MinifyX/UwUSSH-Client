@@ -1111,6 +1111,12 @@ export function App() {
     return () => void stop.then((unlisten) => unlisten());
   }, [refreshHosts]);
 
+  // A second server came, went or was unlocked: its hosts with it.
+  useEffect(() => {
+    const stop = listen('spaces:changed', () => void refreshHosts());
+    return () => void stop.then((unlisten) => unlisten());
+  }, [refreshHosts]);
+
   // The server keeps records back or hands out old versions. Said once, when
   // it begins, whatever is open; the sync settings keep saying it.
   useEffect(() => {

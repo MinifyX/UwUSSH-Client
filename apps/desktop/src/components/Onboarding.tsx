@@ -251,7 +251,8 @@ export function Onboarding({ onClose, onHostsChanged }: Props) {
           }
         >
           <div className="onboarding-sync">
-            <SyncSettings />
+            {/* The setup is about the first server; a second one is Settings' business. */}
+            <SyncSettings offerSecond={false} />
           </div>
         </Modal>
       )}

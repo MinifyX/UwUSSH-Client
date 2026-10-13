@@ -15,6 +15,16 @@ import {
 } from '../lib/session';
 import { useCloseGuard } from './CloseGuard';
 import { useSettings, workspaceName } from '../lib/settings';
+import {
+  chosenSpace,
+  draftSpace,
+  hasTwoServers,
+  moveBlocker,
+  movesHost,
+  spaceName,
+  takesEntries,
+} from '../lib/spaces';
+import { spacesStatus, type SpacesStatus } from '../lib/sync';
 import { KeyImportDialog, KeygenDialog } from './keygen/KeyDialogs';
 import { Modal } from './Modal';
 import { VaultDialog } from './VaultDialog';
@@ -97,6 +107,22 @@ export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, o
   const [keygen, setKeygen] = useState(false);
   const [keyImport, setKeyImport] = useState(false);
   const [copied, setCopied] = useState(false);
+  // Two servers: which one the host lives on. `null` until someone picks one,
+  // so a new host follows the default of its workspace.
+  const [servers, setServers] = useState<SpacesStatus | null>(null);
+  const [pickedServer, setPickedServer] = useState<string | null>(null);
+
+  useEffect(() => {
+    void spacesStatus()
+      .then(setServers)
+      .catch(() => undefined);
+  }, []);
+
+  const twoServers = servers !== null && hasTwoServers(servers);
+  const server = twoServers ? chosenSpace(servers, host, space, pickedServer) : null;
+  // A stored host moves only while both servers are open.
+  const serverBlocker = twoServers && host ? moveBlocker(servers) : null;
+  const moving = movesHost(host, server);
 
   // What the form holds, compared with what it opened with: closing a form
   // that changed asks first. A key only counts when the host uses keys, since
@@ -112,6 +138,7 @@ export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, o
     groupPath,
     password ?? null,
     forget,
+    pickedServer,
   ]);
   const opened = useRef(snapshot);
   const guard = useCloseGuard(
@@ -187,6 +214,7 @@ export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, o
         groupPath: groupPath || null,
         workspace: space,
         password: passwordChange(),
+        space: draftSpace(servers, server),
       });
       setPassword(null);
       onSaved(saved);
@@ -510,6 +538,37 @@ export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, o
               {errors.groupPath && <em className="field-error">{t(errors.groupPath)}</em>}
             </label>
           </div>
+
+          {twoServers && server && (
+            <fieldset className="field">
+              <span>{t('Server')}</span>
+              <Segmented
+                label={t('Server')}
+                value={server}
+                onChange={setPickedServer}
+                disabled={serverBlocker !== null}
+                options={servers.spaces.map((entry) => ({
+                  value: entry.id,
+                  label: spaceName(entry) || t('Nicht verbunden'),
+                  disabled: !takesEntries(entry) && entry.id !== server,
+                }))}
+              />
+              {serverBlocker ? (
+                <em className="field-hint">
+                  {t(
+                    '{server} ist gesperrt. Entsperre ihn unter Einstellungen → Sync, um Hosts umzuziehen.',
+                    { server: spaceName(serverBlocker) || t('Nicht verbunden') },
+                  )}
+                </em>
+              ) : moving ? (
+                <em className="field-hint">
+                  {t(
+                    'Zieht beim Speichern um – mit Anmeldung, Key, Passwort, Tunneln und dem bekannten Host-Schlüssel.',
+                  )}
+                </em>
+              ) : null}
+            </fieldset>
+          )}
 
           {errors.form && <p className="form-error">{errors.form}</p>}
           {/* Enter in any field submits. */}

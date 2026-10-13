@@ -1,10 +1,29 @@
 import { listen } from '@tauri-apps/api/event';
-import { Button, Card, Hint, Icon, ICONS, Segmented, Tag } from '@uwusuite/design';
+import { Button, Card, Hint, Icon, ICONS, Segmented, Select, Tag } from '@uwusuite/design';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { t, useLanguage } from '../lib/i18n';
+import type { Workspace } from '../lib/session';
+import { useSettings, workspaceName } from '../lib/settings';
+import {
+  asksOwnPassword,
+  blankStatus,
+  canKeepEntries,
+  canMakeMain,
+  hasTwoServers,
+  mainSpace,
+  otherSpace,
+  spaceName,
+} from '../lib/spaces';
 import {
   asSyncFailure,
   isPasteablePairing,
+  NEW_SPACE,
+  spaceDiscardNew,
+  spaceMakeMain,
+  spaceRemove,
+  spaceSetDefault,
+  spacesStatus,
+  spaceUnlock,
   syncCancelOffer,
   syncConnect,
   syncDevices,
@@ -14,13 +33,14 @@ import {
   syncOffer,
   syncRecoveryCode,
   syncRevoke,
-  syncStatus,
   syncWaitForDevice,
   lockForgetMove,
   type Connected,
   type Device,
   type LockOutcome,
   type Offer,
+  type SpaceInfo,
+  type SpacesStatus,
   type SyncStatus,
 } from '../lib/sync';
 import { LockOverview, LockSignInForm, MoveDone } from './LockSync';
@@ -33,9 +53,11 @@ import {
   failureText,
   PassDetails,
   PasswordConfirm,
+  SpaceProvider,
   syncDot,
   SyncRow,
   useAppSyncOff,
+  useSpace,
 } from './SyncParts';
 import { VaultDialog } from './VaultDialog';
 
@@ -44,36 +66,480 @@ import { VaultDialog } from './VaultDialog';
  * (connect a server as the first device, or join from another one). On
  * UwUSync: what the last pass did, adding a device, the device list with
  * revoking, the move to UwULock, and leaving. On UwULock: see `LockSync`.
+ *
+ * With one server that is the whole page, plus the way to a second one once
+ * the first is connected. With two, each gets a section of the same rows
+ * under its name, and the page adds what only two servers need: which one is
+ * the main server, and where new hosts go.
  */
-export function SyncSettings() {
+export function SyncSettings({ offerSecond = true }: { offerSecond?: boolean }) {
   useLanguage();
-  const [status, setStatus] = useState<SyncStatus | null>(null);
+  const [spaces, setSpaces] = useState<SpacesStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [mode, setMode] = useState<'overview' | 'connect' | 'join' | 'lock'>('overview');
-  const [backend, setBackend] = useState<'uwulock' | 'uwusync'>('uwulock');
-  const [kit, setKit] = useState<Connected | null>(null);
-  const [moved, setMoved] = useState<Extract<LockOutcome, { kind: 'moved' }> | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [makingMain, setMakingMain] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
+  // The second server while it is set up: thrown away unless it got as far
+  // as being connected.
+  const pending = useRef(false);
 
   const refresh = useCallback(() => {
-    void syncStatus()
-      .then(setStatus)
+    void spacesStatus()
+      .then((found) => {
+        setSpaces(found);
+        setError(null);
+      })
       .catch((e) => setError(String(e)));
   }, []);
 
   useEffect(() => {
     refresh();
-    const stop = listen('sync:status', refresh);
+    const stops = [listen('sync:status', refresh), listen('spaces:changed', refresh)];
     // "vor 2 Minuten" moves on by itself.
     const timer = window.setInterval(refresh, 20_000);
     return () => {
       window.clearInterval(timer);
-      void stop.then((unlisten) => unlisten());
+      for (const stop of stops) void stop.then((unlisten) => unlisten());
+      // Settings closed halfway through the second server's setup.
+      if (pending.current) {
+        pending.current = false;
+        void spaceDiscardNew().catch(() => undefined);
+      }
     };
   }, [refresh]);
 
-  if (!status) {
+  const main = spaces ? mainSpace(spaces) : null;
+  if (!spaces || !main) {
     return <p className="setting-description">{error ?? t('Wird geladen…')}</p>;
   }
+
+  if (adding) {
+    const finish = () => {
+      pending.current = false;
+      setAdding(false);
+      refresh();
+    };
+    return (
+      <SpaceProvider value={{ space: NEW_SPACE, second: true, leave: null, after: null }}>
+        <SpaceView
+          key="new"
+          status={blankStatus(main.status)}
+          refresh={refresh}
+          onRegistered={() => {
+            pending.current = false;
+          }}
+          onFinished={finish}
+          onCancel={() => {
+            pending.current = false;
+            void spaceDiscardNew().catch(() => undefined);
+            setAdding(false);
+          }}
+        />
+      </SpaceProvider>
+    );
+  }
+
+  if (!hasTwoServers(spaces)) {
+    const second =
+      offerSecond && spaces.canAdd ? (
+        <SyncRow
+          label={t('Zweiter Server')}
+          control={
+            <Button
+              size="sm"
+              icon={ICONS.add}
+              onClick={() => {
+                pending.current = true;
+                setAdding(true);
+              }}
+            >
+              {t('Zweiten Server verbinden…')}
+            </Button>
+          }
+        >
+          <p className="setting-description">
+            {t(
+              'Für Hosts, die getrennt bleiben sollen – etwa private und die der Arbeit. Jeder Host liegt auf genau einem Server.',
+            )}
+          </p>
+        </SyncRow>
+      ) : null;
+    return (
+      <SpaceProvider value={{ space: undefined, second: false, leave: null, after: second }}>
+        <SpaceView key="main" status={main.status} refresh={refresh} />
+      </SpaceProvider>
+    );
+  }
+
+  const target = (id: string | null) => spaces.spaces.find((space) => space.id === id) ?? null;
+  const toMain = target(makingMain);
+  const toRemove = target(removing);
+
+  return (
+    <div className="sync-spaces">
+      {spaces.spaces.map((space) => (
+        <section key={space.id} className="sync-space" aria-label={spaceTitle(space)}>
+          <header className="sync-space-head">
+            <Icon icon={ICONS.server} className="text-muted" />
+            <b>{spaceTitle(space)}</b>
+            {space.status.backend !== 'none' && (
+              <Tag>{space.status.backend === 'uwulock' ? 'UwULock' : 'UwUSync'}</Tag>
+            )}
+            {space.main && <Tag tone="pink">{t('Hauptserver')}</Tag>}
+            <span className="spacer" />
+            {!space.main && (
+              <Button
+                size="sm"
+                disabled={!canMakeMain(space, spaces)}
+                title={
+                  canMakeMain(space, spaces)
+                    ? undefined
+                    : t('Dafür müssen beide Server verbunden und entsperrt sein.')
+                }
+                onClick={() => setMakingMain(space.id)}
+              >
+                {t('Als Hauptserver festlegen…')}
+              </Button>
+            )}
+          </header>
+          <SpaceProvider
+            value={{
+              space: space.id,
+              second: false,
+              leave: () => setRemoving(space.id),
+              after: null,
+            }}
+          >
+            {asksOwnPassword(space, spaces) ? (
+              <LockedSpace space={space} onChanged={refresh} />
+            ) : (
+              <SpaceView status={space.status} refresh={refresh} />
+            )}
+          </SpaceProvider>
+        </section>
+      ))}
+
+      <DefaultServers spaces={spaces} onChanged={refresh} />
+
+      {toMain && (
+        <MakeMainDialog
+          space={toMain}
+          onCancel={() => setMakingMain(null)}
+          onDone={() => {
+            setMakingMain(null);
+            refresh();
+          }}
+        />
+      )}
+      {toRemove && (
+        <RemoveDialog
+          space={toRemove}
+          spaces={spaces}
+          onCancel={() => setRemoving(null)}
+          onDone={() => {
+            setRemoving(null);
+            refresh();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** A server's name on the page; one that is connected nowhere says so. */
+function spaceTitle(space: SpaceInfo): string {
+  return spaceName(space) || t('Nicht verbunden');
+}
+
+// ── Two servers ───────────────────────────────────────────────────────────
+
+/**
+ * A second server whose vault the main key did not open (its password was
+ * changed elsewhere, say): that server's own password opens it once and the
+ * app remembers it again.
+ */
+function LockedSpace({ space, onChanged }: { space: SpaceInfo; onChanged: () => void }) {
+  useLanguage();
+  const [asking, setAsking] = useState(false);
+  const name = spaceTitle(space);
+  return (
+    <>
+      <SyncRow
+        label={t('Gesperrt')}
+        dot="offline"
+        control={
+          <Button size="sm" icon={ICONS.unlocked} onClick={() => setAsking(true)}>
+            {t('Entsperren…')}
+          </Button>
+        }
+      >
+        <p className="setting-description">
+          {t(
+            'UwUSSH konnte diesen Server nicht mit dem Passwort des Hauptservers öffnen. Gib einmal sein eigenes Master-Passwort ein. Bis dahin fehlen seine Hosts in der Liste.',
+          )}
+        </p>
+      </SyncRow>
+      {asking && (
+        <PasswordConfirm
+          title={t('{server} entsperren', { server: name })}
+          lead={t(
+            'Das Master-Passwort dieses Servers, nicht das des Hauptservers. Danach öffnet wieder ein Passwort beide.',
+          )}
+          action={t('Entsperren')}
+          tone="normal"
+          passwordLabel={t('Master-Passwort von {server}', { server: name })}
+          run={(password) => spaceUnlock(space.id, password)}
+          onCancel={() => setAsking(false)}
+          onDone={() => {
+            setAsking(false);
+            onChanged();
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+/** Where new hosts go, per workspace. Hosts that exist stay where they are. */
+function DefaultServers({ spaces, onChanged }: { spaces: SpacesStatus; onChanged: () => void }) {
+  useLanguage();
+  const settings = useSettings();
+  const [error, setError] = useState<string | null>(null);
+  const workspaces: Workspace[] = settings.workspaces ? ['private', 'business'] : ['private'];
+
+  const choose = (workspace: Workspace, space: string) => {
+    setError(null);
+    void spaceSetDefault(workspace, space)
+      .catch((e) => setError(failureText(asSyncFailure(e))))
+      .finally(onChanged);
+  };
+
+  return (
+    <section className="sync-space" aria-label={t('Neue Hosts')}>
+      <header className="sync-space-head">
+        <b>{t('Neue Hosts')}</b>
+      </header>
+      {workspaces.map((workspace) => {
+        const label = settings.workspaces
+          ? t('Neue Hosts in {workspace}', { workspace: workspaceName(workspace, settings) })
+          : t('Neue Hosts speichern auf');
+        return (
+          <SyncRow
+            key={workspace}
+            label={label}
+            control={
+              <Select
+                className="w-56"
+                aria-label={label}
+                value={spaces.defaults[workspace]}
+                onChange={(event) => choose(workspace, event.target.value)}
+              >
+                {spaces.spaces.map((space) => (
+                  <option key={space.id} value={space.id} disabled={space.readOnly}>
+                    {spaceTitle(space)}
+                  </option>
+                ))}
+              </Select>
+            }
+          />
+        );
+      })}
+      <p className="setting-description">
+        {t(
+          'Gilt für neue und importierte Hosts. Vorhandene bleiben, wo sie sind – im Host-Dialog ziehst du einen einzelnen um.',
+        )}
+      </p>
+      {error && (
+        <p className="field-error" role="alert">
+          {error}
+        </p>
+      )}
+    </section>
+  );
+}
+
+/** What changes when another server becomes the main one, before it does. */
+function MakeMainDialog({
+  space,
+  onCancel,
+  onDone,
+}: {
+  space: SpaceInfo;
+  onCancel: () => void;
+  onDone: () => void;
+}) {
+  useLanguage();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const name = spaceTitle(space);
+
+  const run = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await spaceMakeMain(space.id);
+      onDone();
+    } catch (e) {
+      setError(failureText(asSyncFailure(e)));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      title={t('{server} als Hauptserver festlegen?', { server: name })}
+      onCancel={() => !busy && onCancel()}
+      footer={
+        <>
+          <Button data-autofocus onClick={onCancel} disabled={busy}>
+            {t('Abbrechen')}
+          </Button>
+          <Button
+            variant="primary"
+            data-secondary
+            busy={busy}
+            disabled={busy}
+            onClick={() => void run()}
+          >
+            {busy ? t('Einen Moment…') : t('Als Hauptserver festlegen')}
+          </Button>
+        </>
+      }
+    >
+      <p className="dialog-lead">
+        {t(
+          'Deine persönlichen Dinge ziehen auf diesen Server um: Tastenkürzel, gespeicherte Texte und die KI-Einstellungen. Hosts bleiben, wo sie sind.',
+        )}
+      </p>
+      <Hint tone="warning">
+        {t('Ab dann öffnet das Master-Passwort von {server} UwUSSH – nicht mehr das bisherige.', {
+          server: name,
+        })}
+      </Hint>
+      <p className="setting-description">
+        {t(
+          'Lege auf deinen anderen Geräten denselben Hauptserver fest, sonst teilen sie Kürzel und Texte nicht mehr.',
+        )}
+      </p>
+      {error && (
+        <p className="field-error" role="alert">
+          {error}
+        </p>
+      )}
+    </Modal>
+  );
+}
+
+/**
+ * Disconnecting one of two servers: its entries either go from this device,
+ * or come along to the server that stays.
+ */
+function RemoveDialog({
+  space,
+  spaces,
+  onCancel,
+  onDone,
+}: {
+  space: SpaceInfo;
+  spaces: SpacesStatus;
+  onCancel: () => void;
+  onDone: () => void;
+}) {
+  useLanguage();
+  const keepable = canKeepEntries(space, spaces);
+  const [keep, setKeep] = useState(false);
+  const name = spaceTitle(space);
+  const other = otherSpace(spaces, space.id);
+  const otherName = other ? spaceTitle(other) : '';
+
+  return (
+    <PasswordConfirm
+      title={t('{server} trennen?', { server: name })}
+      lead={t(
+        'Dieses Gerät synchronisiert dann nicht mehr mit diesem Server. Auf dem Server und auf deinen anderen Geräten bleibt alles, wie es ist.',
+      )}
+      action={t('Trennen')}
+      passwordLabel={t('Master-Passwort von {server}', { server: name })}
+      run={(password) => spaceRemove(space.id, password, keep && keepable)}
+      onCancel={onCancel}
+      onDone={onDone}
+    >
+      <fieldset className="sync-remove-choice">
+        <legend>{t('Was passiert mit den Einträgen dieses Servers?')}</legend>
+        <label className="check">
+          <input type="radio" name="sync-remove" checked={!keep} onChange={() => setKeep(false)} />
+          <span>
+            <b>{t('Einträge von diesem Gerät entfernen')}</b>
+            <small>{t('Hosts, Keys und Passwörter dieses Servers verschwinden hier.')}</small>
+          </span>
+        </label>
+        <label className="check" data-disabled={keepable ? undefined : true}>
+          <input
+            type="radio"
+            name="sync-remove"
+            checked={keep && keepable}
+            disabled={!keepable}
+            onChange={() => setKeep(true)}
+          />
+          <span>
+            <b>{t('Auf den anderen Server übernehmen')}</b>
+            <small>
+              {keepable
+                ? t('Sie ziehen zu {server} um und synchronisieren von da an dort.', {
+                    server: otherName,
+                  })
+                : t('Dafür müssen beide Server entsperrt sein.')}
+            </small>
+          </span>
+        </label>
+      </fieldset>
+      {space.main && other && (
+        <Hint tone="warning">
+          {t(
+            'Das ist dein Hauptserver. Danach ist {server} der Hauptserver: Tastenkürzel, Texte und KI-Einstellungen ziehen dorthin, und sein Master-Passwort öffnet UwUSSH.',
+            { server: otherName },
+          )}
+        </Hint>
+      )}
+    </PasswordConfirm>
+  );
+}
+
+// ── One server ────────────────────────────────────────────────────────────
+
+/**
+ * The pages of one server, whichever the scope around it names. While the
+ * second server is being set up (`onCancel` and the others are set), it is
+ * the intro and its forms only, and finishing hands back to the page.
+ */
+function SpaceView({
+  status,
+  refresh,
+  onCancel,
+  onRegistered,
+  onFinished,
+}: {
+  status: SyncStatus;
+  refresh: () => void;
+  onCancel?: () => void;
+  /** The second server is connected: nothing to throw away any more. */
+  onRegistered?: () => void;
+  /** And the person has seen what there was to see. */
+  onFinished?: () => void;
+}) {
+  useLanguage();
+  const { second } = useSpace();
+  const [mode, setMode] = useState<'overview' | 'connect' | 'join' | 'lock'>('overview');
+  const [backend, setBackend] = useState<'uwulock' | 'uwusync'>('uwulock');
+  const [kit, setKit] = useState<Connected | null>(null);
+  const [moved, setMoved] = useState<Extract<LockOutcome, { kind: 'moved' }> | null>(null);
+
+  const done = () => {
+    setMode('overview');
+    if (onFinished) onFinished();
+    else refresh();
+  };
 
   if (kit) {
     return (
@@ -81,8 +547,7 @@ export function SyncSettings() {
         kit={kit}
         onDone={() => {
           setKit(null);
-          setMode('overview');
-          refresh();
+          done();
         }}
       />
     );
@@ -113,8 +578,8 @@ export function SyncSettings() {
           status={status}
           onBack={() => setMode('overview')}
           onDone={() => {
-            setMode('overview');
-            refresh();
+            onRegistered?.();
+            done();
           }}
         />
       );
@@ -124,7 +589,10 @@ export function SyncSettings() {
         <ConnectForm
           status={status}
           onBack={() => setMode('overview')}
-          onConnected={(connected) => setKit(connected)}
+          onConnected={(connected) => {
+            onRegistered?.();
+            setKit(connected);
+          }}
         />
       );
     }
@@ -134,15 +602,26 @@ export function SyncSettings() {
           status={status}
           onBack={() => setMode('overview')}
           onJoined={() => {
-            setMode('overview');
-            refresh();
+            onRegistered?.();
+            done();
           }}
         />
       );
     }
     return (
       <div className="sync-intro">
-        <NyuScene name="welcome" className="sync-scene" />
+        {second ? (
+          <>
+            <p className="setting-label">{t('Zweiten Server verbinden')}</p>
+            <p className="setting-description">
+              {t(
+                'Der zweite Server hat sein eigenes Konto und sein eigenes Master-Passwort. Im Alltag öffnet das Passwort des Hauptservers beide.',
+              )}
+            </p>
+          </>
+        ) : (
+          <NyuScene name="welcome" className="sync-scene" />
+        )}
         <Segmented
           label={t('Synchronisieren über')}
           value={backend}
@@ -173,9 +652,11 @@ export function SyncSettings() {
               </button>
             </div>
             <p className="setting-description">
-              {t(
-                'Einen Server aufsetzen: siehe github.com/MinifyX/UwULock-Server. Schon auf UwUSync? Dann dort verbinden und unter Sync → Zu UwULock umziehen.',
-              )}
+              {second
+                ? t('Einen Server aufsetzen: siehe github.com/MinifyX/UwULock-Server.')
+                : t(
+                    'Einen Server aufsetzen: siehe github.com/MinifyX/UwULock-Server. Schon auf UwUSync? Dann dort verbinden und unter Sync → Zu UwULock umziehen.',
+                  )}
             </p>
           </>
         ) : (
@@ -216,6 +697,13 @@ export function SyncSettings() {
             </p>
           </>
         )}
+        {onCancel && (
+          <div className="sync-actions">
+            <Button data-secondary onClick={onCancel}>
+              {t('Abbrechen')}
+            </Button>
+          </div>
+        )}
       </div>
     );
   }
@@ -244,6 +732,7 @@ function ConnectForm({
   onConnected: (connected: Connected) => void;
 }) {
   useLanguage();
+  const { space, second } = useSpace();
   const fresh = status.vault === 'absent';
   const [code, setCode] = useState('');
   const [name, setName] = useState(status.deviceName);
@@ -265,7 +754,7 @@ function ConnectForm({
     setBusy(true);
     setError(null);
     try {
-      const connected = await syncConnect(code, password, name);
+      const connected = await syncConnect(code, password, name, space);
       setPassword('');
       setRepeat('');
       onConnected(connected);
@@ -332,9 +821,13 @@ function ConnectForm({
       <p className={mismatch ? 'field-error' : 'field-hint'}>
         {mismatch
           ? t('Die Passwörter stimmen nicht überein.')
-          : fresh
-            ? t('Mindestens 8 Zeichen. Es verlässt dieses Gerät nie.')
-            : t('Deine Hosts und Keys kommen mit – nichts wird neu verschlüsselt.')}
+          : second
+            ? t(
+                'Mindestens 8 Zeichen. Das Passwort dieses Servers: Du brauchst es auf weiteren Geräten und zum Trennen.',
+              )
+            : fresh
+              ? t('Mindestens 8 Zeichen. Es verlässt dieses Gerät nie.')
+              : t('Deine Hosts und Keys kommen mit – nichts wird neu verschlüsselt.')}
       </p>
       {error && (
         <p className="field-error" role="alert">
@@ -451,6 +944,7 @@ function JoinForm({
   onJoined: () => void;
 }) {
   useLanguage();
+  const { space, second } = useSpace();
   const [code, setCode] = useState('');
   const [server, setServer] = useState('');
   const [fingerprint, setFingerprint] = useState('');
@@ -480,6 +974,7 @@ function JoinForm({
         name,
         spoken ? server : null,
         spoken && fingerprint.trim() ? fingerprint : null,
+        space,
       );
       setPassword('');
       onJoined();
@@ -556,9 +1051,13 @@ function JoinForm({
           onChange={(e) => setPassword(e.target.value)}
         />
         <em className="field-hint">
-          {t(
-            'Das Passwort, mit dem das erste Gerät den Server verbunden hat. Hosts, die schon hier sind, kommen mit.',
-          )}
+          {second
+            ? t(
+                'Das Passwort, mit dem das erste Gerät diesen Server verbunden hat. Deine bisherigen Hosts bleiben auf dem ersten Server.',
+              )
+            : t(
+                'Das Passwort, mit dem das erste Gerät den Server verbunden hat. Hosts, die schon hier sind, kommen mit.',
+              )}
         </em>
       </label>
       {busy && (
@@ -608,6 +1107,7 @@ function Paired({
   onMoved: (outcome: LockOutcome) => void;
 }) {
   useLanguage();
+  const { space, leave, after } = useSpace();
   const [moving, setMoving] = useState(false);
   const [forgettingMove, setForgettingMove] = useState(false);
   const [devices, setDevices] = useState<Device[] | null>(null);
@@ -625,13 +1125,13 @@ function Paired({
   const moveServerOff = useAppSyncOff(status.lock.moveStartedMs ? status.lock.serverUrl : null);
 
   const loadDevices = useCallback(() => {
-    void syncDevices()
+    void syncDevices(space)
       .then((list) => {
         setDevices(list);
         setDevicesError(null);
       })
       .catch((e) => setDevicesError(failureText(asSyncFailure(e))));
-  }, []);
+  }, [space]);
 
   useEffect(() => {
     if (status.vault === 'unlocked') loadDevices();
@@ -669,7 +1169,7 @@ function Paired({
               size="sm"
               icon={ICONS.refresh}
               onClick={() => {
-                void syncNow().then(() => window.setTimeout(onChanged, 400));
+                void syncNow(space).then(() => window.setTimeout(onChanged, 400));
               }}
               disabled={status.running}
             >
@@ -784,7 +1284,7 @@ function Paired({
                 disabled={forgettingMove}
                 onClick={() => {
                   setForgettingMove(true);
-                  void lockForgetMove().finally(() => {
+                  void lockForgetMove(space).finally(() => {
                     setForgettingMove(false);
                     onChanged();
                   });
@@ -826,18 +1326,24 @@ function Paired({
             size="sm"
             variant="danger"
             icon={ICONS.disconnect}
-            onClick={() => setLeaving(true)}
+            onClick={() => (leave ? leave() : setLeaving(true))}
           >
             {t('Trennen…')}
           </Button>
         }
       >
         <p className="setting-description">
-          {t(
-            'Dieses Gerät synchronisiert nicht mehr. Hosts und Tresor bleiben hier, das Master-Passwort allein öffnet ihn wieder.',
-          )}
+          {leave
+            ? t(
+                'Dieses Gerät synchronisiert nicht mehr mit diesem Server. Du entscheidest, ob seine Einträge hier bleiben.',
+              )
+            : t(
+                'Dieses Gerät synchronisiert nicht mehr. Hosts und Tresor bleiben hier, das Master-Passwort allein öffnet ihn wieder.',
+              )}
         </p>
       </SyncRow>
+
+      {after}
 
       {adding && (
         <PasswordConfirm
@@ -847,7 +1353,7 @@ function Paired({
           )}
           action={t('Code zeigen')}
           tone="normal"
-          run={async (password) => setOffer(await syncOffer(password))}
+          run={async (password) => setOffer(await syncOffer(password, space))}
           onCancel={() => setAdding(false)}
           onDone={() => setAdding(false)}
         />
@@ -872,7 +1378,7 @@ function Paired({
             'Zum Widerrufen eines anderen Geräts braucht es das Master-Passwort – so kann ein gestohlenes Gerät dich nicht aussperren. Das Gerät bekommt danach nichts Neues mehr, aber was es schon hat, bleibt dort lesbar: Ändere Passwörter und Schlüssel, die darauf lagen, wenn du ihm nicht mehr traust.',
           )}
           action={t('Widerrufen')}
-          run={(password) => syncRevoke(revoking.id, password)}
+          run={(password) => syncRevoke(revoking.id, password, space)}
           onCancel={() => setRevoking(null)}
           onDone={() => {
             setRevoked(revoking.name);
@@ -888,7 +1394,7 @@ function Paired({
             'Der Tresor wird wieder nur mit dem Master-Passwort verschlüsselt. Die anderen Geräte synchronisieren weiter.',
           )}
           action={t('Trennen')}
-          run={(password) => syncDisconnect(password)}
+          run={(password) => syncDisconnect(password, space)}
           onCancel={() => setLeaving(false)}
           onDone={() => {
             setLeaving(false);
@@ -905,7 +1411,7 @@ function Paired({
           action={t('Anzeigen')}
           tone="normal"
           run={async (password) => {
-            const shown = await syncRecoveryCode(password);
+            const shown = await syncRecoveryCode(password, space);
             setKit(shown);
           }}
           onCancel={() => setAskingKit(false)}
@@ -918,7 +1424,7 @@ function Paired({
           onDone={() => {
             setUnlocking(false);
             onChanged();
-            void syncNow();
+            void syncNow(space);
           }}
           onCancel={() => setUnlocking(false)}
         />
@@ -930,6 +1436,7 @@ function Paired({
 /** The code to read out or paste, while this device waits for the other one. */
 function AddDevice({ offer, onClose }: { offer: Offer; onClose: (joined: string | null) => void }) {
   useLanguage();
+  const { space } = useSpace();
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -945,7 +1452,7 @@ function AddDevice({ offer, onClose }: { offer: Offer; onClose: (joined: string 
       waiting.current = true;
       void (async () => {
         try {
-          const joined = await syncWaitForDevice();
+          const joined = await syncWaitForDevice(space);
           if (mounted.current && !closed.current) onClose(joined.name);
         } catch (e) {
           if (mounted.current && !closed.current) setError(failureText(asSyncFailure(e)));
@@ -962,7 +1469,7 @@ function AddDevice({ offer, onClose }: { offer: Offer; onClose: (joined: string 
 
   const cancel = () => {
     closed.current = true;
-    void syncCancelOffer().catch(() => undefined);
+    void syncCancelOffer(space).catch(() => undefined);
     onClose(null);
   };
 

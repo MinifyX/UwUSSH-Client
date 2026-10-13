@@ -25,6 +25,7 @@ import {
   syncDot,
   SyncRow,
   useAppSyncOff,
+  useSpace,
 } from './SyncParts';
 import { VaultDialog } from './VaultDialog';
 
@@ -68,6 +69,7 @@ export function LockSignInForm({
   onDone: (outcome: LockOutcome) => void;
 }) {
   useLanguage();
+  const { space, second } = useSpace();
   const [server, setServer] = useState(status.lock.serverUrl ?? '');
   const [email, setEmail] = useState(status.lock.email ?? '');
   const [password, setPassword] = useState('');
@@ -109,7 +111,7 @@ export function LockSignInForm({
       methods && chosen ? { provider: chosen.provider, code: code.trim(), remember } : null;
     try {
       const run = mode === 'move' ? lockMove : lockSignIn;
-      const outcome = await run(server.trim(), email.trim(), password, twoFactor, accept);
+      const outcome = await run(server.trim(), email.trim(), password, twoFactor, accept, space);
       if (outcome.kind === 'space-changed') {
         setSpaceChange(outcome);
         setMethods(null);
@@ -150,7 +152,7 @@ export function LockSignInForm({
   const sendMail = async () => {
     setError(null);
     try {
-      await lockSendEmailCode(server.trim(), email.trim(), password);
+      await lockSendEmailCode(server.trim(), email.trim(), password, space);
       setMailed(true);
     } catch (e) {
       setError(failureText(asSyncFailure(e)));
@@ -215,9 +217,13 @@ export function LockSignInForm({
           ? t(
               'UwUSSH meldet sich bei UwULock an, kopiert alles von UwUSync in dein UwULock-Konto, prüft die Kopie und wechselt erst dann. Auf UwUSync bleibt alles, wie es ist. Danach öffnet das Master-Passwort deines UwULock-Kontos den Tresor hier.',
             )
-          : t(
-              'Hosts, Keys und Passwörter auf diesem Gerät kommen mit in dein Konto. Danach öffnet das Master-Passwort deines UwULock-Kontos den Tresor hier.',
-            )}
+          : second
+            ? t(
+                'Was in diesem Konto schon liegt, kommt auf dieses Gerät. Deine bisherigen Hosts bleiben auf dem ersten Server. UwUSSH öffnet weiter mit dem Passwort des Hauptservers.',
+              )
+            : t(
+                'Hosts, Keys und Passwörter auf diesem Gerät kommen mit in dein Konto. Danach öffnet das Master-Passwort deines UwULock-Kontos den Tresor hier.',
+              )}
       </p>
       {methods === null ? (
         <>
@@ -395,6 +401,7 @@ export function MoveDone({
   onDone: () => void;
 }) {
   useLanguage();
+  const { space } = useSpace();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { report } = outcome;
@@ -403,7 +410,7 @@ export function MoveDone({
     setBusy(true);
     setError(null);
     try {
-      await lockLeaveUwusync(revoke);
+      await lockLeaveUwusync(revoke, space);
       onDone();
     } catch (e) {
       setError(failureText(asSyncFailure(e)));
@@ -488,6 +495,7 @@ export function MoveDone({
 /** Settings → Sync while this device syncs through UwULock. */
 export function LockOverview({ status, onChanged }: { status: SyncStatus; onChanged: () => void }) {
   useLanguage();
+  const { space, leave, after } = useSpace();
   const [signingIn, setSigningIn] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
@@ -532,7 +540,7 @@ export function LockOverview({ status, onChanged }: { status: SyncStatus; onChan
               size="sm"
               icon={ICONS.refresh}
               onClick={() => {
-                void syncNow().then(() => window.setTimeout(onChanged, 400));
+                void syncNow(space).then(() => window.setTimeout(onChanged, 400));
               }}
               disabled={status.running}
             >
@@ -588,17 +596,28 @@ export function LockOverview({ status, onChanged }: { status: SyncStatus; onChan
       <SyncRow
         label={t('Abmelden')}
         control={
-          <Button size="sm" variant="danger" icon={ICONS.signOut} onClick={() => setLeaving(true)}>
+          <Button
+            size="sm"
+            variant="danger"
+            icon={ICONS.signOut}
+            onClick={() => (leave ? leave() : setLeaving(true))}
+          >
             {t('Abmelden…')}
           </Button>
         }
       >
         <p className="setting-description">
-          {t(
-            'Dieses Gerät synchronisiert nicht mehr. Hosts und Tresor bleiben hier, das Master-Passwort deines UwULock-Kontos öffnet ihn weiter.',
-          )}
+          {leave
+            ? t(
+                'Dieses Gerät synchronisiert nicht mehr mit diesem Server. Du entscheidest, ob seine Einträge hier bleiben.',
+              )
+            : t(
+                'Dieses Gerät synchronisiert nicht mehr. Hosts und Tresor bleiben hier, das Master-Passwort deines UwULock-Kontos öffnet ihn weiter.',
+              )}
         </p>
       </SyncRow>
+
+      {after}
 
       {leaving && (
         <PasswordConfirm
@@ -607,7 +626,7 @@ export function LockOverview({ status, onChanged }: { status: SyncStatus; onChan
             'Die anderen Geräte synchronisieren weiter. Wieder anmelden geht jederzeit unter Einstellungen → Sync.',
           )}
           action={t('Abmelden')}
-          run={(password) => lockSignOut(password)}
+          run={(password) => lockSignOut(password, space)}
           onCancel={() => setLeaving(false)}
           onDone={() => {
             setLeaving(false);
@@ -621,7 +640,7 @@ export function LockOverview({ status, onChanged }: { status: SyncStatus; onChan
           onDone={() => {
             setUnlocking(false);
             onChanged();
-            void syncNow();
+            void syncNow(space);
           }}
           onCancel={() => setUnlocking(false)}
         />

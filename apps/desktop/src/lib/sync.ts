@@ -144,10 +144,53 @@ export type Device = {
   current: boolean;
 };
 
-export const syncStatus = () => invoke<SyncStatus>('sync_status');
+/** One server this device syncs with: a store of its own. The id is opaque. */
+export type SpaceInfo = {
+  id: string;
+  main: boolean;
+  kind: 'server';
+  /** The server's host name, '' while it is connected to none. */
+  label: string;
+  /** Its vault could not be opened with the main server's key. */
+  locked: boolean;
+  readOnly: boolean;
+  status: SyncStatus;
+};
 
-export const syncConnect = (code: string, password: string, name: string) =>
-  invoke<Connected>('sync_connect', { code, password, name });
+export type SpacesStatus = {
+  /** The main server first. */
+  spaces: SpaceInfo[];
+  /** Where new entries of each workspace go. */
+  defaults: { private: string; business: string };
+  /** A second server can be connected now. */
+  canAdd: boolean;
+};
+
+/**
+ * Which server a command means: nothing for the main one, a space's id, or
+ * `'new'` for the second server while it is being set up.
+ */
+export type SpaceRef = string | undefined;
+export const NEW_SPACE = 'new';
+
+export const syncStatus = (space?: SpaceRef) => invoke<SyncStatus>('sync_status', { space });
+
+export const spacesStatus = () => invoke<SpacesStatus>('spaces_status');
+export const spaceSetDefault = (workspace: 'private' | 'business', space: string) =>
+  invoke<void>('space_set_default', { workspace, space });
+/** Personal things move to this server, and its password opens the app from then on. */
+export const spaceMakeMain = (space: string) => invoke<void>('space_make_main', { space });
+/** Open a server's vault with its own password, when the main key did not. */
+export const spaceUnlock = (space: string, password: string) =>
+  invoke<void>('space_unlock', { space, password });
+/** Disconnect a server: `keep` takes its entries over to the remaining one. */
+export const spaceRemove = (space: string, password: string, keep: boolean) =>
+  invoke<void>('space_remove', { space, password, keep });
+/** Throw away the second server that was being set up. */
+export const spaceDiscardNew = () => invoke<void>('space_discard_new');
+
+export const syncConnect = (code: string, password: string, name: string, space?: SpaceRef) =>
+  invoke<Connected>('sync_connect', { code, password, name, space });
 
 export const syncJoin = (
   code: string,
@@ -155,21 +198,25 @@ export const syncJoin = (
   name: string,
   serverUrl: string | null,
   fingerprint: string | null,
-) => invoke<void>('sync_join', { code, password, name, serverUrl, fingerprint });
+  space?: SpaceRef,
+) => invoke<void>('sync_join', { code, password, name, serverUrl, fingerprint, space });
 
-export const syncOffer = (password: string) => invoke<Offer>('sync_offer', { password });
-export const syncWaitForDevice = () => invoke<{ name: string }>('sync_wait_for_device');
-export const syncCancelOffer = () => invoke<void>('sync_cancel_offer');
-export const syncDevices = () => invoke<Device[]>('sync_devices');
-export const syncRevoke = (deviceId: string, password: string) =>
-  invoke<void>('sync_revoke', { deviceId, password });
-export const syncNow = () => invoke<void>('sync_now');
+export const syncOffer = (password: string, space?: SpaceRef) =>
+  invoke<Offer>('sync_offer', { password, space });
+export const syncWaitForDevice = (space?: SpaceRef) =>
+  invoke<{ name: string }>('sync_wait_for_device', { space });
+export const syncCancelOffer = (space?: SpaceRef) => invoke<void>('sync_cancel_offer', { space });
+export const syncDevices = (space?: SpaceRef) => invoke<Device[]>('sync_devices', { space });
+export const syncRevoke = (deviceId: string, password: string, space?: SpaceRef) =>
+  invoke<void>('sync_revoke', { deviceId, password, space });
+export const syncNow = (space?: SpaceRef) => invoke<void>('sync_now', { space });
 /** A pass now, waited for. False when this device doesn't sync. */
-export const syncPassNow = () => invoke<boolean>('sync_pass_now');
-export const syncDisconnect = (password: string) => invoke<void>('sync_disconnect', { password });
+export const syncPassNow = (space?: SpaceRef) => invoke<boolean>('sync_pass_now', { space });
+export const syncDisconnect = (password: string, space?: SpaceRef) =>
+  invoke<void>('sync_disconnect', { password, space });
 /** The recovery kit again, on a paired device that kept the account key. */
-export const syncRecoveryCode = (password: string) =>
-  invoke<Connected>('sync_recovery_code', { password });
+export const syncRecoveryCode = (password: string, space?: SpaceRef) =>
+  invoke<Connected>('sync_recovery_code', { password, space });
 
 /**
  * Sign in to UwULock and sync through it. `twoFactor` once the server asked
@@ -181,17 +228,30 @@ export const lockSignIn = (
   password: string,
   twoFactor: TwoFactorInput | null,
   acceptSpace: AcceptSpace | null,
-) => invoke<LockOutcome>('lock_sign_in', { serverUrl, email, password, twoFactor, acceptSpace });
+  space?: SpaceRef,
+) =>
+  invoke<LockOutcome>('lock_sign_in', {
+    serverUrl,
+    email,
+    password,
+    twoFactor,
+    acceptSpace,
+    space,
+  });
 
 /**
  * Whether the UwULock Server at this address has app sync switched off. False
  * for a server that says nothing about it or can't be reached.
  */
-export const lockAppSyncOff = (serverUrl: string) =>
-  invoke<boolean>('lock_app_sync_off', { serverUrl });
+export const lockAppSyncOff = (serverUrl: string, space?: SpaceRef) =>
+  invoke<boolean>('lock_app_sync_off', { serverUrl, space });
 
-export const lockSendEmailCode = (serverUrl: string, email: string, password: string) =>
-  invoke<void>('lock_send_email_code', { serverUrl, email, password });
+export const lockSendEmailCode = (
+  serverUrl: string,
+  email: string,
+  password: string,
+  space?: SpaceRef,
+) => invoke<void>('lock_send_email_code', { serverUrl, email, password, space });
 
 /** The one-click move from UwUSync to UwULock. */
 export const lockMove = (
@@ -200,12 +260,16 @@ export const lockMove = (
   password: string,
   twoFactor: TwoFactorInput | null,
   acceptSpace: AcceptSpace | null,
-) => invoke<LockOutcome>('lock_move', { serverUrl, email, password, twoFactor, acceptSpace });
+  space?: SpaceRef,
+) =>
+  invoke<LockOutcome>('lock_move', { serverUrl, email, password, twoFactor, acceptSpace, space });
 
 /** After the move: remove this device from UwUSync, or leave it listed there. */
-export const lockLeaveUwusync = (revoke: boolean) => invoke<void>('lock_leave_uwusync', { revoke });
-export const lockForgetMove = () => invoke<void>('lock_forget_move');
-export const lockSignOut = (password: string) => invoke<void>('lock_sign_out', { password });
+export const lockLeaveUwusync = (revoke: boolean, space?: SpaceRef) =>
+  invoke<void>('lock_leave_uwusync', { revoke, space });
+export const lockForgetMove = (space?: SpaceRef) => invoke<void>('lock_forget_move', { space });
+export const lockSignOut = (password: string, space?: SpaceRef) =>
+  invoke<void>('lock_sign_out', { password, space });
 
 /** A pasted setup code, from `uwusync-server invite`. */
 export const isSetupCode = (text: string) => text.trim().startsWith('uwu1_');
