@@ -516,6 +516,60 @@ page then offers to remove the device there, and says so when it was the last
 one. Running the move again, after an interruption or on the next device, skips
 what is there already.
 
+### Two servers
+
+A device can sync with two servers at once, in any mix of UwUSync and
+UwULock. Nothing above changes for that, because **a space is one store
+file**: the main space is `uwussh.db`, the second server is a second store in
+`spaces/<uuid>.db` beside it, with its own vault, its own pairing or UwULock
+session and its own cursor. `uwussh_store::Spaces` (`spaces.rs`) holds them
+and is what the app talks to; the app keeps one sync worker and one realtime
+listener per space (`Syncs` in the app's `sync.rs`).
+
+- **The registry** is `spaces.json` beside the database, written whole (temp
+  file, then rename) and readable by this user only: which space is main, the
+  other space's id and file, where new entries of Private and of Business go,
+  and a journal entry while a host moves. No file means one main space, as
+  before. A file name from the registry is never used as a path: only the
+  database itself and `<uuid>.db` directly inside `spaces/` resolve. A
+  registry that does not read is set aside and the app starts with the main
+  space alone.
+- **One password.** The second vault's key is kept in that store, sealed by
+  the *main vault's key* and bound to the space's id, so the blob opens for
+  that space only. Opening the main vault (password, or the key the operating
+  system keeps) opens the second; locking locks both. The chain is sealed
+  again whenever a vault key changes — joining an account, signing in to
+  UwULock, the move to UwULock — and when main changes. If it does not open,
+  the space reports `locked` while main is open, and that server's own
+  password opens it and repairs the chain.
+- **Entries.** Hosts are listed as the union, each tagged with its space; a
+  new host goes to its workspace's default space. Groups are a (workspace,
+  name) pair and may hold hosts of both servers; the order within a group is
+  numbered across both stores. Keys are the union by id. Tunnels and known
+  host keys follow the host. Shortcuts, stored texts and the assistant's
+  settings and cache live in main only.
+- **Moving a host** copies host, login, sealed password, key with private
+  part and passphrase, tunnels and the known host key into the other store,
+  sealed again under that vault, then deletes them in the source — the key and
+  the host key only when no other host there uses them. The journal names the
+  move before it starts, and the next start finishes or undoes it, so a host
+  is never lost and never listed twice. A host normally keeps its id; if the
+  target still holds a deleted record under that id, the host gets a new one
+  there rather than reviving a deletion other devices already applied.
+- **Changing the main server** needs both vaults open: the personal records
+  go over with their secrets (the newer of two wins), the key the operating
+  system keeps becomes the new main vault's, the registry is swapped in one
+  rename, and the old main's copies are emptied. From then on the new main
+  server's password opens the app. Other devices should pick the same main
+  server.
+- **Removing a server** asks for that server's own password and either drops
+  its entries from this device or moves them to the server that stays first;
+  then the file is deleted. What moved away is never pushed as a deletion to
+  the removed server: its other devices keep their entries. Removing the main
+  server makes the other one main first.
+- **A session UwULock ends** locks the app only when it is the main
+  server's. The other server just needs signing in again.
+
 ## The sync server
 
 One binary, one Docker image, one SQLite file — and deliberately dumb. It hands

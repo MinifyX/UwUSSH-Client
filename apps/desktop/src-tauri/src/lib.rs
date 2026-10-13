@@ -46,6 +46,7 @@ mod lock;
 mod m0;
 mod sandbox_access;
 mod sessions;
+mod spaces;
 mod sync;
 mod system;
 mod tunnels;
@@ -60,11 +61,13 @@ use tauri::Manager;
 use uwussh_core::{
     FrameSink, ObservedHostKey, SessionId, SessionManager, SinkError, TunnelManager,
 };
-use uwussh_store::Store;
+use uwussh_store::{Spaces, Store};
 
 pub(crate) struct AppState {
     pub sessions: Arc<SessionManager>,
-    pub store: Arc<Store>,
+    /// Every server's store. Most of the app only means the main one, see
+    /// [`AppState::store`].
+    pub spaces: Arc<Spaces>,
     /// Running tunnels, with or without a terminal.
     pub tunnels: Arc<TunnelManager>,
     /// Host keys a server presented in the last connection attempt, per
@@ -83,6 +86,14 @@ pub(crate) struct AppState {
     /// The folder the last "sessions from a folder" import picked. The page
     /// never names a path itself; it can only read what the person chose.
     pub picked_folder: Mutex<Option<std::path::PathBuf>>,
+}
+
+impl AppState {
+    /// The main server's store: where the vault's password, the shortcuts,
+    /// the snippets and the AI settings are.
+    pub(crate) fn store(&self) -> Arc<Store> {
+        self.spaces.main()
+    }
 }
 
 /// Terminal frames on their way to the webview.
@@ -188,17 +199,19 @@ pub fn run() {
             if let Some(directory) = path.parent() {
                 sandbox_access::restore(directory);
             }
-            let store = Store::open(&path)?;
+            let spaces = Spaces::open(&path)?;
             tracing::info!(path = %path.display(), "store open");
             // A vault this device keeps the key for opens right away, so the
-            // master password is a once-per-device thing.
-            if let Err(error) = store.unlock_remembered_vault(device::unprotect) {
+            // master password is a once-per-device thing. The main vault's
+            // key then opens a second server's.
+            if let Err(error) = spaces.main().unlock_remembered_vault(device::unprotect) {
                 tracing::warn!(%error, "could not open the vault with this device's key");
             }
+            spaces.unlock_chain();
 
             app.manage(AppState {
                 sessions: Arc::new(SessionManager::new()),
-                store: Arc::new(store),
+                spaces: Arc::new(spaces),
                 tunnels: Arc::new(TunnelManager::new(tunnels::listener(app.handle().clone()))),
                 presented_keys: Mutex::new(HashMap::new()),
                 session_passwords: Mutex::new(HashMap::new()),
@@ -324,6 +337,12 @@ pub fn run() {
             sync::sync_pass_now,
             sync::sync_disconnect,
             sync::sync_recovery_code,
+            spaces::spaces_status,
+            spaces::space_set_default,
+            spaces::space_make_main,
+            spaces::space_unlock,
+            spaces::space_remove,
+            spaces::space_discard_new,
             lock::lock_sign_in,
             lock::lock_send_email_code,
             lock::lock_move,

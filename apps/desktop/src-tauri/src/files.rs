@@ -71,7 +71,10 @@ pub(crate) async fn open_files(
     let elevation = if root {
         let stored = if host.has_password {
             Some(crate::hosts::as_secret(from_vault(
-                state.store.reveal_host_password(host.id),
+                state
+                    .spaces
+                    .store_of_host(host.id)
+                    .and_then(|store| store.reveal_host_password(host.id)),
             )?)?)
         } else {
             None
@@ -822,9 +825,10 @@ pub(crate) async fn smb_connect(
         return Err(internal("that is not a share name"));
     }
     let host = state
-        .store
+        .spaces
         .get_host(id)
         .map_err(internal)?
+        .map(|found| found.host)
         .ok_or_else(|| internal("this host no longer exists"))?;
     if !smb_server_name(&host.address) {
         return Err(internal("the host address can't name an SMB server"));

@@ -8,7 +8,7 @@
 
 use crate::AppState;
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 use tauri::State;
 use uuid::Uuid;
 use uwussh_assist::{
@@ -171,14 +171,14 @@ fn endpoint_from_settings(store: &Store) -> AssistResult<(Endpoint, String)> {
 #[tauri::command]
 pub(crate) async fn assist_generate(
     state: State<'_, AppState>,
-    sync: State<'_, crate::sync::Sync>,
+    sync: State<'_, crate::sync::Syncs>,
     target: Target,
     shell: Option<Shell>,
     request: String,
     language: Language,
     fresh: bool,
 ) -> AssistResult<Suggestion> {
-    let store = Arc::clone(&state.store);
+    let store = state.store();
     let platform = platform_of(&target, shell);
     let key = platform.key();
     let normalized = normalize(&request);
@@ -253,14 +253,14 @@ pub(crate) fn assist_type_command(
 
 #[tauri::command]
 pub(crate) fn assist_settings(state: State<'_, AppState>) -> AssistResult<AssistSettings> {
-    state.store.assist_settings().map_err(store_failure)
+    state.store().assist_settings().map_err(store_failure)
 }
 
 /// Save one provider's settings. An address is checked before it is kept.
 #[tauri::command]
 pub(crate) fn assist_save_settings(
     state: State<'_, AppState>,
-    sync: State<'_, crate::sync::Sync>,
+    sync: State<'_, crate::sync::Syncs>,
     mut draft: AssistProviderDraft,
 ) -> AssistResult<AssistSettings> {
     if !draft.active.is_empty() && ProviderKind::parse(&draft.active).is_none() {
@@ -275,7 +275,7 @@ pub(crate) fn assist_save_settings(
         _ => None,
     };
     let saved = state
-        .store
+        .store()
         .save_assist_settings(draft)
         .map_err(store_failure)?;
     sync.poke();
@@ -295,7 +295,7 @@ pub(crate) async fn assist_models(
     let key = match api_key.filter(|key| !key.trim().is_empty()) {
         Some(key) => Some(zeroize::Zeroizing::new(key)),
         None if kind.key_allowed() => state
-            .store
+            .store()
             .assist_api_key(kind.as_str())
             .map_err(store_failure)?,
         None => None,
@@ -325,7 +325,7 @@ pub(crate) async fn assist_detect_ollama(base_url: Option<String>) -> Option<Vec
 #[tauri::command]
 pub(crate) fn assist_cache_list(state: State<'_, AppState>) -> AssistResult<Vec<AssistCacheEntry>> {
     state
-        .store
+        .store()
         .assist_cache_entries(None)
         .map_err(store_failure)
 }
@@ -333,11 +333,11 @@ pub(crate) fn assist_cache_list(state: State<'_, AppState>) -> AssistResult<Vec<
 #[tauri::command]
 pub(crate) fn assist_cache_delete(
     state: State<'_, AppState>,
-    sync: State<'_, crate::sync::Sync>,
+    sync: State<'_, crate::sync::Syncs>,
     id: Uuid,
 ) -> AssistResult<()> {
     state
-        .store
+        .store()
         .clear_assist_cache_entry(id)
         .map_err(store_failure)?;
     sync.poke();
@@ -347,9 +347,9 @@ pub(crate) fn assist_cache_delete(
 #[tauri::command]
 pub(crate) fn assist_cache_clear(
     state: State<'_, AppState>,
-    sync: State<'_, crate::sync::Sync>,
+    sync: State<'_, crate::sync::Syncs>,
 ) -> AssistResult<usize> {
-    let cleared = state.store.clear_assist_cache().map_err(store_failure)?;
+    let cleared = state.store().clear_assist_cache().map_err(store_failure)?;
     sync.poke();
     Ok(cleared)
 }

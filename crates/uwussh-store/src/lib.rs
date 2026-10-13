@@ -25,6 +25,7 @@ pub mod lock;
 pub mod manifest;
 mod schema;
 pub mod secret;
+pub mod spaces;
 pub mod sync;
 pub mod tunnels;
 pub mod vault;
@@ -50,6 +51,10 @@ pub use lock::{Joining, LockEnrolment, LockState, Space};
 pub use manifest::{manifest_id, ManifestFloor, Problem, Violation, Withheld};
 pub use schema::SCHEMA_VERSION;
 pub use secret::SecretText;
+pub use spaces::{
+    SpaceDefaults, SpaceHandle, SpaceHost, SpaceHostDraft, SpaceKind, Spaces, MAX_SERVERS,
+    NEW_SPACE,
+};
 pub use sync::{ApplyReport, Enrolment, EnrolmentKeys, Pushed, SyncState};
 pub use tunnels::{TunnelDraft, TunnelRecord};
 pub use vault::{Revealed, VaultStatus};

@@ -23,17 +23,17 @@ pub(crate) fn keymap_get(
     state: State<'_, AppState>,
     family: String,
 ) -> Result<KeymapView, SaveFailure> {
-    Ok(state.store.keymap(&family)?)
+    Ok(state.store().keymap(&family)?)
 }
 
 #[tauri::command]
 pub(crate) fn keymap_save(
     state: State<'_, AppState>,
-    sync: State<'_, crate::sync::Sync>,
+    sync: State<'_, crate::sync::Syncs>,
     family: String,
     draft: KeymapDraft,
 ) -> Result<KeymapView, SaveFailure> {
-    let saved = state.store.save_keymap(&family, draft)?;
+    let saved = state.store().save_keymap(&family, draft)?;
     sync.poke();
     Ok(saved)
 }
@@ -73,7 +73,7 @@ pub(crate) fn keymap_send_text(
     family: String,
     text_id: Uuid,
 ) -> Result<(), SaveFailure> {
-    let Some((text, enter)) = state.store.keymap_text(&family, text_id)? else {
+    let Some((text, enter)) = state.store().keymap_text(&family, text_id)? else {
         return Ok(());
     };
     let mut bytes = typed(&text, enter);

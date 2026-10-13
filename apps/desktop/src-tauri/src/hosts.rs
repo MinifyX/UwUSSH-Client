@@ -17,14 +17,14 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 use uwussh_core::{SessionId, SshAuth, SshError, SshTarget};
 use uwussh_store::{
-    CredentialSource, GroupRecord, HostDraft, HostRecord, PasswordChange, Revealed, RevealedKey,
-    SecretText, StoreError, Workspace,
+    CredentialSource, GroupRecord, HostRecord, PasswordChange, Revealed, RevealedKey, SecretText,
+    SpaceHost, SpaceHostDraft, StoreError, Workspace,
 };
 use zeroize::Zeroizing;
 
 #[tauri::command]
-pub(crate) fn list_hosts(state: State<'_, AppState>) -> CommandResult<Vec<HostRecord>> {
-    state.store.list_hosts().map_err(err)
+pub(crate) fn list_hosts(state: State<'_, AppState>) -> CommandResult<Vec<SpaceHost>> {
+    state.spaces.list_hosts().map_err(err)
 }
 
 /// Validation failures carry the field, so the form can mark the right input.
@@ -54,22 +54,35 @@ impl From<StoreError> for SaveFailure {
     }
 }
 
+/// Save the host form. A draft that names another server than the one the
+/// host is on moves it there, with its login, key, tunnels and host key.
 #[tauri::command]
-pub(crate) fn save_host(
+pub(crate) async fn save_host(
     state: State<'_, AppState>,
-    draft: HostDraft,
-) -> Result<HostRecord, SaveFailure> {
-    let forget = matches!(draft.password, PasswordChange::Forget);
-    let saved = state.store.save_host(draft)?;
+    draft: SpaceHostDraft,
+) -> Result<SpaceHost, SaveFailure> {
+    let forget = matches!(draft.draft.password, PasswordChange::Forget);
+    let before = draft.draft.id;
+    let saved = state.spaces.save_host(draft)?;
     if forget {
-        forget_typed_passwords(&state, saved.id);
+        forget_typed_passwords(&state, saved.host.id);
+    }
+    // A host that came back to a server it was deleted on is a new record
+    // there: what runs under the old id follows it, or stops.
+    if let Some(before) = before.filter(|before| *before != saved.host.id) {
+        for host in state.session_hosts.lock().values_mut() {
+            if *host == before {
+                *host = saved.host.id;
+            }
+        }
+        state.tunnels.stop_host(before).await;
     }
     Ok(saved)
 }
 
 #[tauri::command]
 pub(crate) async fn delete_host(state: State<'_, AppState>, id: Uuid) -> CommandResult<()> {
-    state.store.delete_host(id).map_err(err)?;
+    state.spaces.delete_host(id).map_err(err)?;
     forget_typed_passwords(&state, id);
     // Its tunnels went with it in the store; the running ones stop too.
     state.tunnels.stop_host(id).await;
@@ -98,7 +111,7 @@ pub(crate) fn set_host_password(
     state: State<'_, AppState>,
     id: Uuid,
     password: Option<String>,
-) -> Result<HostRecord, SaveFailure> {
+) -> Result<SpaceHost, SaveFailure> {
     let change = match password {
         Some(value) => PasswordChange::Set {
             value: SecretText::new(value),
@@ -106,7 +119,7 @@ pub(crate) fn set_host_password(
         None => PasswordChange::Forget,
     };
     let forget = matches!(change, PasswordChange::Forget);
-    let saved = state.store.set_host_password(id, change)?;
+    let saved = state.spaces.set_host_password(id, change)?;
     if forget {
         forget_typed_passwords(&state, id);
     }
@@ -117,7 +130,7 @@ pub(crate) fn set_host_password(
 
 #[tauri::command]
 pub(crate) fn list_groups(state: State<'_, AppState>) -> CommandResult<Vec<GroupRecord>> {
-    state.store.list_groups().map_err(err)
+    state.spaces.list_groups().map_err(err)
 }
 
 #[tauri::command]
@@ -126,7 +139,7 @@ pub(crate) fn create_group(
     workspace: Workspace,
     name: String,
 ) -> Result<GroupRecord, SaveFailure> {
-    Ok(state.store.create_group(workspace, &name)?)
+    Ok(state.spaces.create_group(workspace, &name)?)
 }
 
 #[tauri::command]
@@ -136,7 +149,7 @@ pub(crate) fn rename_group(
     from: String,
     to: String,
 ) -> Result<(), SaveFailure> {
-    Ok(state.store.rename_group(workspace, &from, &to)?)
+    Ok(state.spaces.rename_group(workspace, &from, &to)?)
 }
 
 #[tauri::command]
@@ -145,7 +158,7 @@ pub(crate) fn delete_group(
     workspace: Workspace,
     name: String,
 ) -> CommandResult<()> {
-    state.store.delete_group(workspace, &name).map_err(err)
+    state.spaces.delete_group(workspace, &name).map_err(err)
 }
 
 #[tauri::command]
@@ -157,7 +170,7 @@ pub(crate) fn move_group(
     before: Option<String>,
 ) -> CommandResult<()> {
     state
-        .store
+        .spaces
         .move_group(workspace, &name, to, before.as_deref())
         .map_err(err)
 }
@@ -169,9 +182,9 @@ pub(crate) fn move_host(
     to: Workspace,
     group: Option<String>,
     before: Option<Uuid>,
-) -> CommandResult<HostRecord> {
+) -> CommandResult<SpaceHost> {
     state
-        .store
+        .spaces
         .move_host(id, to, group.as_deref(), before)
         .map_err(err)
 }
@@ -263,19 +276,24 @@ pub(crate) fn prepare(
     id: Uuid,
     secret: Option<Zeroizing<String>>,
 ) -> Result<Prepared, ConnectFailure> {
-    let host = state
-        .store
+    // The server the host is on: its password, its key and the host key it
+    // trusts are there, and nowhere else.
+    let store = match state.spaces.store_of_host(id) {
+        Ok(store) => store,
+        Err(StoreError::UnknownHost(_)) => return Err(internal("this host no longer exists")),
+        Err(error) => return Err(internal(error)),
+    };
+    let host = store
         .get_host(id)
         .map_err(internal)?
         .ok_or_else(|| internal("this host no longer exists"))?;
 
-    let trusted_fingerprint = state
-        .store
+    let trusted_fingerprint = store
         .known_host(&host.address, host.port)
         .map_err(internal)?
         .map(|known| known.fingerprint);
 
-    let (auth, login_password) = match from_vault(state.store.host_credential_source(id))? {
+    let (auth, login_password) = match from_vault(store.host_credential_source(id))? {
         CredentialSource::AskPassword => (SshAuth::Password(secret.clone()), secret),
         CredentialSource::KeyFile { path } => (
             SshAuth::Key {
@@ -285,14 +303,14 @@ pub(crate) fn prepare(
             None,
         ),
         CredentialSource::VaultPassword => {
-            let password = as_secret(from_vault(state.store.reveal_host_password(id))?)?;
+            let password = as_secret(from_vault(store.reveal_host_password(id))?)?;
             (SshAuth::Password(Some(password.clone())), Some(password))
         }
         CredentialSource::VaultKey => {
             let RevealedKey {
                 private_key,
                 passphrase,
-            } = from_vault(state.store.reveal_host_key(id))?;
+            } = from_vault(store.reveal_host_key(id))?;
             (
                 SshAuth::KeyContents {
                     private_key: as_secret(private_key)?,
@@ -370,7 +388,7 @@ pub(crate) async fn connect_host(
         .await
     {
         Ok(session) => {
-            if let Err(error) = state.store.mark_connected(host.id) {
+            if let Err(error) = state.spaces.mark_connected(host.id) {
                 tracing::warn!(%error, "could not record the connection time");
             }
             state.session_hosts.lock().insert(session, host.id);
@@ -393,7 +411,7 @@ pub(crate) async fn connect_host(
                         return;
                     }
                     let state = app.state::<AppState>();
-                    if state.store.set_host_os(host.id, Some(os)).is_ok() {
+                    if state.spaces.set_host_os(host.id, Some(os)).is_ok() {
                         let _ = app.emit("host:os", HostOs { id: host.id, os });
                     }
                 });
@@ -431,28 +449,56 @@ pub(crate) fn trust_host_key(
         .filter(|observed| observed.fingerprint == fingerprint)
         .ok_or("this key was not presented by the server in the last connection attempt")?;
 
-    let replacing = state
-        .store
-        .known_host(&address, port)
-        .map_err(err)?
-        .is_some_and(|known| known.fingerprint != presented.fingerprint);
+    // The key is trusted where the hosts at this address are: on one server,
+    // or on both when each has one.
+    let stores = stores_of_address(&state, &slot).map_err(err)?;
+    let mut replacing = false;
+    for store in &stores {
+        replacing |= store
+            .known_host(&address, port)
+            .map_err(err)?
+            .is_some_and(|known| known.fingerprint != presented.fingerprint);
+    }
 
     if replacing && !replace {
         return Err("replacing a trusted host key needs the user's confirmation".into());
     }
 
-    state
-        .store
-        .trust_host_key(
-            &address,
-            port,
-            &presented.algorithm,
-            &presented.fingerprint,
-            &presented.public_key,
-        )
-        .map_err(err)?;
+    for store in &stores {
+        store
+            .trust_host_key(
+                &address,
+                port,
+                &presented.algorithm,
+                &presented.fingerprint,
+                &presented.public_key,
+            )
+            .map_err(err)?;
+    }
     state.presented_keys.lock().remove(&slot);
     Ok(())
+}
+
+/// The stores that hold a host at this address and port — the main one when
+/// none does.
+fn stores_of_address(
+    state: &AppState,
+    slot: &(String, u16),
+) -> uwussh_store::Result<Vec<std::sync::Arc<uwussh_store::Store>>> {
+    let mut found: Vec<String> = Vec::new();
+    for host in state.spaces.list_hosts()? {
+        if key_for(&host.host.address, host.host.port) == *slot && !found.contains(&host.space) {
+            found.push(host.space);
+        }
+    }
+    let mut stores = Vec::new();
+    for space in &found {
+        stores.push(state.spaces.store(Some(space))?);
+    }
+    if stores.is_empty() {
+        stores.push(state.store());
+    }
+    Ok(stores)
 }
 
 /// The user closed a password or passphrase prompt instead of answering it, or
@@ -481,15 +527,16 @@ fn session_password(
         return Ok(None);
     };
     let has = state
-        .store
+        .spaces
         .get_host(host)
         .map_err(internal)?
-        .is_some_and(|h| h.has_password);
+        .is_some_and(|h| h.host.has_password);
     if !has {
         return Ok(None);
     }
+    let store = state.spaces.store_of_host(host).map_err(internal)?;
     Ok(Some(as_secret(from_vault(
-        state.store.reveal_host_password(host),
+        store.reveal_host_password(host),
     )?)?))
 }
 
@@ -503,11 +550,11 @@ pub(crate) fn session_can_type_password(state: State<'_, AppState>, id: SessionI
         return false;
     };
     state
-        .store
+        .spaces
         .get_host(host)
         .ok()
         .flatten()
-        .is_some_and(|h| h.has_password)
+        .is_some_and(|h| h.host.has_password)
 }
 
 /// Type the terminal's password into the terminal, on the user's click, and

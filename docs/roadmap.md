@@ -232,6 +232,14 @@ The point where I can stop using anything else.
   the requests of this computer in its popup (click or ↑/↓). Settings →
   Terminal picks any installed monospace font, with a preview. Width and
   font stay on the device.
+- **Two servers** (0.3.0-beta.4): Settings → Sync connects a second server,
+  UwUSync or UwULock in any mix. Each server is a store file of its own
+  (`crates/uwussh-store/src/spaces.rs`); the main server's master password
+  opens both vaults, Private and Business each have a default server, the
+  host dialog moves a host to the other server with everything that belongs
+  to it, and shortcuts, stored texts and AI settings live on the main server,
+  which you choose. Disconnecting one either drops its entries from this
+  device or takes them over. See [architecture](architecture.md#two-servers).
 - Accessibility pass, the full Nyu scene set
 
 ## M5 · Homelab
