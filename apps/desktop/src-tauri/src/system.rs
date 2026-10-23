@@ -1,5 +1,5 @@
-//! App-level commands: updates, links out of the app, and a fresh start for a
-//! page that (re)loaded.
+//! App-level commands: updates, links out of the app, the clipboard, and a
+//! fresh start for a page that (re)loaded.
 
 #[cfg(feature = "self-update")]
 use crate::updates::{self, Channel, UpdateInfo};
@@ -116,6 +116,32 @@ pub(crate) fn open_terminal_link(app: AppHandle, url: String) -> CommandResult<(
     app.opener()
         .open_url(url, None::<&str>)
         .map_err(|e| format!("Couldn't open the browser: {e}"))
+}
+
+/// The system clipboard, opened once and kept: on X11 and Wayland whatever
+/// was copied is served by the clipboard that copied it, and is gone again
+/// once that is dropped.
+#[derive(Default)]
+pub(crate) struct Clipboard(parking_lot::Mutex<Option<arboard::Clipboard>>);
+
+/// Text the page copies (a terminal selection, a public key, a code) onto the
+/// system clipboard. The webview's own clipboard says no without focus or a
+/// fresh click or key, which an `await` before the copy already loses.
+#[tauri::command]
+pub(crate) fn copy_text(clipboard: State<'_, Clipboard>, text: String) -> CommandResult<()> {
+    let mut slot = clipboard.0.lock();
+    if let Some(open) = slot.as_mut() {
+        if open.set_text(text.as_str()).is_ok() {
+            return Ok(());
+        }
+    }
+    // Not open yet, or broken since (the X server went, another app held it
+    // too long): opened afresh.
+    let fail = |e: arboard::Error| format!("Couldn't copy: {e}");
+    let mut open = arboard::Clipboard::new().map_err(fail)?;
+    let result = open.set_text(text).map_err(fail);
+    *slot = Some(open);
+    result
 }
 
 fn is_web_link(url: &str) -> bool {

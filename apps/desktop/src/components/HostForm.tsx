@@ -1,6 +1,7 @@
 import { Button, Hint, Icon, IconButton, ICONS, Segmented, Select } from '@uwusuite/design';
 import { useRef, useEffect, useState, type FormEvent } from 'react';
 import { pickKeyPath } from '../lib/flavor';
+import { copyText } from '../lib/clipboard';
 import { N_, t } from '../lib/i18n';
 import { keyPublicLine, listKeys, type KeyRecord } from '../lib/keys';
 import {
@@ -70,19 +71,6 @@ type Field =
 type Errors = Partial<Record<Field, string>>;
 
 type KeySource = 'vault' | 'file';
-
-async function copy(text: string) {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    const area = document.createElement('textarea');
-    area.value = text;
-    document.body.append(area);
-    area.select();
-    document.execCommand('copy');
-    area.remove();
-  }
-}
 
 export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, onCancel }: Props) {
   const settings = useSettings();
@@ -482,7 +470,7 @@ export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, o
                           icon={copied ? ICONS.done : ICONS.copy}
                           onClick={() =>
                             void keyPublicLine(selectedKey.id)
-                              .then(copy)
+                              .then(copyText)
                               .then(() => {
                                 setCopied(true);
                                 window.setTimeout(() => setCopied(false), 1600);

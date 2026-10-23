@@ -1,5 +1,6 @@
 import { Button, Hint, StatusDot, type StatusState } from '@uwusuite/design';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { copyText } from '../lib/clipboard';
 import { locale, t, useLanguage } from '../lib/i18n';
 import {
   asSyncFailure,
@@ -126,7 +127,7 @@ export function ago(ms: number): string {
 
 export async function copy(text: string) {
   try {
-    await navigator.clipboard.writeText(text);
+    await copyText(text);
   } catch {
     // The page's clipboard can be off; the code is on screen to type.
   }

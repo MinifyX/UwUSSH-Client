@@ -1,5 +1,6 @@
 import { Button, ICONS, Segmented } from '@uwusuite/design';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { copyText } from '../../lib/clipboard';
 import { t, useLanguage } from '../../lib/i18n';
 import {
   passphraseNote,
@@ -72,19 +73,6 @@ function describeKind(choice: KindChoice, bits: number, curve: number) {
   if (choice === 'rsa') return `RSA ${bits}`;
   if (choice === 'ed25519') return 'Ed25519';
   return `ECDSA P-${curve}`;
-}
-
-async function copy(text: string) {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    const area = document.createElement('textarea');
-    area.value = text;
-    document.body.append(area);
-    area.select();
-    document.execCommand('copy');
-    area.remove();
-  }
 }
 
 export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onStep }: Props) {
@@ -458,7 +446,7 @@ export function KeygenPanel({ comment = '', onStore, storeLabel, onStored, onSte
         <Button
           size="sm"
           icon={copied === 'public' ? ICONS.done : ICONS.copy}
-          onClick={() => void copy(info.publicOpenssh).then(() => flash('public'))}
+          onClick={() => void copyText(info.publicOpenssh).then(() => flash('public'))}
         >
           {copied === 'public' ? t('Kopiert') : t('Kopieren')}
         </Button>

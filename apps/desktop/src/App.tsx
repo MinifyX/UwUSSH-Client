@@ -60,6 +60,7 @@ import {
   type Workspace,
 } from './lib/session';
 import { useAppAppearance } from './lib/appearance';
+import { copyText } from './lib/clipboard';
 import { language, t } from './lib/i18n';
 import { refreshKeyboard, useKeyboard } from './lib/keyboard';
 import {
@@ -209,20 +210,6 @@ function inTextField(target: EventTarget | null): boolean {
     target instanceof HTMLTextAreaElement ||
     target.isContentEditable
   );
-}
-
-/** Copies text, with the old way as a fallback where the clipboard API says no. */
-async function copyText(text: string) {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    const area = document.createElement('textarea');
-    area.value = text;
-    document.body.append(area);
-    area.select();
-    document.execCommand('copy');
-    area.remove();
-  }
 }
 
 /**
