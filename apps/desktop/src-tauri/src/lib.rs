@@ -224,6 +224,7 @@ pub fn run() {
                 picked_folder: Mutex::new(None),
             });
             app.manage(keygen::Generated::default());
+            app.manage(system::Clipboard::default());
             #[cfg(feature = "self-update")]
             updates::start(app.handle());
             sync::start(app.handle());
@@ -373,6 +374,7 @@ pub fn run() {
             system::install_update,
             system::open_project_page,
             system::open_terminal_link,
+            system::copy_text,
             links::take_link,
             m0::spawn_m0_session,
             m0::m0_autorun,

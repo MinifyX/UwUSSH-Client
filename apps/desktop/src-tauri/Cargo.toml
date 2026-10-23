@@ -59,6 +59,10 @@ tauri = { version = "2", features = [] }
 tauri-plugin-deep-link = "~2.4.10"
 # One UwUSSH per user: a second start (a `uwussh://` link) goes to the first.
 tauri-plugin-single-instance = { version = "~2.4.5", features = ["deep-link"] }
+# Copying from the terminal and the forms goes to the system clipboard from
+# Rust: the webview's own clipboard needs focus and a fresh user gesture.
+# Text only; Wayland through its data-control protocol.
+arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 tokio.workspace = true

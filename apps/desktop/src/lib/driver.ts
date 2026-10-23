@@ -7,8 +7,10 @@
  */
 
 import { FitAddon } from '@xterm/addon-fit';
+import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
+import { t } from './i18n';
 import { hasPrimaryModifier } from './keymap';
 import { platform } from './platform';
 import {
@@ -123,6 +125,17 @@ const ACK_RETRIES = 8;
 /** How long output has to rest before the cursor's line is checked for a prompt. */
 const PROMPT_IDLE_MS = 120;
 
+/**
+ * A link in the terminal opens only on Ctrl+click (⌘-click on a Mac, as in
+ * Terminal.app; a plain click selects), only for http and https, and through
+ * Rust, which checks again.
+ */
+function openLink(event: MouseEvent, uri: string) {
+  if (hasPrimaryModifier(event, platform()) && /^https?:\/\//i.test(uri)) {
+    void openTerminalLink(uri).catch(() => undefined);
+  }
+}
+
 export class TerminalDriver {
   readonly term: Terminal;
   renderer: Renderer = 'canvas';
@@ -171,22 +184,26 @@ export class TerminalDriver {
       // Option-click selects even while a program (tmux, vim) has the mouse,
       // as in Terminal.app.
       macOptionClickForcesSelection: true,
-      // Links a program prints (OSC 8) open only on Ctrl+click (⌘-click on a
-      // Mac, as in Terminal.app), only for http and https, and through Rust,
-      // which checks again. xterm.js' default would ask with confirm() and
-      // then navigate to whatever the server sent.
+      // Links a program marks (OSC 8) open like the plain ones below.
+      // xterm.js' default would ask with confirm() and then navigate to
+      // whatever the server sent.
       linkHandler: {
         allowNonHttpProtocols: false,
-        activate: (event, uri) => {
-          if (hasPrimaryModifier(event, platform()) && /^https?:\/\//i.test(uri)) {
-            void openTerminalLink(uri).catch(() => undefined);
-          }
-        },
+        activate: openLink,
+        hover: () => this.showLinkHint(),
+        leave: () => this.hideLinkHint(),
       },
       ...options,
     });
 
     this.term.loadAddon(this.fit);
+    // Addresses in the text itself (curl, git push, a log) are links too.
+    this.term.loadAddon(
+      new WebLinksAddon(openLink, {
+        hover: () => this.showLinkHint(),
+        leave: () => this.hideLinkHint(),
+      }),
+    );
     this.term.open(host);
     this.loadWebgl();
     this.refit();
@@ -215,6 +232,16 @@ export class TerminalDriver {
     // it, and the observer fires again once the tab shows.
     this.resizeObserver = new ResizeObserver(() => this.refit());
     this.resizeObserver.observe(host);
+  }
+
+  /** Under the mouse, a link says how it opens: a plain click selects. */
+  private showLinkHint() {
+    this.host.title =
+      platform() === 'macos' ? t('⌘-Klick öffnet den Link') : t('Strg+Klick öffnet den Link');
+  }
+
+  private hideLinkHint() {
+    this.host.removeAttribute('title');
   }
 
   /** Font, font size, cursor and scrollback from the settings, applied to a running terminal. */

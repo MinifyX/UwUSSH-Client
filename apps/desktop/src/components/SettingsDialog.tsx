@@ -20,6 +20,7 @@ import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react';
 import pkg from '../../package.json';
 import { invoke } from '@tauri-apps/api/core';
 import { customRegex, HIGHLIGHT_HEX } from '../lib/highlight';
+import { copyText } from '../lib/clipboard';
 import { locale, N_, t, useLanguage } from '../lib/i18n';
 import { useTeamServers } from '../lib/teamCommands';
 import { teamsVisible } from '../lib/teams';
@@ -908,7 +909,7 @@ function Vault({ onChanged }: { onChanged: () => void }) {
                   label={t('Public Key von {label} kopieren', { label: key.label })}
                   onClick={() =>
                     void guard(async () => {
-                      await navigator.clipboard.writeText(await keyPublicLine(key.id));
+                      await copyText(await keyPublicLine(key.id));
                       setCopied(key.id);
                       window.setTimeout(() => setCopied(null), 1600);
                     })

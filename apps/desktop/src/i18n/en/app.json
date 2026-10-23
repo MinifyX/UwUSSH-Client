@@ -127,5 +127,7 @@
   "Beenden": "Quit",
   "UwUSSH darf nur Dateien lesen, die du freigibst.": "UwUSSH may only read files you give it access to.",
   "Key-Datei wählen…": "Choose key file…",
-  "Key-Datei nicht übernommen: {error}": "Key file not saved: {error}"
+  "Key-Datei nicht übernommen: {error}": "Key file not saved: {error}",
+  "⌘-Klick öffnet den Link": "⌘-click opens the link",
+  "Strg+Klick öffnet den Link": "Ctrl+click opens the link"
 }
