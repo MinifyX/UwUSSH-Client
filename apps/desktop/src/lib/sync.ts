@@ -104,6 +104,7 @@ export type SyncFailure =
   | { kind: 'unreachable'; message: string }
   | { kind: 'refused'; message: string }
   | { kind: 'pairing-failed'; message: string }
+  | { kind: 'sso-failed'; message: string }
   | { kind: 'sign-in' }
   | { kind: 'switched-off' }
   | { kind: 'login-refused'; message: string }
@@ -206,6 +207,30 @@ export const syncJoin = (
   fingerprint: string | null,
   space?: SpaceRef,
 ) => invoke<void>('sync_join', { code, password, name, serverUrl, fingerprint, space });
+
+/** Who signed in with UwUAuth, and whether they already have an account on the server. */
+export type SsoSignedIn = {
+  hasAccount: boolean;
+  needsAccountKey: boolean;
+  displayName: string | null;
+  userName: string | null;
+  serverUrl: string;
+};
+
+/** Sign in with UwUAuth in the browser: a setup code or the server's address. */
+export const syncSsoSignIn = (server: string) =>
+  invoke<SsoSignedIn>('sync_sso_sign_in', { server });
+export const syncSsoCancel = () => invoke<void>('sync_sso_cancel');
+/** After signing in: a new account, with this device as its first. */
+export const syncSsoCreate = (password: string, name: string, space?: SpaceRef) =>
+  invoke<Connected>('sync_sso_create', { password, name, space });
+/** After signing in: join the account, with its master password and recovery code. */
+export const syncSsoJoin = (
+  password: string,
+  recoveryCode: string | null,
+  name: string,
+  space?: SpaceRef,
+) => invoke<void>('sync_sso_join', { password, recoveryCode, name, space });
 
 export const syncOffer = (password: string, space?: SpaceRef) =>
   invoke<Offer>('sync_offer', { password, space });
