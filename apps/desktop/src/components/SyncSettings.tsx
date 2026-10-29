@@ -34,6 +34,10 @@ import {
   syncOffer,
   syncRecoveryCode,
   syncRevoke,
+  syncSsoCancel,
+  syncSsoCreate,
+  syncSsoJoin,
+  syncSsoSignIn,
   syncWaitForDevice,
   lockForgetMove,
   type Connected,
@@ -42,6 +46,7 @@ import {
   type Offer,
   type SpaceInfo,
   type SpacesStatus,
+  type SsoSignedIn,
   type SyncStatus,
 } from '../lib/sync';
 import { LockOverview, LockSignInForm, MoveDone } from './LockSync';
@@ -535,7 +540,7 @@ function SpaceView({
 }) {
   useLanguage();
   const { second } = useSpace();
-  const [mode, setMode] = useState<'overview' | 'connect' | 'join' | 'lock'>('overview');
+  const [mode, setMode] = useState<'overview' | 'connect' | 'join' | 'lock' | 'sso'>('overview');
   const [backend, setBackend] = useState<'uwulock' | 'uwusync'>('uwulock');
   const [kit, setKit] = useState<Connected | null>(null);
   const [moved, setMoved] = useState<Extract<LockOutcome, { kind: 'moved' }> | null>(null);
@@ -597,6 +602,22 @@ function SpaceView({
           onConnected={(connected) => {
             onRegistered?.();
             setKit(connected);
+          }}
+        />
+      );
+    }
+    if (mode === 'sso') {
+      return (
+        <SsoForm
+          status={status}
+          onBack={() => setMode('overview')}
+          onConnected={(connected) => {
+            onRegistered?.();
+            setKit(connected);
+          }}
+          onJoined={() => {
+            onRegistered?.();
+            done();
           }}
         />
       );
@@ -690,6 +711,17 @@ function SpaceView({
                   <small>
                     {t(
                       'Ein weiteres Gerät: mit dem Code, den ein schon verbundenes Gerät unter „Gerät hinzufügen“ zeigt.',
+                    )}
+                  </small>
+                </span>
+              </button>
+              <button className="sync-choice" onClick={() => setMode('sso')}>
+                <Icon icon={ICONS.signIn} size="lg" />
+                <span>
+                  <b>{t('Mit UwUAuth anmelden')}</b>
+                  <small>
+                    {t(
+                      'Statt einer Einladung: Ist der Server mit UwUAuth verbunden, meldest du dich im Browser an. Dein Master-Passwort bleibt trotzdem deins.',
                     )}
                   </small>
                 </span>
@@ -848,6 +880,278 @@ function ConnectForm({
           {busy ? t('Verbinde…') : t('Verbinden')}
         </Button>
       </div>
+    </form>
+  );
+}
+
+// ── Signing in with UwUAuth ───────────────────────────────────────────────
+
+/**
+ * Sign in with UwUAuth instead of an invite or a code from another device.
+ * UwUAuth only says who may have an account here: the vault still opens with
+ * the master password (and the recovery code), which UwUAuth never sees.
+ */
+function SsoForm({
+  status,
+  onBack,
+  onConnected,
+  onJoined,
+}: {
+  status: SyncStatus;
+  onBack: () => void;
+  onConnected: (connected: Connected) => void;
+  onJoined: () => void;
+}) {
+  useLanguage();
+  const { space } = useSpace();
+  const fresh = status.vault === 'absent';
+  const [server, setServer] = useState('');
+  const [signedIn, setSignedIn] = useState<SsoSignedIn | null>(null);
+  const [name, setName] = useState(status.deviceName);
+  const [password, setPassword] = useState('');
+  const [repeat, setRepeat] = useState('');
+  const [recovery, setRecovery] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [unlocking, setUnlocking] = useState(false);
+
+  // Leaving the page stops a sign-in that still waits for the browser.
+  useEffect(
+    () => () => {
+      void syncSsoCancel();
+    },
+    [],
+  );
+
+  const signIn = async () => {
+    if (busy || !server.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setSignedIn(await syncSsoSignIn(server));
+    } catch (e) {
+      const failure = asSyncFailure(e);
+      const cancelled = failure.kind === 'sso-failed' && failure.message === 'cancelled';
+      if (!cancelled) setError(failureText(failure));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const creating = signedIn !== null && !signedIn.hasAccount;
+  const newPassword = creating && fresh;
+  const mismatch = newPassword && repeat.length > 0 && password !== repeat;
+  const ready =
+    !busy &&
+    signedIn !== null &&
+    name.trim().length > 0 &&
+    password.length > 0 &&
+    (!newPassword || (password.length >= 8 && password === repeat)) &&
+    (creating || !signedIn.needsAccountKey || recovery.trim().length > 0);
+
+  const finish = async () => {
+    if (!ready || !signedIn) return;
+    setBusy(true);
+    setError(null);
+    try {
+      if (creating) {
+        const connected = await syncSsoCreate(password, name, space);
+        setPassword('');
+        setRepeat('');
+        onConnected(connected);
+      } else {
+        await syncSsoJoin(password, recovery.trim() || null, name, space);
+        setPassword('');
+        setRecovery('');
+        onJoined();
+      }
+    } catch (e) {
+      const failure = asSyncFailure(e);
+      if (failure.kind === 'vault-locked') {
+        setUnlocking(true);
+        return;
+      }
+      setError(failureText(failure));
+      setPassword('');
+      setRepeat('');
+      // Only a sign-in the server used up or forgot needs another one; the
+      // app keeps it through a wrong password or a network hiccup.
+      if (failure.kind === 'sso-failed') setSignedIn(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!signedIn) {
+    return (
+      <form
+        className="form sync-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void signIn();
+        }}
+      >
+        <p className="setting-label">{t('Mit UwUAuth anmelden')}</p>
+        <p className="setting-description">
+          {t(
+            'Der Server muss mit UwUAuth gekoppelt sein (uwusync-server uwuauth pair). Die Anmeldung öffnet sich im Browser.',
+          )}
+        </p>
+        <label className="field">
+          <span>{t('Einrichtungscode oder Server-Adresse')}</span>
+          <textarea
+            className="sync-code-input"
+            value={server}
+            rows={2}
+            spellCheck={false}
+            autoFocus
+            placeholder="uwu1_…  ·  https://sync.example.com"
+            onChange={(e) => setServer(e.target.value)}
+          />
+          <em className="field-hint">
+            {t(
+              'Eine Adresse allein reicht, wenn der Server ein Zertifikat hat, dem dieses Gerät vertraut. Sonst den Einrichtungscode nehmen: Er enthält den Fingerprint.',
+            )}
+          </em>
+        </label>
+        {busy && (
+          <p className="field-hint" role="status">
+            {t('Warte auf die Anmeldung im Browser…')}
+          </p>
+        )}
+        {error && (
+          <p className="field-error" role="alert">
+            {error}
+          </p>
+        )}
+        <div className="sync-actions">
+          <Button
+            data-secondary
+            onClick={() => {
+              if (busy) void syncSsoCancel();
+              else onBack();
+            }}
+          >
+            {busy ? t('Abbrechen') : t('Zurück')}
+          </Button>
+          <span className="spacer" />
+          <Button type="submit" variant="primary" busy={busy} disabled={busy || !server.trim()}>
+            {t('Im Browser anmelden')}
+          </Button>
+        </div>
+      </form>
+    );
+  }
+
+  const who = signedIn.displayName ?? signedIn.userName ?? '';
+  return (
+    <form
+      className="form sync-form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void finish();
+      }}
+    >
+      <p className="setting-label">
+        {creating ? t('Konto anlegen') : t('Mit deinem Konto verbinden')}
+      </p>
+      <p className="setting-description">
+        {creating
+          ? t(
+              'Angemeldet als {who}. Auf diesem Server gibt es noch kein Konto für dich: Dieses Gerät legt es an. Danach zeigt UwUSSH dein Recovery-Kit.',
+              { who },
+            )
+          : t(
+              'Angemeldet als {who}. Du hast hier schon ein Konto: Master-Passwort und Recovery-Code öffnen es auf diesem Gerät.',
+              { who },
+            )}
+      </p>
+      <label className="field">
+        <span>{t('Name dieses Geräts')}</span>
+        <input value={name} maxLength={64} onChange={(e) => setName(e.target.value)} />
+      </label>
+      <label className="field">
+        <span>
+          {!creating
+            ? t('Master-Passwort des Kontos')
+            : fresh
+              ? t('Neues Master-Passwort')
+              : t('Master-Passwort deines Tresors')}
+        </span>
+        <input
+          type="password"
+          value={password}
+          autoFocus
+          autoComplete={newPassword ? 'new-password' : 'current-password'}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+      </label>
+      {newPassword && (
+        <label className="field">
+          <span>{t('Wiederholen')}</span>
+          <input
+            type="password"
+            value={repeat}
+            autoComplete="new-password"
+            aria-invalid={mismatch}
+            onChange={(e) => setRepeat(e.target.value)}
+          />
+        </label>
+      )}
+      {!creating && signedIn.needsAccountKey && (
+        <label className="field">
+          <span>{t('Recovery-Code')}</span>
+          <input
+            value={recovery}
+            spellCheck={false}
+            autoComplete="off"
+            onChange={(e) => setRecovery(e.target.value)}
+          />
+          <em className="field-hint">
+            {t('Steht im Recovery-Kit. Ein verbundenes Gerät zeigt ihn unter Sync → Recovery-Kit.')}
+          </em>
+        </label>
+      )}
+      <p className={mismatch ? 'field-error' : 'field-hint'}>
+        {mismatch
+          ? t('Die Passwörter stimmen nicht überein.')
+          : t(
+              'UwUAuth sieht dein Master-Passwort nie, und eine Anmeldung dort öffnet deinen Tresor nicht.',
+            )}
+      </p>
+      {error && (
+        <p className="field-error" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="sync-actions">
+        <Button
+          data-secondary
+          disabled={busy}
+          onClick={() => {
+            void syncSsoCancel();
+            setSignedIn(null);
+          }}
+        >
+          {t('Zurück')}
+        </Button>
+        <span className="spacer" />
+        <Button type="submit" variant="primary" busy={busy} disabled={!ready}>
+          {busy ? t('Verbinde…') : t('Verbinden')}
+        </Button>
+      </div>
+      {unlocking && (
+        <VaultDialog
+          reason={t(
+            'Zuerst den Tresor dieses Geräts öffnen: seine Passwörter und Keys ziehen mit in den Tresor des Kontos.',
+          )}
+          onDone={() => {
+            setUnlocking(false);
+            void finish();
+          }}
+          onCancel={() => setUnlocking(false)}
+        />
+      )}
     </form>
   );
 }
