@@ -21,7 +21,7 @@ SSH-Client (Tauri 2 + React/TS, russh/SFTP, xterm.js) mit verschlüsseltem Vault
 
 - `apps/*/src-tauri/gen/schemas/` ist generiert, nie von Hand ändern
 - `uwulock-core` in `Cargo.toml` ist auf einen Commit von UwULock-Client gepinnt (`client-0.3`); Anheben nur bewusst
-- `@uwusuite/design` kommt als Release-Tarball-URL (aktuell v1.10.0): UI-Änderungen zuerst in UwUSuite-Design
+- `@uwusuite/design` kommt als Release-Tarball-URL (aktuell v1.11.0): UI-Änderungen zuerst in UwUSuite-Design
 - Öffentliches Repo: keine Schlüssel, `.env`, echte Hostdaten; Importer-Fixtures nur anonymisiert unter `crates/uwussh-import/tests/fixtures/`
 - Rust-Mindestversion 1.89 (russh), `rust-toolchain.toml` beachten
 
