@@ -298,7 +298,8 @@
   border-top: 1px solid var(--uwu-hairline);
 }
 
-.file-count {
+.file-count,
+.file-hint {
   padding-left: 4px;
   font-size: var(--uwu-text-caption);
   color: var(--uwu-muted);

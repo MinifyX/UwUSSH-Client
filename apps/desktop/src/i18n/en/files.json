@@ -131,5 +131,6 @@
   "In {folder} liegt keine config.": "There is no config in {folder}.",
   "UwUSSH darf hier nur lesen, was du freigibst. Gib ~/.ssh frei, dann liest es {config}.": "UwUSSH may only read what you give it access to here. Share ~/.ssh and it reads {config}.",
   "Damit UwUSSH ~/.ssh/config und deine Key-Dateien lesen darf": "So UwUSSH may read ~/.ssh/config and your key files",
-  "~/.ssh freigeben…": "Share ~/.ssh…"
+  "~/.ssh freigeben…": "Share ~/.ssh…",
+  "Zum Herunterladen fehlt ein lokaler Ordner: im Dateien-Tab einen wählen.": "No local folder to download to: choose one in a files tab."
 }

@@ -646,7 +646,13 @@ export function FileBrowser({ host, open, onLive, compact = false }: Props) {
           onTransfer={() => copy('remote', selectedPaths('remote'), 'local', local.path)}
           transferLabel={t('Herunterladen')}
           transferIcon="download"
-          canTransfer={remoteReady}
+          // The store build's sandbox may give no home folder: then there is nowhere to save.
+          canTransfer={remoteReady && Boolean(local.path)}
+          transferHint={
+            local.path
+              ? undefined
+              : t('Zum Herunterladen fehlt ein lokaler Ordner: im Dateien-Tab einen wählen.')
+          }
           onDragOut={(sources, target) => copy('remote', sources, target.side, target.folder)}
           placeholder={
             opening ? (
@@ -773,7 +779,8 @@ export function FileBrowser({ host, open, onLive, compact = false }: Props) {
                 t(
                   '{name} gibt es dort schon. Beim Ersetzen werden Dateien überschrieben und Ordner zusammengeführt.',
                 ),
-                { name: ask.path.split(/[\\/]/).filter(Boolean).pop() ?? ask.path },
+                // The full path: a panel download lands in a folder the panel does not show.
+                { name: ask.path },
               )}
             </p>
           ) : ask.kind === 'delete' ? (
@@ -901,6 +908,8 @@ type PaneProps = {
   transferLabel: string;
   transferIcon: 'upload' | 'download';
   canTransfer: boolean;
+  /** Why the transfer button is off, shown next to it. */
+  transferHint?: string;
   onDragOut: (sources: string[], target: { side: Side; folder: string }) => void;
 };
 
@@ -1126,6 +1135,7 @@ function FilePane(props: PaneProps) {
               ? t('1 Eintrag')
               : t('{n} Einträge', { n: pane.entries.length })}
         </span>
+        {props.transferHint && <span className="file-hint">{props.transferHint}</span>}
         <span className="spacer" />
         <IconButton
           icon={ICONS.edit}
