@@ -272,3 +272,15 @@ test('the menu bar shows the key that is bound', () => {
   const ctrl = bind({}, 'mac', 'reconnect', { ctrl: true, shift: true, code: 'KeyR' });
   assert.equal(menuAccelerator('reconnect', ctrl), undefined);
 });
+
+test('splitting the view is an action without a key of its own', () => {
+  assert.deepEqual(actionOf('split-view'), { kind: 'split-view' });
+  assert.deepEqual(chordsFor('split-view', 'mac', {}), []);
+  assert.deepEqual(chordsFor('split-view', 'other', {}), []);
+  const chord = { ctrl: true, alt: true, code: 'Backslash' };
+  assert.equal(holderOf(chord, 'other', {}), null);
+  const own = bind({}, 'other', 'split-view', chord);
+  assert.deepEqual(shortcutFor(key('Backslash', 'ctrl alt'), ON, false, 'windows', own), {
+    kind: 'split-view',
+  });
+});

@@ -36,6 +36,8 @@ export const ACTION_GROUPS = {
     'previous-tab',
     'move-tab-left',
     'move-tab-right',
+    // No key out of the box: every free combination is someone's shell key.
+    'split-view',
   ],
   terminal: [
     'copy',

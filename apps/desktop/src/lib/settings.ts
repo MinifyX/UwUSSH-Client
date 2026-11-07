@@ -88,6 +88,8 @@ export type Settings = {
   /** The host list's width in pixels, and whether it is folded away. Per device, never synced. */
   sidebarWidth: number;
   sidebarCollapsed: boolean;
+  /** The files panel next to a terminal, in pixels. Per device, never synced. */
+  filesPanelWidth: number;
   /** The keyboard the shortcut settings draw: `auto` asks the system, or a layout's id. */
   keyboardLayout: string;
 };
@@ -98,6 +100,9 @@ export const FONT_SIZE_MAX = 32;
 export const SIDEBAR_WIDTH = 268;
 export const SIDEBAR_MIN = 190;
 export const SIDEBAR_MAX = 560;
+export const FILES_PANEL_WIDTH = 320;
+export const FILES_PANEL_MIN = 240;
+export const FILES_PANEL_MAX = 720;
 export const SCROLLBACK_CHOICES = [1_000, 10_000, 50_000] as const;
 export const HIGHLIGHT_COLORS: readonly HighlightColor[] = [
   'red',
@@ -141,6 +146,7 @@ export const DEFAULT_SETTINGS: Settings = {
   workspaceNames: { private: '', business: '' },
   collapsedGroups: [],
   sidebarWidth: SIDEBAR_WIDTH,
+  filesPanelWidth: FILES_PANEL_WIDTH,
   sidebarCollapsed: false,
   keyboardLayout: 'auto',
 };
@@ -253,6 +259,10 @@ export function sanitize(raw: unknown): Settings {
       typeof input.sidebarWidth === 'number' && Number.isFinite(input.sidebarWidth)
         ? Math.round(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, input.sidebarWidth)))
         : d.sidebarWidth,
+    filesPanelWidth:
+      typeof input.filesPanelWidth === 'number' && Number.isFinite(input.filesPanelWidth)
+        ? Math.round(Math.min(FILES_PANEL_MAX, Math.max(FILES_PANEL_MIN, input.filesPanelWidth)))
+        : d.filesPanelWidth,
     sidebarCollapsed: bool(input.sidebarCollapsed, d.sidebarCollapsed),
     keyboardLayout: LAYOUTS.some((layout) => layout.id === input.keyboardLayout)
       ? (input.keyboardLayout as string)
