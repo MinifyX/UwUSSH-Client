@@ -1085,7 +1085,9 @@ A request in words — "liste alle Benutzer auf" — becomes one command for the
 system in the tab, typed at the prompt and **never run**: Rust drops every
 control character, Enter included, before it writes to the session. The sparkle
 in the session toolbar opens it, or the command palette (Ctrl+Shift+K, ⌘K on a
-Mac): a query there becomes the request, asked right away. Until 0.4 the
+Mac): a query there is filled in as the request,
+sent only once Enter is pressed in the popup (nothing leaves for the provider
+from the palette alone). Until 0.4 the
 assistant had those keys itself; it can still get a shortcut of its own. Enter
 asks, Enter again types, Esc closes.
 

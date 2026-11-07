@@ -32,7 +32,7 @@ type Props = {
   onInserted: () => void;
   /** No provider yet: open Settings → KI. */
   onSetUp: () => void;
-  /** A request typed elsewhere (the command palette): asked right away. */
+  /** A request typed elsewhere (the command palette): filled in, sent only with Enter here. */
   initialRequest?: string;
 };
 
@@ -122,10 +122,6 @@ export function AssistPopup({
       if (mine === run.current) setBusy(false);
     }
   };
-
-  // The first render's `request` is `initialRequest`, so this asks for it.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => void (initialRequest && generate(false)), []);
 
   const insert = async () => {
     const line = command.trim();
