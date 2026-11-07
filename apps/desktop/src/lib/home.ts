@@ -32,19 +32,26 @@ export function parseQuickConnect(text: string): QuickTarget | null {
     }
   }
   if (!rest || rest.endsWith(':') || (port !== null && (port < 1 || port > 65535))) return null;
+  // One colon left is a port that is no number ("host:abc"); IPv6 has at least two.
+  if (rest.split(':').length === 2) return null;
   return { username, address: rest, port };
 }
 
 /**
- * The stored host the field means: one with that name, or with that address
- * (and user and port, where typed). `null` when none or several fit.
+ * The stored host the field means: one with that address (and user and port,
+ * where typed), or with that name. A name never beats an address: it counts
+ * only for text that looks like no address and that no host has as address,
+ * so a host named like another's address cannot stand in for it.
+ * `null` when none or several fit.
  */
 export function matchQuickConnect(
   hosts: readonly HostRecord[],
   target: QuickTarget,
 ): HostRecord | null {
   const lower = (s: string) => s.toLowerCase();
-  if (target.username === null && target.port === null) {
+  const addressLike = /[.:]/.test(target.address);
+  const isAddress = hosts.some((host) => lower(host.address) === lower(target.address));
+  if (target.username === null && target.port === null && !addressLike && !isAddress) {
     const named = hosts.filter((host) => lower(host.name) === lower(target.address));
     if (named.length === 1) return named[0]!;
   }

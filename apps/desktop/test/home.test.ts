@@ -40,7 +40,18 @@ test('quick connect reads user@host:port', () => {
 });
 
 test('quick connect refuses what is no target', () => {
-  for (const text of ['', '  ', 'a b', '@host', 'user@', 'host:0', 'host:70000', 'host:']) {
+  for (const text of [
+    '',
+    '  ',
+    'a b',
+    '@host',
+    'user@',
+    'host:0',
+    'host:70000',
+    'host:',
+    'host:abc',
+    'u@host:22x',
+  ]) {
     assert.equal(parseQuickConnect(text), null, text);
   }
 });
@@ -58,6 +69,26 @@ test('quick connect finds a stored host by name or address', () => {
   assert.equal(matchQuickConnect(hosts, parseQuickConnect('root@db.example.com')!)?.id, 'db2');
   assert.equal(matchQuickConnect(hosts, parseQuickConnect('db.example.com:2222')!)?.id, 'db');
   assert.equal(matchQuickConnect(hosts, parseQuickConnect('other.example.com')!), null);
+});
+
+test("a host named like another host's address never stands in for it", () => {
+  const hosts = [
+    host('web'),
+    host('decoy', { name: 'web.example.com', address: '198.51.100.7' }),
+    host('short', { address: 'db' }),
+    host('named-db', { name: 'db', address: '203.0.113.5' }),
+  ];
+  assert.equal(matchQuickConnect(hosts, parseQuickConnect('web.example.com')!)?.id, 'web');
+  assert.equal(matchQuickConnect(hosts, parseQuickConnect('db')!)?.id, 'short');
+  // Typed like an address but no host has it: the form, not the look-alike name.
+  assert.equal(
+    matchQuickConnect([host('decoy', { name: 'pve.example.com', address: '198.51.100.7' })], {
+      username: null,
+      address: 'pve.example.com',
+      port: null,
+    }),
+    null,
+  );
 });
 
 test('recent hosts: last connected first, at most four, never-used left out', () => {
