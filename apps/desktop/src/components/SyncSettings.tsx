@@ -1098,7 +1098,7 @@ function SsoForm({
           />
         </label>
       )}
-      {!creating && signedIn.needsAccountKey && (
+      {!creating && (
         <label className="field">
           <span>{t('Recovery-Code')}</span>
           <input
