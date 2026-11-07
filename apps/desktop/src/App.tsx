@@ -115,6 +115,7 @@ import {
   type Tab,
   type TabKind,
 } from './lib/tabs';
+import { stepTab } from './lib/tabRound';
 
 /** The files panel's connection: its own attempt, so its questions never mix with the terminal's. */
 const filesAttempt = (tabId: string) => `${tabId}-files`;
@@ -1343,7 +1344,12 @@ export function App() {
   // The shown tab gets the keyboard.
   useEffect(() => {
     if (!activeId || modalOpen) return;
-    const frame = window.requestAnimationFrame(() => drivers.current.get(activeId)?.term.focus());
+    const frame = window.requestAnimationFrame(() => {
+      // A click into the other split pane (its files panel, an input) keeps its focus.
+      const pane = document.getElementById(`pane-${activeId}`);
+      if (pane?.contains(document.activeElement)) return;
+      drivers.current.get(activeId)?.term.focus();
+    });
     return () => window.cancelAnimationFrame(frame);
   }, [activeId, modalOpen]);
 
@@ -1382,11 +1388,14 @@ export function App() {
         break;
       case 'next-tab':
       case 'previous-tab': {
-        // The overview is the first tab in the round.
-        const round = [null, ...list.map((candidate) => candidate.id)];
-        if (round.length < 2) break;
-        const step = action.kind === 'next-tab' ? 1 : -1;
-        setActiveId(round[(index + 1 + step + round.length) % round.length]!);
+        if (list.length === 0) break;
+        setActiveId(
+          stepTab(
+            list.map((candidate) => candidate.id),
+            id,
+            action.kind === 'next-tab' ? 1 : -1,
+          ),
+        );
         break;
       }
       case 'select-tab': {
@@ -1509,7 +1518,8 @@ export function App() {
       case 'move-tab-right':
         return index >= 0 && index < list.length - 1;
       case 'split-view':
-        return Boolean(splitRef.current) || (Boolean(tab) && list.length > 1);
+        // Not from the overview: there is no tab in front to split or unsplit.
+        return Boolean(tab) && (Boolean(splitRef.current) || list.length > 1);
       case 'copy':
         return Boolean(driver?.term.hasSelection());
       case 'select-all':
@@ -1652,7 +1662,8 @@ export function App() {
         action: () => {
           if (modalRef.current) return;
           if (activeRef.current) closeTab(activeRef.current);
-          else hideWindow();
+          // On the overview with tabs open ⌘W would hide every session with the window.
+          else if (tabsRef.current.length === 0) hideWindow();
         },
       },
       closeWindow: { text: t('Fenster schließen'), action: hideWindow },
@@ -1978,6 +1989,7 @@ export function App() {
                   hidden={
                     tab.id !== activeId && !(splitOn && (tab.id === split.a || tab.id === split.b))
                   }
+                  id={`pane-${tab.id}`}
                   role="tabpanel"
                   aria-label={tab.title}
                   onFocusCapture={splitOn ? () => setActiveId(tab.id) : undefined}
