@@ -3,7 +3,6 @@ import {
   Icon,
   IconButton,
   ICONS,
-  Segmented,
   StatusDot,
   StatusLine,
   type StatusState,
@@ -13,7 +12,7 @@ import { useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent } fro
 import { matchQuickConnect, parseQuickConnect, recentHosts, type QuickTarget } from '../lib/home';
 import { t, useLanguage } from '../lib/i18n';
 import { vaultState, type GroupRecord, type HostRecord, type Workspace } from '../lib/session';
-import { updateSettings, useSettings, workspaceName } from '../lib/settings';
+import { useSettings } from '../lib/settings';
 import { syncStatus, type SyncStatus } from '../lib/sync';
 import type { Tab } from '../lib/tabs';
 import type { TunnelStatus } from '../lib/tunnels';
@@ -49,6 +48,9 @@ type Props = {
  * field to connect by typing, what needs attention, and on wide windows the
  * open sessions, running tunnels and sync on the right.
  */
+// With few hosts the group cards below already show every one of them.
+const RECENT_MIN_HOSTS = 8;
+
 export function Home(props: Props) {
   useLanguage();
   const { hosts, groups, tabs, onlineIds, connectingIds, openIds } = props;
@@ -85,10 +87,10 @@ export function Home(props: Props) {
     () => shownSections(hosts, groups, settings.workspaces, workspace),
     [hosts, groups, settings.workspaces, workspace],
   );
-  const recent = useMemo(
-    () => recentHosts(hosts.filter((host) => !settings.workspaces || host.workspace === workspace)),
-    [hosts, settings.workspaces, workspace],
-  );
+  const recent = useMemo(() => {
+    const own = hosts.filter((host) => !settings.workspaces || host.workspace === workspace);
+    return own.length > RECENT_MIN_HOSTS ? recentHosts(own) : [];
+  }, [hosts, settings.workspaces, workspace]);
   const failed = tabs.filter((tab) => tab.kind === 'ssh' && tab.status === 'failed');
   const running = [...props.tunnels.values()].filter((status) => status.state === 'running');
   const syncTrouble =
@@ -218,17 +220,6 @@ export function Home(props: Props) {
             </p>
           </div>
           <span className="spacer" />
-          {settings.workspaces && (
-            <Segmented
-              label={t('Bereich')}
-              value={workspace}
-              onChange={(value) => updateSettings({ activeWorkspace: value })}
-              options={(['private', 'business'] as const).map((id) => ({
-                value: id,
-                label: workspaceName(id, settings),
-              }))}
-            />
-          )}
           <Button variant="primary" icon={ICONS.add} onClick={() => props.onNewHost(workspace)}>
             {t('Neuer Host')}
           </Button>

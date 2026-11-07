@@ -59,7 +59,7 @@ place that stays a terminal.
   tab is still in the host's context menu.
 - **Split view**: two tabs side by side or one above the other, a view on top
   of the tab list rather than a tab of its own (`lib/split.ts`). The pane in
-  front has the pink outline; split tabs are underlined in pink in the tab bar.
+  front has the pink outline; split tabs carry the muted "Teilen" icon in the tab bar.
 - **The command palette** (`Palette`, the package's `CommandPalette`, ⌘K or
   Ctrl+Shift+K): hosts of every workspace (the active one first) with the
   system icon, the login in mono and, when open, a dot plus "offen in Tab 2";

@@ -118,6 +118,9 @@ export function TabBar({
                   <i className="dot" data-state={stateOf(tab)} />
                 </span>
                 <span className="tab-title">{tab.title}</span>
+                {shared && (
+                  <Icon icon={ICONS.compare} size="xs" className="tab-split" aria-hidden />
+                )}
                 {tab.ordinal > 1 && <span className="tab-ordinal">{tab.ordinal}</span>}
               </button>
               <button

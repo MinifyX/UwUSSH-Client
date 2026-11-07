@@ -240,12 +240,10 @@
   padding: 8px 12px;
 }
 
-/* A tab that is one half of the split: a small mark under its title. */
-.tab[data-split] .tab-title {
-  text-decoration: underline;
-  text-decoration-color: var(--uwu-pink);
-  text-decoration-thickness: 2px;
-  text-underline-offset: 4px;
+/* A tab that is one half of the split: the "Teilen" icon after its title. */
+.tab-split {
+  flex: none;
+  color: var(--uwu-muted);
 }
 
 .toolbar {
