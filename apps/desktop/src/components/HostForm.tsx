@@ -38,6 +38,8 @@ type Props = {
   workspace?: Workspace;
   group?: string | null;
   groups: GroupRecord[];
+  /** What a new host starts with, e.g. from the overview's quick connect. */
+  draft?: { address: string; port: number | null; username: string | null };
   onSaved: (host: HostRecord) => void;
   onDeleted: (id: string) => void;
   onCancel: () => void;
@@ -72,12 +74,21 @@ type Errors = Partial<Record<Field, string>>;
 
 type KeySource = 'vault' | 'file';
 
-export function HostForm({ host, workspace, group, groups, onSaved, onDeleted, onCancel }: Props) {
+export function HostForm({
+  host,
+  workspace,
+  group,
+  groups,
+  draft,
+  onSaved,
+  onDeleted,
+  onCancel,
+}: Props) {
   const settings = useSettings();
   const [name, setName] = useState(host?.name ?? '');
-  const [address, setAddress] = useState(host?.address ?? '');
-  const [port, setPort] = useState(String(host?.port ?? 22));
-  const [username, setUsername] = useState(host?.username ?? '');
+  const [address, setAddress] = useState(host?.address ?? draft?.address ?? '');
+  const [port, setPort] = useState(String(host?.port ?? draft?.port ?? 22));
+  const [username, setUsername] = useState(host?.username ?? draft?.username ?? '');
   const [auth, setAuth] = useState<AuthMethod>(host?.auth ?? 'password');
   const [keySource, setKeySource] = useState<KeySource>(host?.keyPath ? 'file' : 'vault');
   const [keyPath, setKeyPath] = useState(host?.keyPath ?? '');

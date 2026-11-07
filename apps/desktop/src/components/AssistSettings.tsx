@@ -146,9 +146,10 @@ export function AssistProviderSetup({ onSaved, saveLabel }: Props) {
       setResult({
         tone: 'ok',
         text: active
-          ? t('Gespeichert. {shortcut} öffnet den Assistenten über dem Terminal.', {
-              shortcut: keysLabel('assist'),
-            })
+          ? t(
+              'Gespeichert. Öffnen mit dem Funken über dem Terminal oder in der Befehlspalette ({shortcut}).',
+              { shortcut: keysLabel('command-palette') },
+            )
           : t('Der Assistent ist aus.'),
       });
       onSaved?.(saved);
@@ -406,8 +407,8 @@ export function AssistSettings() {
     <>
       <p className="setting-description">
         {t(
-          'Beschreibe in Worten, was du willst – der Assistent schreibt einen passenden Befehl für das System im Terminal und tippt ihn ein. Ausgeführt wird erst mit deinem Enter. Öffnen mit {shortcut} oder dem Funken über den Tabs.',
-          { shortcut: keysLabel('assist') },
+          'Beschreibe in Worten, was du willst – der Assistent schreibt einen passenden Befehl für das System im Terminal und tippt ihn ein. Ausgeführt wird erst mit deinem Enter. Öffnen mit dem Funken über dem Terminal oder in der Befehlspalette ({shortcut}).',
+          { shortcut: keysLabel('command-palette') },
         )}
       </p>
       <AssistProviderSetup />

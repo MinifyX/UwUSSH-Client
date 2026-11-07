@@ -1,0 +1,310 @@
+/*
+ * The overview ("Übersicht"): the hosts as cards, quick connect, quiet
+ * warnings, and on the right what is running. Canvas → surface → elevated
+ * with hairlines, no shadows.
+ */
+
+/* The queries below measure the main column, not the window. */
+.main {
+  container-type: inline-size;
+}
+
+.home {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 272px;
+  align-items: start;
+  gap: 24px;
+  padding: 22px 24px 32px;
+  background: var(--uwu-canvas);
+}
+
+.home-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.home-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.home-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--uwu-ink);
+}
+
+.home-count,
+.home-muted {
+  margin: 0;
+  color: var(--uwu-muted);
+  font-size: 13px;
+}
+
+.home-quick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  padding: 0 14px;
+  border-radius: var(--uwu-radius-control);
+  border: 1px solid var(--uwu-hairline);
+  background: var(--uwu-surface);
+  color: var(--uwu-muted);
+}
+
+.home-quick:focus-within {
+  border-color: var(--uwu-pink);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--uwu-pink) 30%, transparent);
+}
+
+.home-quick input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--uwu-ink);
+  font-family: var(--uwu-mono);
+  font-size: 14px;
+}
+
+.home-quick-hint {
+  margin: -8px 0 0 2px;
+  font-size: 12px;
+  color: var(--uwu-muted);
+}
+
+.home-quick-hint[data-error] {
+  color: var(--uwu-warning-ink);
+}
+
+/* Quiet lines, not alarms: one per thing that needs a look. */
+.home-warnings {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.home-warnings li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 4px 4px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--uwu-hairline);
+  background: var(--uwu-surface);
+  font-size: 13px;
+}
+
+.home-warnings li > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.home-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.home-section h2 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--uwu-muted);
+}
+
+.home-grid {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.host-card {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 12px 10px 14px;
+  border-radius: var(--uwu-radius-card);
+  border: 1px solid var(--uwu-hairline);
+  background: var(--uwu-surface);
+}
+
+.host-card:hover {
+  background: var(--uwu-elevated);
+}
+
+.host-card:focus-visible {
+  outline: 2px solid var(--uwu-pink);
+  outline-offset: 2px;
+}
+
+.host-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.host-card-name,
+.host-card-login {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.host-card-name {
+  font-weight: 700;
+  color: var(--uwu-ink);
+}
+
+.host-card-login {
+  margin: 0;
+  font-family: var(--uwu-mono);
+  font-size: 11.5px;
+  color: var(--uwu-muted);
+}
+
+.host-card > p[data-state] {
+  margin: 0;
+}
+
+.host-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.home-aside {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 14px;
+  border-radius: var(--uwu-radius-card);
+  border: 1px solid var(--uwu-hairline);
+  background: var(--uwu-surface);
+}
+
+.home-aside .home-section > .uwu-button,
+.home-aside .home-section > button {
+  align-self: flex-start;
+}
+
+.home-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.home-list button,
+.home-list-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--uwu-ink);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+
+.home-list button:hover {
+  background: var(--uwu-elevated);
+}
+
+.home-list button:focus-visible {
+  outline: 2px solid var(--uwu-pink);
+  outline-offset: -2px;
+}
+
+.home-list-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-empty {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 24px 0;
+  text-align: center;
+  color: var(--uwu-muted);
+}
+
+.home-empty-scene {
+  width: 220px;
+  margin-bottom: 8px;
+}
+
+.home-empty-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--uwu-ink);
+}
+
+.home-empty-text {
+  max-width: 360px;
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+
+/* Narrow windows: the right column goes, the grid gets fewer columns. */
+@container (max-width: 860px) {
+  .home {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .home-aside {
+    display: none;
+  }
+}
+
+@container (max-width: 640px) {
+  .home-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container (max-width: 420px) {
+  .home {
+    padding: 16px;
+  }
+
+  .home-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

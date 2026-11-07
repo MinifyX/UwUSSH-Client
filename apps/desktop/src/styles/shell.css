@@ -222,15 +222,10 @@
   color: var(--uwu-pink-ink);
 }
 
-.tab-sidebar,
-.tab-assist {
+.tab-sidebar {
   flex: none;
   align-self: center;
   margin-bottom: 3px;
-}
-
-.tab-assist:disabled {
-  opacity: 0.4;
 }
 
 .tab-new {
@@ -240,32 +235,15 @@
   font-size: 18px;
 }
 
-.no-tabs {
-  height: 100%;
-  display: grid;
-  place-content: center;
-  justify-items: center;
-  gap: 8px;
-  text-align: center;
+/* The overview: always the first tab, an icon only. */
+.tab-home .tab-select {
+  padding: 8px 12px;
+}
+
+/* A tab that is one half of the split: the "Teilen" icon after its title. */
+.tab-split {
+  flex: none;
   color: var(--uwu-muted);
-}
-
-.no-tabs-scene {
-  width: 240px;
-  margin-bottom: 8px;
-}
-
-.no-tabs-title {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--uwu-ink);
-}
-
-.no-tabs-text {
-  max-width: 340px;
-  margin: 0 0 8px;
-  line-height: 1.5;
 }
 
 .toolbar {
@@ -276,7 +254,10 @@
   border-bottom: 1px solid var(--uwu-hairline);
   background: var(--uwu-surface);
   min-height: 46px;
-  flex-wrap: wrap;
+}
+
+.toolbar > :not(.session-title, .spacer) {
+  flex: none;
 }
 
 .session-title {
@@ -284,9 +265,18 @@
   align-items: baseline;
   gap: 10px;
   min-width: 0;
+  white-space: nowrap;
+}
+
+.session-title > * {
+  flex: none;
 }
 
 .session-title .meta {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-family: var(--uwu-mono);
   font-size: 11.5px;
   color: var(--uwu-muted);
@@ -333,8 +323,110 @@
   min-width: 0;
 }
 
-.terminal-pane[hidden] {
+.terminal-pane[hidden],
+.terminal-wrap[hidden] {
   display: none;
+}
+
+/* Two panes side by side (or one above the other), in a and b order. */
+.terminal-wrap[data-split] {
+  display: flex;
+  gap: 10px;
+}
+
+.terminal-wrap[data-split='column'] {
+  flex-direction: column;
+}
+
+.terminal-wrap[data-split] > .terminal-pane {
+  flex: 1 1 0;
+  min-height: 0;
+  border-radius: var(--uwu-radius-card);
+}
+
+.terminal-wrap[data-split] > [data-pane='b'] {
+  order: 1;
+}
+
+/* Pink is for what is selected: the pane the keyboard types into. */
+.terminal-wrap[data-split] > [data-focused] {
+  outline: 1px solid var(--uwu-pink);
+  outline-offset: 2px;
+}
+
+/* The terminal (or file browser) and, on its right, the files panel. */
+.terminal-pane {
+  display: flex;
+}
+
+.pane-main {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.pane-main > .terminal-host {
+  flex: 1;
+  height: auto;
+}
+
+/* ── Files panel ───────────────────────────────────────── */
+
+.files-panel {
+  position: relative;
+  flex: none;
+  width: var(--files-width, 320px);
+  max-width: 45%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-left: 10px;
+  /* No card of its own: the file pane inside is the card. */
+}
+
+.files-panel[data-resizing] {
+  user-select: none;
+}
+
+.files-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+/* The left edge: as the sidebar's grip, a strip that takes the pointer. */
+.files-grip {
+  position: absolute;
+  inset: 0 auto 0 -6px;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 2;
+}
+
+.files-grip::after {
+  content: '';
+  position: absolute;
+  inset: 12px 3px;
+  border-radius: var(--uwu-radius-pill);
+  background: var(--uwu-pink);
+  opacity: 0;
+  transition: opacity var(--uwu-duration-fast, 120ms);
+}
+
+.files-grip:hover::after,
+.files-grip:focus-visible::after,
+.files-panel[data-resizing] > .files-grip::after {
+  opacity: 1;
+}
+
+.files-grip:focus-visible {
+  outline: none;
 }
 
 .terminal-host {
@@ -396,11 +488,42 @@
   color: var(--uwu-ink);
 }
 
-/* ── Terminal pane overlays ────────────────────────────── */
-
-.terminal-pane {
-  position: relative;
+/* Pressed (files panel open, split on): the selected look. */
+.toolbar-button[data-on] {
+  background: var(--uwu-pink-tint);
+  color: var(--uwu-pink-ink);
 }
+
+/* A narrow window cuts the login first, then drops the words: icons and tooltips stay. */
+@container (max-width: 760px) {
+  .toolbar-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+.toolbar-count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: var(--uwu-radius-pill);
+  background: var(--uwu-elevated);
+  border: 1px solid var(--uwu-hairline);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
+.session-title > p[data-state] {
+  align-self: center;
+  margin: 0;
+}
+
+/* ── Terminal pane overlays ────────────────────────────── */
 
 .pane-overlay {
   position: absolute;

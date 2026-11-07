@@ -1083,9 +1083,13 @@ browser's own paste event — no clipboard permission, bracketed paste intact.
 
 A request in words — "liste alle Benutzer auf" — becomes one command for the
 system in the tab, typed at the prompt and **never run**: Rust drops every
-control character, Enter included, before it writes to the session. Ctrl+Shift+K
-(⌘K on a Mac, where Cmd never reaches the terminal) or the sparkle above the
-tabs opens it; Enter asks, Enter again types, Esc closes.
+control character, Enter included, before it writes to the session. The sparkle
+in the session toolbar opens it, or the command palette (Ctrl+Shift+K, ⌘K on a
+Mac): a query there is filled in as the request,
+sent only once Enter is pressed in the popup (nothing leaves for the provider
+from the palette alone). Until 0.4 the
+assistant had those keys itself; it can still get a shortcut of its own. Enter
+asks, Enter again types, Esc closes.
 
 - **The system** is the one the OS probe found for the host (`host.os`, see
   `uwussh_core::os`), for a local tab this computer's. `uwussh-assist` turns it

@@ -111,6 +111,8 @@ export function actionName(action: BoundAction): string {
       return t('Tab nach links schieben');
     case 'move-tab-right':
       return t('Tab nach rechts schieben');
+    case 'split-view':
+      return t('Ansicht teilen oder Teilung aufheben');
     case 'copy':
       return t('Kopieren');
     case 'select-all':
@@ -122,7 +124,7 @@ export function actionName(action: BoundAction): string {
     case 'assist':
       return t('Befehl aus Worten');
     case 'open-files':
-      return t('Dateien öffnen');
+      return t('Dateien ein- und ausblenden');
     case 'font-bigger':
       return t('Schrift größer');
     case 'font-smaller':
@@ -143,5 +145,7 @@ export function actionName(action: BoundAction): string {
       return t('Neuer Host');
     case 'tunnels':
       return t('Tunnel');
+    case 'command-palette':
+      return t('Befehle durchsuchen');
   }
 }

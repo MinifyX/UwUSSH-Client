@@ -47,6 +47,27 @@ place that stays a terminal.
   with a state dot (connecting pulses pink, online mint, ended grey), the
   active tab has the pink top inset, and a second tab to the same host gets a
   small number. The tab bar is the app's, built from tokens.
+- **The overview** (`Home`) is the fixed first tab, the app's start page:
+  quick connect, quiet warnings (vault locked, sync, failed tabs), recent
+  hosts and the groups as cards, and on the right what is running. Nyu only
+  shows there when there are no hosts yet.
+- **The session toolbar** (`SessionToolbar`) names the tab and its state (dot
+  plus text) and holds what can be done with it: password, files panel,
+  tunnels, Befehl aus Worten and the split menu. Tooltips name the shortcut.
+- **Files next to the terminal** (`FilesPanel`): the server side of the file
+  browser, on its own connection, resizable from its left edge. A full files
+  tab is still in the host's context menu.
+- **Split view**: two tabs side by side or one above the other, a view on top
+  of the tab list rather than a tab of its own (`lib/split.ts`). The pane in
+  front has the pink outline; split tabs carry the muted "Teilen" icon in the tab bar.
+- **The command palette** (`Palette`, the package's `CommandPalette`, ⌘K or
+  Ctrl+Shift+K): hosts of every workspace (the active one first) with the
+  system icon, the login in mono and, when open, a dot plus "offen in Tab 2";
+  the open tabs with the overview; the keymap's actions that apply now with
+  their keys as `<kbd>`; and for a terminal in front the query as "Befehl aus
+  Worten". Enter connects or switches, Ctrl/⌘+Enter opens a new session next
+  to the tab in front. The app filters (`filterCommands`, `filter={false}`),
+  so the assistant's row is added after the filter and always matches.
 - **Reconnect is a banner, never a modal.** A modal over a running terminal is
   a UX bug, not a safety feature.
 - **The sidebar** has two workspaces, Privat and Business (renamable), groups
@@ -66,8 +87,9 @@ place that stays a terminal.
 The system draws the title bar; the gear and the app's actions live in the
 menu bar (`lib/macMenu.ts`, the package's `setMacMenu` skeleton): Einstellungen
 (⌘,), Neue lokale Shell (⌘T), Neuer Host (⌘N), Tab duplizieren (⌘D), Dateien
-öffnen (⇧⌘F), and a Sitzung menu with Passwort eintippen (⇧⌘P), Befehl aus
-Worten (⌘K) and Tunnel.
+ein- und ausblenden (⇧⌘F), and a Sitzung menu with Passwort eintippen (⇧⌘P), Befehl aus
+Worten (no key unless the user gives it one) and Tunnel, and Befehle (⌘K)
+under Darstellung for the command palette.
 
 One difference to the package: ⌘W closes the **tab** in front, as in
 Terminal.app, and only with no tab left does it hide the window. "Fenster

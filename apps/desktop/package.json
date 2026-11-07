@@ -1,6 +1,6 @@
 {
   "name": "@uwussh/desktop",
-  "version": "0.4.0-beta.1",
+  "version": "0.4.0-beta.2",
   "private": true,
   "type": "module",
   "license": "GPL-3.0-only",
@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
-    "@uwusuite/design": "https://github.com/MinifyX/UwUSuite-Design/releases/download/v1.6.1/uwusuite-design-1.6.1.tgz",
+    "@uwusuite/design": "https://github.com/MinifyX/UwUSuite-Design/releases/download/v1.11.0/uwusuite-design-1.11.0.tgz",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-web-links": "^0.11.0",
     "@xterm/addon-webgl": "^0.18.0",

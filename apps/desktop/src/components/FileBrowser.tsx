@@ -50,6 +50,8 @@ type Props = {
   open: (root: boolean) => Promise<OpenedFiles | null>;
   /** The tab's state for the tab bar. */
   onLive: (live: boolean) => void;
+  /** Only the server side, for the panel next to a terminal; downloads go to the home folder. */
+  compact?: boolean;
 };
 
 type PaneState = {
@@ -112,7 +114,7 @@ function isLocalStyle(side: Side, remote: Remote | null) {
   return side === 'local' || remote?.kind === 'smb';
 }
 
-export function FileBrowser({ host, open, onLive }: Props) {
+export function FileBrowser({ host, open, onLive, compact = false }: Props) {
   useLanguage();
   const [places, setPlaces] = useState<Place[]>([]);
   const [local, setLocal] = useState<PaneState>(emptyPane());
@@ -127,6 +129,7 @@ export function FileBrowser({ host, open, onLive }: Props) {
   remoteRef.current = remote;
   /** Still mounted: a connection that opens after the tab closed is closed again. */
   const mounted = useRef(false);
+  const root = useRef<HTMLDivElement>(null);
   const panesRef = useRef({ local, remote: remotePane });
   panesRef.current = { local, remote: remotePane };
 
@@ -235,6 +238,8 @@ export function FileBrowser({ host, open, onLive }: Props) {
         setRemote(next);
         onLive(true);
         await list('remote', home);
+      } catch (error) {
+        if (mounted.current) setNotice(describeFilesFailure(asFilesFailure(error)));
       } finally {
         setOpening(false);
       }
@@ -371,7 +376,9 @@ export function FileBrowser({ host, open, onLive }: Props) {
       const scale = window.devicePixelRatio || 1;
       const element = document.elementFromPoint(x / scale, y / scale);
       const pane = element?.closest<HTMLElement>('[data-file-pane]');
-      return (pane?.dataset.filePane as Side | undefined) ?? null;
+      // Every mounted browser hears the drop: only the one under the pointer takes it.
+      if (!pane || !root.current?.contains(pane)) return null;
+      return (pane.dataset.filePane as Side | undefined) ?? null;
     };
     void getCurrentWebview()
       .onDragDropEvent((event) => {
@@ -484,7 +491,7 @@ export function FileBrowser({ host, open, onLive }: Props) {
       : `${remote?.kind === 'sftp' && remote.root ? 'root' : host.username}@${host.address}`;
 
   return (
-    <div className="file-browser" data-drop-over={dropSide ?? undefined}>
+    <div ref={root} className="file-browser" data-drop-over={dropSide ?? undefined}>
       {notice && (
         <div className="notice" data-tone="error" role="alert">
           <span>{notice}</span>
@@ -499,59 +506,62 @@ export function FileBrowser({ host, open, onLive }: Props) {
         </div>
       )}
 
-      <div className="file-panes">
-        <FilePane
-          side="local"
-          title={t('Dieser Computer')}
-          icon="drive"
-          pane={local}
-          dropping={dropSide === 'local'}
-          toolbar={
-            <>
-              <select
-                className="places"
-                value=""
-                onChange={(event) => {
-                  const value = event.target.value;
-                  if (value === PICK_FOLDER) pickFolder();
-                  else if (value) void list('local', value);
-                }}
-                aria-label={t('Ort wählen')}
-              >
-                <option value="">{t('Orte…')}</option>
-                {places.map((place) => (
-                  <option key={place.path} value={place.path}>
-                    {place.kind === 'drive' ? place.label : placeLabel(place)}
-                  </option>
-                ))}
-                <option value={PICK_FOLDER}>{t('Ordner wählen…')}</option>
-              </select>
-              {pickedHere && (
-                <IconButton
-                  icon={ICONS.close}
-                  size="sm"
-                  label={t('Aus den Orten entfernen')}
-                  onClick={() => forgetFolder(pickedHere)}
-                />
-              )}
-            </>
-          }
-          onNavigate={(path) => void list('local', path)}
-          onUp={() => void up('local')}
-          onRefresh={() => refresh('local')}
-          onChange={(update) => setLocal(update)}
-          onMkdir={() => setAsk({ kind: 'mkdir', side: 'local', value: '' })}
-          onRename={(entry) => setAsk({ kind: 'rename', side: 'local', entry, value: entry.name })}
-          onDelete={(entries) => setAsk({ kind: 'delete', side: 'local', entries })}
-          onTransfer={() =>
-            remoteReady && copy('local', selectedPaths('local'), 'remote', remotePane.path)
-          }
-          transferLabel={t('Hochladen')}
-          transferIcon="upload"
-          canTransfer={remoteReady}
-          onDragOut={(sources, target) => copy('local', sources, target.side, target.folder)}
-        />
-
+      <div className="file-panes" data-compact={compact || undefined}>
+        {!compact && (
+          <FilePane
+            side="local"
+            title={t('Dieser Computer')}
+            icon="drive"
+            pane={local}
+            dropping={dropSide === 'local'}
+            toolbar={
+              <>
+                <select
+                  className="places"
+                  value=""
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    if (value === PICK_FOLDER) pickFolder();
+                    else if (value) void list('local', value);
+                  }}
+                  aria-label={t('Ort wählen')}
+                >
+                  <option value="">{t('Orte…')}</option>
+                  {places.map((place) => (
+                    <option key={place.path} value={place.path}>
+                      {place.kind === 'drive' ? place.label : placeLabel(place)}
+                    </option>
+                  ))}
+                  <option value={PICK_FOLDER}>{t('Ordner wählen…')}</option>
+                </select>
+                {pickedHere && (
+                  <IconButton
+                    icon={ICONS.close}
+                    size="sm"
+                    label={t('Aus den Orten entfernen')}
+                    onClick={() => forgetFolder(pickedHere)}
+                  />
+                )}
+              </>
+            }
+            onNavigate={(path) => void list('local', path)}
+            onUp={() => void up('local')}
+            onRefresh={() => refresh('local')}
+            onChange={(update) => setLocal(update)}
+            onMkdir={() => setAsk({ kind: 'mkdir', side: 'local', value: '' })}
+            onRename={(entry) =>
+              setAsk({ kind: 'rename', side: 'local', entry, value: entry.name })
+            }
+            onDelete={(entries) => setAsk({ kind: 'delete', side: 'local', entries })}
+            onTransfer={() =>
+              remoteReady && copy('local', selectedPaths('local'), 'remote', remotePane.path)
+            }
+            transferLabel={t('Hochladen')}
+            transferIcon="upload"
+            canTransfer={remoteReady}
+            onDragOut={(sources, target) => copy('local', sources, target.side, target.folder)}
+          />
+        )}
         <FilePane
           side="remote"
           title={remoteTitle}
@@ -636,7 +646,13 @@ export function FileBrowser({ host, open, onLive }: Props) {
           onTransfer={() => copy('remote', selectedPaths('remote'), 'local', local.path)}
           transferLabel={t('Herunterladen')}
           transferIcon="download"
-          canTransfer={remoteReady}
+          // The store build's sandbox may give no home folder: then there is nowhere to save.
+          canTransfer={remoteReady && Boolean(local.path)}
+          transferHint={
+            local.path
+              ? undefined
+              : t('Zum Herunterladen fehlt ein lokaler Ordner: im Dateien-Tab einen wählen.')
+          }
           onDragOut={(sources, target) => copy('remote', sources, target.side, target.folder)}
           placeholder={
             opening ? (
@@ -763,7 +779,8 @@ export function FileBrowser({ host, open, onLive }: Props) {
                 t(
                   '{name} gibt es dort schon. Beim Ersetzen werden Dateien überschrieben und Ordner zusammengeführt.',
                 ),
-                { name: ask.path.split(/[\\/]/).filter(Boolean).pop() ?? ask.path },
+                // The full path: a panel download lands in a folder the panel does not show.
+                { name: ask.path },
               )}
             </p>
           ) : ask.kind === 'delete' ? (
@@ -891,6 +908,8 @@ type PaneProps = {
   transferLabel: string;
   transferIcon: 'upload' | 'download';
   canTransfer: boolean;
+  /** Why the transfer button is off, shown next to it. */
+  transferHint?: string;
   onDragOut: (sources: string[], target: { side: Side; folder: string }) => void;
 };
 
@@ -1116,6 +1135,7 @@ function FilePane(props: PaneProps) {
               ? t('1 Eintrag')
               : t('{n} Einträge', { n: pane.entries.length })}
         </span>
+        {props.transferHint && <span className="file-hint">{props.transferHint}</span>}
         <span className="spacer" />
         <IconButton
           icon={ICONS.edit}
