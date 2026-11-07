@@ -188,9 +188,15 @@ export function defaultChords(id: string, family: Family): readonly Chord[] {
   return DEFAULTS[id]?.[family] ?? [];
 }
 
-/** The chords an action has now: the user's, or the defaults. */
+/**
+ * The chords an action has now: the user's, or the defaults minus any a
+ * user's binding holds (a default added later must not take a key back).
+ */
 export function chordsFor(id: string, family: Family, overrides: Overrides): readonly Chord[] {
-  return overrides[id] ?? defaultChords(id, family);
+  const own = overrides[id];
+  if (own) return own;
+  const held = new Set(Object.values(overrides).flat().map(chordKey));
+  return defaultChords(id, family).filter((chord) => !held.has(chordKey(chord)));
 }
 
 /** `ctrl+shift+KeyT`: a chord as one string, to compare and to look up. */

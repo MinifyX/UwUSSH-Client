@@ -125,6 +125,18 @@ test('the assistant has no key of its own, and keeps the keys someone gave it', 
   assert.deepEqual(chordsFor('command-palette', 'mac', back), []);
 });
 
+test('a default never takes a key someone already gave another action', () => {
+  // Someone put ⌘K on "new tab" before the palette had it by default.
+  const before = { 'new-shell': [{ meta: true, code: 'KeyK' }] };
+  assert.deepEqual(chordsFor('command-palette', 'mac', before), []);
+  assert.deepEqual(shortcutFor(key('KeyK', 'meta'), ON, false, 'macos', before), {
+    kind: 'new-shell',
+  });
+  assert.equal(menuAccelerator('command-palette', before), undefined);
+  const other = { 'new-shell': [{ ctrl: true, shift: true, code: 'KeyK' }] };
+  assert.deepEqual(chordsFor('command-palette', 'other', other), []);
+});
+
 test('⌘C copies a selection and is left alone without one', () => {
   assert.deepEqual(shortcutFor(key('KeyC', 'meta'), OFF, true, 'macos'), { kind: 'copy' });
   assert.equal(shortcutFor(key('KeyC', 'meta'), OFF, false, 'macos'), null);
