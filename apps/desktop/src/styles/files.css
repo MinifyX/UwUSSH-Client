@@ -396,3 +396,12 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* In the files panel: the server side only, in one column. */
+.file-panes[data-compact] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.files-panel .file-scene {
+  width: 120px;
+}

@@ -7,14 +7,13 @@ import { OsIcon } from './OsIcon';
 type Props = {
   tabs: Tab[];
   activeId: string | null;
-  onSelect: (id: string) => void;
+  /** `null` is the overview. */
+  onSelect: (id: string | null) => void;
   onClose: (id: string) => void;
   /** No local shell in the Mac App Store build: then there is no "+" either. */
   onNewShell?: () => void;
-  /** Opens the command assistant over the shown terminal. */
-  onAssist: () => void;
-  /** The shown tab is a live terminal the assistant can type into. */
-  canAssist: boolean;
+  /** The two tabs shown side by side, if any. */
+  split: readonly string[];
   /** The host list is folded away; the button brings it back. */
   sidebarCollapsed: boolean;
   onToggleSidebar: () => void;
@@ -37,8 +36,7 @@ export function TabBar({
   onSelect,
   onClose,
   onNewShell,
-  onAssist,
-  canAssist,
+  split,
   sidebarCollapsed,
   onToggleSidebar,
 }: Props) {
@@ -57,14 +55,31 @@ export function TabBar({
         onClick={onToggleSidebar}
       />
       <div className="tabs" role="tablist" aria-label={t('Offene Sitzungen')}>
+        {/* The overview: always first, never closes. */}
+        <div className="tab tab-home" data-active={activeId === null}>
+          <button
+            role="tab"
+            className="tab-select"
+            aria-selected={activeId === null}
+            aria-label={t('Übersicht')}
+            title={t('Übersicht')}
+            onClick={() => onSelect(null)}
+          >
+            <span className="tab-icon" aria-hidden>
+              <Icon icon={ICONS.home} size="sm" />
+            </span>
+          </button>
+        </div>
         {tabs.map((tab, index) => {
           const active = tab.id === activeId;
+          const shared = split.includes(tab.id);
           const name = tab.subtitle ? `${tab.title} · ${tab.subtitle}` : tab.title;
           return (
             <div
               key={tab.id}
               className="tab"
               data-active={active}
+              data-split={shared || undefined}
               data-status={tab.status}
               onMouseDown={(event) => {
                 // Middle click closes without selecting first.
@@ -78,6 +93,13 @@ export function TabBar({
                 role="tab"
                 className="tab-select"
                 aria-selected={active}
+                aria-label={
+                  shared
+                    ? t('{name}, geteilt', {
+                        name: tab.ordinal > 1 ? `${tab.title} ${tab.ordinal}` : tab.title,
+                      })
+                    : undefined
+                }
                 title={
                   index < 9 && keysForTab(index + 1)
                     ? t('{name} ({keys})', { name, keys: keysForTab(index + 1) })
@@ -110,18 +132,6 @@ export function TabBar({
           );
         })}
       </div>
-      <IconButton
-        size="sm"
-        className="tab-assist"
-        icon={ICONS.ai}
-        onClick={onAssist}
-        disabled={!canAssist}
-        label={
-          canAssist
-            ? withKeysFor(t('Befehl aus Worten'), 'assist')
-            : t('Befehl aus Worten: erst ein Terminal öffnen')
-        }
-      />
       {onNewShell && (
         <IconButton
           size="sm"

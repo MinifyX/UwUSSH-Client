@@ -12,6 +12,8 @@ import {
 } from './components/ConnectDialogs';
 import { AssistPopup } from './components/AssistPopup';
 import { FileBrowser } from './components/FileBrowser';
+import { FilesPanel } from './components/FilesPanel';
+import { Home } from './components/Home';
 import { HostForm } from './components/HostForm';
 import { HostList } from './components/HostList';
 import { ImportDialog } from './components/ImportDialog';
@@ -19,6 +21,7 @@ import { Onboarding } from './components/Onboarding';
 import { M0Results, M0Status } from './components/M0Panel';
 import { Modal } from './components/Modal';
 import { NyuScene } from './components/nyu/scenes';
+import { SessionToolbar } from './components/SessionToolbar';
 import { SettingsDialog, type SettingsSection } from './components/SettingsDialog';
 import { TabBar } from './components/TabBar';
 import { TerminalView } from './components/Terminal';
@@ -28,6 +31,8 @@ import { UpdateHint } from './components/UpdateHint';
 import { VaultDialog } from './components/VaultDialog';
 import type { Renderer, TerminalDriver } from './lib/driver';
 import type { PasswordPrompt } from './lib/highlight';
+import type { QuickTarget } from './lib/home';
+import { pruneSplit, splitShown, splitWith, toggleSplit, type Split } from './lib/split';
 import { openFiles, type OpenedFiles } from './lib/files';
 import { runSuite, type Progress, type ScenarioResult } from './lib/m0';
 import {
@@ -86,7 +91,7 @@ import {
 } from './lib/settings';
 import { isAppStore, localShellAvailable, pickKeyPath } from './lib/flavor';
 import { setSshMacMenu } from './lib/macMenu';
-import { desktop, keysFor, keysLabel } from './lib/shortcuts';
+import { desktop, keysFor } from './lib/shortcuts';
 import { SidebarGrip } from './components/SidebarGrip';
 import { findLinkedHost } from './lib/links';
 import { syncPassNow, syncStatus, type Withheld } from './lib/sync';
@@ -108,6 +113,9 @@ import {
   type Tab,
   type TabKind,
 } from './lib/tabs';
+
+/** The files panel's connection: its own attempt, so its questions never mix with the terminal's. */
+const filesAttempt = (tabId: string) => `${tabId}-files`;
 
 /** Long enough for layout and the WebGL context to settle before measuring. */
 const AUTORUN_DELAY_MS = 1_500;
@@ -256,7 +264,26 @@ export function App() {
     host: HostRecord | null;
     workspace?: Workspace;
     group?: string | null;
+    draft?: QuickTarget;
   } | null>(null);
+  /** Two tabs side by side (lib/split.ts). */
+  const [split, setSplit] = useState<Split | null>(null);
+  const splitRef = useRef<Split | null>(null);
+  splitRef.current = split;
+  useEffect(
+    () =>
+      setSplit((current) =>
+        pruneSplit(
+          current,
+          tabs.map((tab) => tab.id),
+        ),
+      ),
+    [tabs],
+  );
+  /** The ssh tabs whose files panel is open. */
+  const [filesOpen, setFilesOpen] = useState<ReadonlySet<string>>(new Set());
+  const filesOpenRef = useRef(filesOpen);
+  filesOpenRef.current = filesOpen;
   const [importing, setImporting] = useState(false);
   /** The tunnels dialog: for one host, or for all of them (`host: null`). */
   const [tunnelsFor, setTunnelsFor] = useState<{ host: HostRecord | null } | null>(null);
@@ -739,6 +766,42 @@ export function App() {
       return result.value;
     };
 
+  /** The files panel next to an ssh tab: a connection of its own, its failures as the tab's notice. */
+  const panelOpen = (id: string) => tabOpen(id) && filesOpenRef.current.has(id);
+  const openPanelFiles =
+    (id: string, host: HostRecord) =>
+    async (root: boolean): Promise<OpenedFiles | null> => {
+      const fresh = hostsRef.current.find((candidate) => candidate.id === host.id) ?? host;
+      const attempt = filesAttempt(id);
+      const result = await negotiate(
+        attempt,
+        fresh,
+        ({ secret, sudo }) => openFiles(fresh.id, attempt, secret, root, sudo),
+        () => !panelOpen(id),
+      );
+      if (!panelOpen(id)) return null;
+      if (!result.ok) {
+        // Without its "reconnect": that would restart the terminal, not the panel.
+        if (result.notice) patchTab(id, { notice: { tone: 'error', text: result.notice.text } });
+        return null;
+      }
+      return result.value;
+    };
+
+  const toggleFiles = (id: string) => {
+    const open = filesOpenRef.current.has(id);
+    if (open) {
+      for (const dialog of dialogsRef.current)
+        if (dialog.tabId === filesAttempt(id)) dialog.cancel();
+    }
+    setFilesOpen((current) => {
+      const next = new Set(current);
+      if (open) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   /**
    * Start a tunnel on a connection of its own, through the same conversation
    * as a terminal: host key, vault, password. Its questions are named after
@@ -777,9 +840,20 @@ export function App() {
   const closeTab = useCallback((id: string) => {
     const current = tabsRef.current;
     if (!current.some((tab) => tab.id === id)) return;
-    // Questions this tab was waiting for are answered with "cancel".
-    for (const dialog of dialogsRef.current) if (dialog.tabId === id) dialog.cancel();
-    if (activeRef.current === id) setActiveId(neighbourAfterClose(current, id));
+    // Questions this tab (or its files panel) was waiting for are answered with "cancel".
+    for (const dialog of dialogsRef.current) {
+      if (dialog.tabId === id || dialog.tabId === filesAttempt(id)) dialog.cancel();
+    }
+    // A split tab hands the front to its partner.
+    const shared = splitRef.current;
+    const partner = shared?.a === id ? shared.b : shared?.b === id ? shared.a : null;
+    if (activeRef.current === id) setActiveId(partner ?? neighbourAfterClose(current, id));
+    setFilesOpen((open) => {
+      if (!open.has(id)) return open;
+      const next = new Set(open);
+      next.delete(id);
+      return next;
+    });
     setTabs((list) => list.filter((tab) => tab.id !== id));
     // Unmounting the terminal disposes its driver, which closes the session.
   }, []);
@@ -866,6 +940,17 @@ export function App() {
     },
     [openTab],
   );
+
+  /** "Neue Sitzung daneben": one more tab like this one, shown next to it. */
+  const splitNew = (tab: Tab): (() => void) | null => {
+    if (tab.kind === 'm0' || (tab.kind === 'shell' && !localShellAvailable())) return null;
+    return () => {
+      const id = openTab(
+        tab.kind === 'shell' ? { kind: 'shell' } : { kind: tab.kind, host: tab.host },
+      );
+      setSplit((current) => ({ a: tab.id, b: id, vertical: current?.vertical ?? false }));
+    };
+  };
 
   const runM0InNewTab = useCallback(() => {
     setSettingsOpen(null);
@@ -1240,9 +1325,9 @@ export function App() {
 
   // A question belongs to its tab: show that tab while it is asked.
   useEffect(() => {
-    if (dialog && dialog.tabId !== activeRef.current && tabOpen(dialog.tabId)) {
-      setActiveId(dialog.tabId);
-    }
+    // A files panel's question belongs to the tab it sits next to.
+    const owner = dialog?.tabId.replace(/-files$/, '');
+    if (owner && owner !== activeRef.current && tabOpen(owner)) setActiveId(owner);
   }, [dialog]);
 
   // The shown tab gets the keyboard.
@@ -1287,9 +1372,11 @@ export function App() {
         break;
       case 'next-tab':
       case 'previous-tab': {
-        if (list.length < 2) break;
+        // The overview is the first tab in the round.
+        const round = [null, ...list.map((candidate) => candidate.id)];
+        if (round.length < 2) break;
         const step = action.kind === 'next-tab' ? 1 : -1;
-        setActiveId(list[(index + step + list.length) % list.length]!.id);
+        setActiveId(round[(index + 1 + step + round.length) % round.length]!);
         break;
       }
       case 'select-tab': {
@@ -1315,7 +1402,18 @@ export function App() {
         if (tab?.kind === 'ssh' && tab.canTypePassword && id) typePassword(id);
         break;
       case 'open-files':
-        if (tab?.kind === 'ssh' || tab?.kind === 'files') openFilesTab(tab.host);
+        // Next to a terminal it is the panel; from a files tab another files tab.
+        if (tab?.kind === 'ssh') toggleFiles(tab.id);
+        else if (tab?.kind === 'files') openFilesTab(tab.host);
+        break;
+      case 'split-view':
+        setSplit(
+          toggleSplit(
+            splitRef.current,
+            id,
+            list.map((candidate) => candidate.id),
+          ),
+        );
         break;
       case 'assist':
         if (tab && canAssist(tab) && driver?.session) setAssistFor(tab.id);
@@ -1488,7 +1586,7 @@ export function App() {
           action: fromMenu({ kind: 'duplicate-tab' }),
         },
         {
-          text: t('Dateien öffnen'),
+          text: t('Dateien ein- und ausblenden'),
           accelerator: menuAccelerator('open-files', bindings),
           enabled: hostTab,
           action: fromMenu({ kind: 'open-files' }),
@@ -1652,6 +1750,7 @@ export function App() {
   const notice = activeTab?.notice ?? appNotice;
   const showM0 = activeTab !== null && activeTab.id === m0TabId;
   const helperOn = settings.passwordHelper;
+  const splitOn = split !== null && splitShown(split, activeId);
   const [helperBefore, helperAfter] = t('Passwort für {login} eintippen?').split('{login}');
 
   return (
@@ -1697,52 +1796,44 @@ export function App() {
               onSelect={setActiveId}
               onClose={closeTab}
               onNewShell={localShellAvailable() ? openShell : undefined}
-              onAssist={() => activeId && setAssistFor(activeId)}
-              canAssist={Boolean(activeTab && canAssist(activeTab))}
+              split={split ? [split.a, split.b] : []}
             />
 
             {activeTab && (
-              <div className="toolbar">
-                <span className="session-title">
-                  <b>{activeTab.title}</b>
-                  {activeTab.status === 'connecting' && activeTab.kind === 'ssh' ? (
-                    <span className="meta">{t('verbindet…')}</span>
-                  ) : (
-                    activeTab.subtitle && <span className="meta">{activeTab.subtitle}</span>
-                  )}
-                </span>
-                <span className="spacer" />
-                {activeTab.kind === 'ssh' &&
-                  activeTab.canTypePassword &&
-                  activeTab.status === 'live' && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      icon={ICONS.secret}
-                      className="toolbar-button"
-                      onClick={() => typePassword(activeTab.id)}
-                      title={t(
-                        'Das Passwort des Hosts ins Terminal tippen ({keys}). Enter kommt nur dazu, wenn gerade etwas nach einer Eingabe fragt.',
-                        { keys: keysLabel('type-password') },
-                      )}
-                    >
-                      {t('Passwort eintippen')}
-                    </Button>
-                  )}
-                {activeTab.kind === 'ssh' && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    icon={ICONS.files}
-                    className="toolbar-button"
-                    onClick={() => openFilesTab(activeTab.host)}
-                    title={t('Dateien dieses Hosts in einem neuen Tab ({keys})', {
-                      keys: keysLabel('open-files'),
-                    })}
-                  >
-                    {t('Dateien')}
-                  </Button>
-                )}
+              <SessionToolbar
+                tab={activeTab}
+                tabs={tabs}
+                split={split}
+                filesOpen={filesOpen.has(activeTab.id)}
+                onToggleFiles={() => toggleFiles(activeTab.id)}
+                onTypePassword={() => typePassword(activeTab.id)}
+                tunnels={
+                  activeTab.kind === 'ssh' || activeTab.kind === 'files'
+                    ? [...tunnelStatuses.values()].filter(
+                        (status) =>
+                          status.state === 'running' && status.hostId === activeTab.host.id,
+                      ).length
+                    : 0
+                }
+                onTunnels={() =>
+                  setTunnelsFor({
+                    host:
+                      activeTab.kind === 'ssh' || activeTab.kind === 'files'
+                        ? activeTab.host
+                        : null,
+                  })
+                }
+                canAssist={canAssist(activeTab)}
+                onAssist={() => setAssistFor(activeTab.id)}
+                onSplitNew={splitNew(activeTab)}
+                onSplitWith={(other) =>
+                  setSplit(splitWith(activeTab.id, other, splitRef.current?.vertical))
+                }
+                onSplitTurn={() =>
+                  setSplit((current) => current && { ...current, vertical: !current.vertical })
+                }
+                onUnsplit={() => setSplit(null)}
+              >
                 {showM0 && (
                   <M0Status
                     renderer={renderer}
@@ -1751,7 +1842,7 @@ export function App() {
                     error={m0Error}
                   />
                 )}
-              </div>
+              </SessionToolbar>
             )}
 
             {notice ? (
@@ -1782,105 +1873,130 @@ export function App() {
 
             {showM0 && <M0Results results={results} />}
 
-            <div className="terminal-wrap">
+            {activeId === null && (
+              <Home
+                hosts={hosts}
+                groups={groups}
+                tabs={tabs}
+                onlineIds={onlineIds}
+                connectingIds={connectingIds}
+                openIds={openHostIds}
+                tunnels={tunnelStatuses}
+                onConnect={connect}
+                onConnectAnother={connectAnother}
+                onOpenFiles={openFilesTab}
+                onTunnels={(host) => setTunnelsFor({ host })}
+                onEdit={(host) => setForm({ host })}
+                onNewHost={(workspace, draft) => setForm({ host: null, workspace, draft })}
+                onImport={() => setImporting(true)}
+                onSelectTab={setActiveId}
+                onUnlock={() => setStartupVault(true)}
+                onSyncSettings={() => setSettingsOpen('sync')}
+              />
+            )}
+
+            <div
+              className="terminal-wrap"
+              hidden={activeId === null}
+              data-split={splitOn ? (split.vertical ? 'column' : 'row') : undefined}
+            >
               {tabs.map((tab) => (
                 <div
                   key={tab.id}
                   className="terminal-pane"
                   data-kind={tab.kind}
-                  hidden={tab.id !== activeId}
+                  data-pane={
+                    splitOn
+                      ? tab.id === split.a
+                        ? 'a'
+                        : tab.id === split.b
+                          ? 'b'
+                          : undefined
+                      : undefined
+                  }
+                  data-focused={splitOn && tab.id === activeId ? '' : undefined}
+                  hidden={
+                    tab.id !== activeId && !(splitOn && (tab.id === split.a || tab.id === split.b))
+                  }
                   role="tabpanel"
                   aria-label={tab.title}
+                  onFocusCapture={splitOn ? () => setActiveId(tab.id) : undefined}
+                  onPointerDownCapture={splitOn ? () => setActiveId(tab.id) : undefined}
                 >
-                  {tab.kind === 'files' ? (
-                    <FileBrowser
-                      key={tab.reload ?? 0}
-                      host={tab.host}
-                      open={openFilesIn(tab.id, tab.host)}
-                      onLive={(live) => patchTab(tab.id, { status: live ? 'live' : 'ended' })}
-                    />
-                  ) : (
-                    <TerminalView
-                      onReady={(driver) => onDriverReady(tab.id, driver)}
-                      onDispose={(driver) => onDriverDispose(tab.id, driver)}
-                    />
-                  )}
-                  {tab.kind === 'ssh' &&
-                    tab.status === 'connecting' &&
-                    !dialogs.some((d) => d.tabId === tab.id) && (
-                      <div className="pane-overlay" aria-live="polite">
-                        <NyuScene name="connecting" className="pane-scene" />
-                        <p>{t('Verbinde mit {name}…', { name: tab.host.name })}</p>
-                      </div>
+                  <div className="pane-main">
+                    {tab.kind === 'files' ? (
+                      <FileBrowser
+                        key={tab.reload ?? 0}
+                        host={tab.host}
+                        open={openFilesIn(tab.id, tab.host)}
+                        onLive={(live) => patchTab(tab.id, { status: live ? 'live' : 'ended' })}
+                      />
+                    ) : (
+                      <TerminalView
+                        onReady={(driver) => onDriverReady(tab.id, driver)}
+                        onDispose={(driver) => onDriverDispose(tab.id, driver)}
+                      />
                     )}
-                  {tab.kind === 'ssh' && tab.status === 'failed' && (
-                    <div className="pane-overlay" data-tone="failed">
-                      <NyuScene name="loadError" className="pane-scene" />
-                      <p>{t('Nicht verbunden.')}</p>
-                      <Button
-                        variant="primary"
-                        icon={ICONS.refresh}
-                        onClick={() => restart(tab.id)}
-                      >
-                        {t('Neu verbinden')}
-                      </Button>
-                    </div>
-                  )}
-                  {tab.kind === 'ssh' &&
-                    helperOn &&
-                    tab.prompt &&
-                    tab.canTypePassword &&
-                    tab.status === 'live' && (
-                      <div className="password-helper" role="status">
-                        <Icon icon={ICONS.secret} size="sm" />
-                        <span>
-                          {helperBefore}
-                          <code>
-                            {tab.host.username}@{tab.host.address}
-                          </code>
-                          {helperAfter}
-                        </span>
-                        <Button variant="primary" size="sm" onClick={() => typePassword(tab.id)}>
-                          {t('Eintippen')}
+                    {tab.kind === 'ssh' &&
+                      tab.status === 'connecting' &&
+                      !dialogs.some((d) => d.tabId === tab.id) && (
+                        <div className="pane-overlay" aria-live="polite">
+                          <NyuScene name="connecting" className="pane-scene" />
+                          <p>{t('Verbinde mit {name}…', { name: tab.host.name })}</p>
+                        </div>
+                      )}
+                    {tab.kind === 'ssh' && tab.status === 'failed' && (
+                      <div className="pane-overlay" data-tone="failed">
+                        <NyuScene name="loadError" className="pane-scene" />
+                        <p>{t('Nicht verbunden.')}</p>
+                        <Button
+                          variant="primary"
+                          icon={ICONS.refresh}
+                          onClick={() => restart(tab.id)}
+                        >
+                          {t('Neu verbinden')}
                         </Button>
-                        {keysFor('type-password') && <kbd>{keysFor('type-password')}</kbd>}
-                        <IconButton
-                          size="sm"
-                          icon={ICONS.close}
-                          label={t('Nicht eintippen')}
-                          onClick={() => {
-                            patchTab(tab.id, { prompt: false });
-                            drivers.current.get(tab.id)?.term.focus();
-                          }}
-                        />
                       </div>
                     )}
+                    {tab.kind === 'ssh' &&
+                      helperOn &&
+                      tab.prompt &&
+                      tab.canTypePassword &&
+                      tab.status === 'live' && (
+                        <div className="password-helper" role="status">
+                          <Icon icon={ICONS.secret} size="sm" />
+                          <span>
+                            {helperBefore}
+                            <code>
+                              {tab.host.username}@{tab.host.address}
+                            </code>
+                            {helperAfter}
+                          </span>
+                          <Button variant="primary" size="sm" onClick={() => typePassword(tab.id)}>
+                            {t('Eintippen')}
+                          </Button>
+                          {keysFor('type-password') && <kbd>{keysFor('type-password')}</kbd>}
+                          <IconButton
+                            size="sm"
+                            icon={ICONS.close}
+                            label={t('Nicht eintippen')}
+                            onClick={() => {
+                              patchTab(tab.id, { prompt: false });
+                              drivers.current.get(tab.id)?.term.focus();
+                            }}
+                          />
+                        </div>
+                      )}
+                  </div>
+                  {tab.kind === 'ssh' && filesOpen.has(tab.id) && (
+                    <FilesPanel
+                      host={tab.host}
+                      open={openPanelFiles(tab.id, tab.host)}
+                      onClose={() => toggleFiles(tab.id)}
+                    />
+                  )}
                 </div>
               ))}
-              {tabs.length === 0 && (
-                <div className="no-tabs">
-                  <NyuScene name="pick" className="no-tabs-scene" />
-                  <p className="no-tabs-title">{t('Kein Tab offen')}</p>
-                  <p className="no-tabs-text">
-                    {t(
-                      'Klick links einen Host an – jede Verbindung bekommt ihren eigenen Tab, auch mehrere zum selben Server.',
-                    )}
-                  </p>
-                  {localShellAvailable() ? (
-                    <Button variant="primary" icon={ICONS.terminal} onClick={openShell}>
-                      {t('Lokale Shell öffnen')}
-                    </Button>
-                  ) : (
-                    <Button
-                      variant="primary"
-                      icon={ICONS.add}
-                      onClick={() => setForm({ host: null })}
-                    >
-                      {t('Host hinzufügen')}
-                    </Button>
-                  )}
-                </div>
-              )}
             </div>
           </main>
         </div>
@@ -1900,6 +2016,7 @@ export function App() {
           host={form.host}
           workspace={form.workspace}
           group={form.group}
+          draft={form.draft}
           groups={groups}
           onCancel={() => setForm(null)}
           onSaved={() => {

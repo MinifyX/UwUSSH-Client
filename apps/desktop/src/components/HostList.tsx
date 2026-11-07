@@ -83,6 +83,22 @@ function sectionsOf(hosts: HostRecord[], groups: GroupRecord[], workspace: Works
   ];
 }
 
+/** The sections the list shows: one workspace's, or with workspaces off everything as one list. */
+export function shownSections(
+  hosts: HostRecord[],
+  groups: GroupRecord[],
+  workspaces: boolean,
+  workspace: Workspace,
+): Section[] {
+  return workspaces
+    ? sectionsOf(hosts, groups, workspace)
+    : sectionsOf(
+        hosts.map((host) => ({ ...host, workspace: 'private' as const })),
+        groups.map((group) => ({ ...group, workspace: 'private' as const })),
+        'private',
+      );
+}
+
 function matches(host: HostRecord, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
@@ -124,14 +140,7 @@ export function HostList(props: Props) {
 
   // With workspaces off, everything shows as one list.
   const sections = useMemo(
-    () =>
-      settings.workspaces
-        ? sectionsOf(hosts, groups, workspace)
-        : sectionsOf(
-            hosts.map((host) => ({ ...host, workspace: 'private' as const })),
-            groups.map((group) => ({ ...group, workspace: 'private' as const })),
-            'private',
-          ),
+    () => shownSections(hosts, groups, settings.workspaces, workspace),
     [hosts, groups, workspace, settings.workspaces],
   );
   const found = useMemo(
@@ -249,7 +258,11 @@ export function HostList(props: Props) {
                 onSelect: () => props.onConnect(host),
               },
             ]),
-        { label: t('Dateien öffnen'), icon: ICONS.files, onSelect: () => props.onOpenFiles(host) },
+        {
+          label: t('Dateien als Tab öffnen'),
+          icon: ICONS.files,
+          onSelect: () => props.onOpenFiles(host),
+        },
         { label: t('Tunnel…'), icon: ICONS.tunnel, onSelect: () => props.onTunnels(host) },
         locked.has(host.space)
           ? { label: t('Ansehen'), icon: ICONS.show, onSelect: () => props.onEdit(host) }

@@ -50,6 +50,8 @@ type Props = {
   open: (root: boolean) => Promise<OpenedFiles | null>;
   /** The tab's state for the tab bar. */
   onLive: (live: boolean) => void;
+  /** Only the server side, for the panel next to a terminal; downloads go to the home folder. */
+  compact?: boolean;
 };
 
 type PaneState = {
@@ -112,7 +114,7 @@ function isLocalStyle(side: Side, remote: Remote | null) {
   return side === 'local' || remote?.kind === 'smb';
 }
 
-export function FileBrowser({ host, open, onLive }: Props) {
+export function FileBrowser({ host, open, onLive, compact = false }: Props) {
   useLanguage();
   const [places, setPlaces] = useState<Place[]>([]);
   const [local, setLocal] = useState<PaneState>(emptyPane());
@@ -499,59 +501,62 @@ export function FileBrowser({ host, open, onLive }: Props) {
         </div>
       )}
 
-      <div className="file-panes">
-        <FilePane
-          side="local"
-          title={t('Dieser Computer')}
-          icon="drive"
-          pane={local}
-          dropping={dropSide === 'local'}
-          toolbar={
-            <>
-              <select
-                className="places"
-                value=""
-                onChange={(event) => {
-                  const value = event.target.value;
-                  if (value === PICK_FOLDER) pickFolder();
-                  else if (value) void list('local', value);
-                }}
-                aria-label={t('Ort wählen')}
-              >
-                <option value="">{t('Orte…')}</option>
-                {places.map((place) => (
-                  <option key={place.path} value={place.path}>
-                    {place.kind === 'drive' ? place.label : placeLabel(place)}
-                  </option>
-                ))}
-                <option value={PICK_FOLDER}>{t('Ordner wählen…')}</option>
-              </select>
-              {pickedHere && (
-                <IconButton
-                  icon={ICONS.close}
-                  size="sm"
-                  label={t('Aus den Orten entfernen')}
-                  onClick={() => forgetFolder(pickedHere)}
-                />
-              )}
-            </>
-          }
-          onNavigate={(path) => void list('local', path)}
-          onUp={() => void up('local')}
-          onRefresh={() => refresh('local')}
-          onChange={(update) => setLocal(update)}
-          onMkdir={() => setAsk({ kind: 'mkdir', side: 'local', value: '' })}
-          onRename={(entry) => setAsk({ kind: 'rename', side: 'local', entry, value: entry.name })}
-          onDelete={(entries) => setAsk({ kind: 'delete', side: 'local', entries })}
-          onTransfer={() =>
-            remoteReady && copy('local', selectedPaths('local'), 'remote', remotePane.path)
-          }
-          transferLabel={t('Hochladen')}
-          transferIcon="upload"
-          canTransfer={remoteReady}
-          onDragOut={(sources, target) => copy('local', sources, target.side, target.folder)}
-        />
-
+      <div className="file-panes" data-compact={compact || undefined}>
+        {!compact && (
+          <FilePane
+            side="local"
+            title={t('Dieser Computer')}
+            icon="drive"
+            pane={local}
+            dropping={dropSide === 'local'}
+            toolbar={
+              <>
+                <select
+                  className="places"
+                  value=""
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    if (value === PICK_FOLDER) pickFolder();
+                    else if (value) void list('local', value);
+                  }}
+                  aria-label={t('Ort wählen')}
+                >
+                  <option value="">{t('Orte…')}</option>
+                  {places.map((place) => (
+                    <option key={place.path} value={place.path}>
+                      {place.kind === 'drive' ? place.label : placeLabel(place)}
+                    </option>
+                  ))}
+                  <option value={PICK_FOLDER}>{t('Ordner wählen…')}</option>
+                </select>
+                {pickedHere && (
+                  <IconButton
+                    icon={ICONS.close}
+                    size="sm"
+                    label={t('Aus den Orten entfernen')}
+                    onClick={() => forgetFolder(pickedHere)}
+                  />
+                )}
+              </>
+            }
+            onNavigate={(path) => void list('local', path)}
+            onUp={() => void up('local')}
+            onRefresh={() => refresh('local')}
+            onChange={(update) => setLocal(update)}
+            onMkdir={() => setAsk({ kind: 'mkdir', side: 'local', value: '' })}
+            onRename={(entry) =>
+              setAsk({ kind: 'rename', side: 'local', entry, value: entry.name })
+            }
+            onDelete={(entries) => setAsk({ kind: 'delete', side: 'local', entries })}
+            onTransfer={() =>
+              remoteReady && copy('local', selectedPaths('local'), 'remote', remotePane.path)
+            }
+            transferLabel={t('Hochladen')}
+            transferIcon="upload"
+            canTransfer={remoteReady}
+            onDragOut={(sources, target) => copy('local', sources, target.side, target.folder)}
+          />
+        )}
         <FilePane
           side="remote"
           title={remoteTitle}

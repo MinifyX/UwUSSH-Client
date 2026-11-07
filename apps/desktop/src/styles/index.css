@@ -20,4 +20,5 @@
 @import './dialogs.css' layer(components);
 @import './settings.css' layer(components);
 @import './files.css' layer(components);
+@import './home.css' layer(components);
 @import '../components/nyu/nyu.css' layer(components);
