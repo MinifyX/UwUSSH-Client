@@ -1,6 +1,6 @@
 # UwUSSH-Client
 
-SSH-Client (Tauri 2 + React/TS, russh/SFTP, xterm.js) mit verschlüsseltem Vault und optionalem Sync zum UwUSync-Server. Version steht aktuell bei `0.4.0-beta.2`.
+SSH-Client (Tauri 2 + React/TS, russh/SFTP, xterm.js) mit verschlüsseltem Vault und optionalem Sync zum UwUSync-Server. Version steht aktuell bei `0.4.0-beta.3`.
 
 ## Layout
 
