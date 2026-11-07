@@ -123,9 +123,12 @@ export function SessionToolbar(props: Props) {
         >
           <span className="toolbar-label">{t('Tunnel')}</span>
           {props.tunnels > 0 && (
-            <span className="toolbar-count" aria-label={t('{n} laufen', { n: props.tunnels })}>
-              {props.tunnels}
-            </span>
+            <>
+              <span className="toolbar-count" aria-hidden>
+                {props.tunnels}
+              </span>
+              <span className="sr-only">{t('{n} laufen', { n: props.tunnels })}</span>
+            </>
           )}
         </Button>
       )}

@@ -61,6 +61,7 @@ export function TabBar({
             role="tab"
             className="tab-select"
             aria-selected={activeId === null}
+            aria-controls="pane-home"
             aria-label={t('Übersicht')}
             title={t('Übersicht')}
             onClick={() => onSelect(null)}

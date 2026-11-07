@@ -208,7 +208,7 @@ export function Home(props: Props) {
   const shownHosts = sections.reduce((sum, section) => sum + section.hosts.length, 0);
 
   return (
-    <div className="home">
+    <div id="pane-home" className="home" role="tabpanel" aria-label={t('Übersicht')}>
       <div className="home-main">
         <header className="home-head">
           <div className="home-title">
