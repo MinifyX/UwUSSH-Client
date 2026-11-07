@@ -402,6 +402,49 @@
   grid-template-columns: minmax(0, 1fr);
 }
 
+/* A narrow pane (the files panel) keeps name and size; date and rights go. */
+.file-pane {
+  container: file-pane / inline-size;
+}
+
+@container file-pane (max-width: 420px) {
+  .file-pane[data-file-pane='remote'] .file-row,
+  .file-row {
+    grid-template-columns: minmax(0, 1fr) 64px;
+  }
+
+  .file-row > :nth-child(n + 3) {
+    display: none;
+  }
+
+  .file-actions {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .file-pane-head {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+
+  .file-count {
+    white-space: nowrap;
+  }
+
+  .file-actions .transfer-button {
+    margin-left: auto;
+  }
+}
+
+/* The panel sits under the toolbar that already names the login. */
+.files-panel .file-pane-title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
 .files-panel .file-scene {
   width: 120px;
 }

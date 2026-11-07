@@ -186,7 +186,8 @@ export function Home(props: Props) {
           <span className="spacer" />
           <Button
             size="sm"
-            variant={open ? 'secondary' : 'primary'}
+            // Pink is for what is selected: a wall of pink buttons would drown it.
+            variant="secondary"
             icon={open ? ICONS.terminal : ICONS.connect}
             onClick={() => props.onConnect(host)}
             aria-label={

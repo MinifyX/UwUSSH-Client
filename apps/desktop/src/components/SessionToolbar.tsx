@@ -95,7 +95,7 @@ export function SessionToolbar(props: Props) {
             { keys: keysLabel('type-password') },
           )}
         >
-          {t('Passwort eintippen')}
+          <span className="toolbar-label">{t('Passwort eintippen')}</span>
         </Button>
       )}
       {tab.kind === 'ssh' && (
@@ -109,7 +109,7 @@ export function SessionToolbar(props: Props) {
           onClick={props.onToggleFiles}
           title={withKeysFor(t('Dateien dieses Hosts neben dem Terminal'), 'open-files')}
         >
-          {t('Dateien')}
+          <span className="toolbar-label">{t('Dateien')}</span>
         </Button>
       )}
       {remote && (
@@ -121,7 +121,7 @@ export function SessionToolbar(props: Props) {
           onClick={props.onTunnels}
           title={withKeysFor(t('Tunnel dieses Hosts'), 'tunnels')}
         >
-          {t('Tunnel')}
+          <span className="toolbar-label">{t('Tunnel')}</span>
           {props.tunnels > 0 && (
             <span className="toolbar-count" aria-label={t('{n} laufen', { n: props.tunnels })}>
               {props.tunnels}
@@ -138,7 +138,7 @@ export function SessionToolbar(props: Props) {
           onClick={props.onAssist}
           title={withKeysFor(t('Befehl aus Worten'), 'assist')}
         >
-          {t('Befehl aus Worten')}
+          <span className="toolbar-label">{t('Befehl aus Worten')}</span>
         </Button>
       )}
       {splitItems.length > 0 && (
@@ -156,7 +156,7 @@ export function SessionToolbar(props: Props) {
               title={withKeysFor(t('Zwei Tabs nebeneinander zeigen'), 'split-view')}
               {...aria}
             >
-              {t('Teilen')}
+              <span className="toolbar-label">{t('Teilen')}</span>
             </Button>
           )}
         />
