@@ -11,6 +11,7 @@ import {
   type SecretKind,
 } from './components/ConnectDialogs';
 import { AssistPopup } from './components/AssistPopup';
+import { Palette } from './components/Palette';
 import { FileBrowser } from './components/FileBrowser';
 import { FilesPanel } from './components/FilesPanel';
 import { Home } from './components/Home';
@@ -75,6 +76,7 @@ import {
   menuAccelerator,
   shortcutFor,
   terminalKey,
+  type BoundAction,
   type ShortcutAction,
 } from './lib/keymap';
 import { getKeymap, loadKeymap, sendKeymapText, useKeymap } from './lib/keymapStore';
@@ -290,7 +292,8 @@ export function App() {
   const tunnelStatuses = useTunnelStatuses();
   const [settingsOpen, setSettingsOpen] = useState<SettingsSection | null>(null);
   /** The tab the command assistant types into, while it is open. */
-  const [assistFor, setAssistFor] = useState<string | null>(null);
+  const [assistFor, setAssistFor] = useState<{ id: string; request?: string } | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
   const [startupVault, setStartupVault] = useState(false);
   /** The first-start wizard: on a fresh install, or again from the settings. */
@@ -1267,7 +1270,7 @@ export function App() {
 
   const activeTab = tabs.find((tab) => tab.id === activeId) ?? null;
   // The assistant closes with its terminal.
-  const assistTab = tabs.find((tab) => tab.id === assistFor && canAssist(tab)) ?? null;
+  const assistTab = tabs.find((tab) => tab.id === assistFor?.id && canAssist(tab)) ?? null;
   const assistSession = assistTab ? (drivers.current.get(assistTab.id)?.session ?? null) : null;
   const liveConnections = tabs.filter(
     (tab) => (tab.kind === 'ssh' || tab.kind === 'files') && tab.status === 'live',
@@ -1314,6 +1317,7 @@ export function App() {
     confirmClose ||
     startupVault ||
     tunnelsFor ||
+    paletteOpen ||
     assistSession,
   );
   const modalRef = useRef(false);
@@ -1416,7 +1420,7 @@ export function App() {
         );
         break;
       case 'assist':
-        if (tab && canAssist(tab) && driver?.session) setAssistFor(tab.id);
+        if (tab && canAssist(tab) && driver?.session) setAssistFor({ id: tab.id });
         break;
       case 'move-tab-left':
       case 'move-tab-right': {
@@ -1462,6 +1466,9 @@ export function App() {
       case 'new-host':
         setForm({ host: null });
         break;
+      case 'command-palette':
+        setPaletteOpen(true);
+        break;
       case 'tunnels':
         setTunnelsFor({ host: null });
         break;
@@ -1473,6 +1480,47 @@ export function App() {
       case 'text':
         if (id && tab && canAssist(tab)) typeText(id, action.id);
         break;
+    }
+  };
+  /** Whether `perform` would do anything now: the command palette leaves the rest out. */
+  const canPerform = (action: BoundAction): boolean => {
+    const list = tabsRef.current;
+    const id = activeRef.current;
+    const driver = id ? drivers.current.get(id) : undefined;
+    const index = list.findIndex((tab) => tab.id === id);
+    const tab = list[index];
+    switch (action) {
+      case 'new-shell':
+        return localShellAvailable();
+      case 'close-tab':
+      case 'duplicate-tab':
+        return Boolean(tab);
+      case 'next-tab':
+      case 'previous-tab':
+        return list.length > 0;
+      case 'move-tab-left':
+        return index > 0;
+      case 'move-tab-right':
+        return index >= 0 && index < list.length - 1;
+      case 'split-view':
+        return Boolean(splitRef.current) || (Boolean(tab) && list.length > 1);
+      case 'copy':
+        return Boolean(driver?.term.hasSelection());
+      case 'select-all':
+      case 'clear-terminal':
+        return Boolean(driver);
+      case 'type-password':
+        return tab?.kind === 'ssh' && tab.canTypePassword;
+      case 'assist':
+        return Boolean(tab && canAssist(tab) && driver?.session);
+      case 'open-files':
+        return tab?.kind === 'ssh' || tab?.kind === 'files';
+      case 'reconnect':
+        return tab?.status === 'failed' || tab?.status === 'ended';
+      case 'command-palette':
+        return false;
+      default:
+        return true;
     }
   };
   const performRef = useRef(perform);
@@ -1607,6 +1655,11 @@ export function App() {
           text: t('Darstellung'),
           items: [
             {
+              text: t('Befehle …'),
+              accelerator: menuAccelerator('command-palette', bindings),
+              action: fromMenu({ kind: 'command-palette' }),
+            },
+            {
               text: settings.sidebarCollapsed
                 ? t('Seitenleiste einblenden')
                 : t('Seitenleiste ausblenden'),
@@ -1663,6 +1716,7 @@ export function App() {
           'type-password',
           'assist',
           'tunnels',
+          'command-palette',
           'toggle-sidebar',
           'shortcuts',
         ];
@@ -1824,7 +1878,7 @@ export function App() {
                   })
                 }
                 canAssist={canAssist(activeTab)}
-                onAssist={() => setAssistFor(activeTab.id)}
+                onAssist={() => setAssistFor({ id: activeTab.id })}
                 onSplitNew={splitNew(activeTab)}
                 onSplitWith={(other) =>
                   setSplit(splitWith(activeTab.id, other, splitRef.current?.vertical))
@@ -2040,11 +2094,32 @@ export function App() {
         />
       )}
 
+      <Palette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        hosts={hosts}
+        tabs={tabs}
+        activeId={activeId}
+        canPerform={canPerform}
+        onPerform={(action) => perform({ kind: action })}
+        onConnect={connect}
+        onConnectBeside={(host) => {
+          const beside = activeId;
+          const id = openTab({ kind: 'ssh', host });
+          if (beside)
+            setSplit((current) => ({ a: beside, b: id, vertical: current?.vertical ?? false }));
+        }}
+        onSelectTab={setActiveId}
+        onImport={() => setImporting(true)}
+        onAssist={(request) => activeId && setAssistFor({ id: activeId, request })}
+      />
+
       {assistTab && assistSession && (
         <AssistPopup
           session={assistSession}
           target={assistTargetOf(assistTab)}
           targetName={assistTab.kind === 'ssh' ? assistTab.title : t('diesen Rechner')}
+          initialRequest={assistFor?.request}
           onClose={() => setAssistFor(null)}
           onInserted={() => setAssistFor(null)}
           onSetUp={() => {

@@ -174,5 +174,15 @@
   "Teilen": "Split",
   "Übersicht": "Overview",
   "{name}, geteilt": "{name}, split",
-  "Ansicht teilen oder Teilung aufheben": "Split or unsplit the view"
+  "Ansicht teilen oder Teilung aufheben": "Split or unsplit the view",
+  "Befehle …": "Commands…",
+  "verbindet": "connecting",
+  "offen in Tab {number}": "open in tab {number}",
+  "Tab {number}": "Tab {number}",
+  "Jetzt abgleichen": "Sync now",
+  "Offene Tabs": "Open tabs",
+  "„{request}“ als Befehl für {tab}": "“{request}” as a command for {tab}",
+  "Host, Tab oder Aktion suchen …": "Search hosts, tabs or actions…",
+  "↑ ↓ wählen · Enter ausführen · {mod}+Enter daneben öffnen · Esc schließen": "↑ ↓ choose · Enter run · {mod}+Enter open beside · Esc close",
+  "Befehle durchsuchen": "Search commands"
 }

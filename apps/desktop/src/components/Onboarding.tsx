@@ -506,8 +506,8 @@ function AssistStep({ saved, onSaved }: { saved: boolean; onSaved: () => void })
     <>
       <p className="dialog-lead">
         {t(
-          'Beschreibe in Worten, was du willst – der Assistent schreibt einen passenden Befehl und tippt ihn ins Terminal. Ausgeführt wird erst mit deinem Enter. Öffnen mit {shortcut}.',
-          { shortcut: keysLabel('assist') },
+          'Beschreibe in Worten, was du willst – der Assistent schreibt einen passenden Befehl und tippt ihn ins Terminal. Ausgeführt wird erst mit deinem Enter. Öffnen in der Befehlspalette ({shortcut}).',
+          { shortcut: keysLabel('command-palette') },
         )}
       </p>
       {setup ? (
@@ -579,8 +579,8 @@ function Summary({ items }: { items: { label: string; ok: boolean; note: string 
               <dd>{t('Neue lokale Shell')}</dd>
             </>
           )}
-          <dt>{keysFor('assist')}</dt>
-          <dd>{t('Befehl aus Worten')}</dd>
+          <dt>{keysFor('command-palette')}</dt>
+          <dd>{t('Befehle durchsuchen')}</dd>
           <dt>{keysFor('settings')}</dt>
           <dd>{t('Einstellungen')}</dd>
         </dl>

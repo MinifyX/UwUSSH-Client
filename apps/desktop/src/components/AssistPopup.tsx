@@ -32,6 +32,8 @@ type Props = {
   onInserted: () => void;
   /** No provider yet: open Settings → KI. */
   onSetUp: () => void;
+  /** A request typed elsewhere (the command palette): asked right away. */
+  initialRequest?: string;
 };
 
 /** The shell picked per target, for as long as the app runs. */
@@ -54,11 +56,19 @@ const HISTORY_LENGTH = 30;
  * history): a click or ↑/↓ brings a request and its command back, ready for
  * Enter.
  */
-export function AssistPopup({ session, target, targetName, onClose, onInserted, onSetUp }: Props) {
+export function AssistPopup({
+  session,
+  target,
+  targetName,
+  onClose,
+  onInserted,
+  onSetUp,
+  initialRequest,
+}: Props) {
   const language = useLanguage();
   const [platform, setPlatform] = useState<PlatformInfo | null>(null);
   const [shell, setShell] = useState<Shell | null>(pickedShells.get(targetKey(target)) ?? null);
-  const [request, setRequest] = useState('');
+  const [request, setRequest] = useState(initialRequest ?? '');
   const [asked, setAsked] = useState<string | null>(null);
   const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
   const [command, setCommand] = useState('');
@@ -112,6 +122,10 @@ export function AssistPopup({ session, target, targetName, onClose, onInserted, 
       if (mine === run.current) setBusy(false);
     }
   };
+
+  // The first render's `request` is `initialRequest`, so this asks for it.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => void (initialRequest && generate(false)), []);
 
   const insert = async () => {
     const line = command.trim();

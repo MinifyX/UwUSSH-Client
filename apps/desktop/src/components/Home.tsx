@@ -414,7 +414,7 @@ export function Home(props: Props) {
   );
 }
 
-function tabDot(tab: Tab): StatusState {
+export function tabDot(tab: Tab): StatusState {
   if (tab.status === 'live') return 'online';
   if (tab.status === 'connecting') return 'connecting';
   return tab.status === 'failed' ? 'error' : 'offline';

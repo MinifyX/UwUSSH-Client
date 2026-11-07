@@ -89,13 +89,15 @@ test('on the Mac Ctrl stays with the terminal and ⌘F stays free', () => {
   assert.equal(at(key('KeyV', 'meta')), null, '⌘V is pasted by the webview');
 });
 
-test('the command assistant is ⌘K on the Mac and Ctrl+Shift+K elsewhere', () => {
-  assert.deepEqual(shortcutFor(key('KeyK', 'meta'), ON, false, 'macos'), { kind: 'assist' });
+test('the command palette is ⌘K on the Mac and Ctrl+Shift+K elsewhere', () => {
+  assert.deepEqual(shortcutFor(key('KeyK', 'meta'), ON, false, 'macos'), {
+    kind: 'command-palette',
+  });
   assert.equal(shortcutFor(key('KeyK', 'ctrl'), ON, false, 'macos'), null, '⌃K kills the line');
   assert.equal(shortcutFor(key('KeyK', 'ctrl shift'), ON, false, 'macos'), null);
   for (const system of ['windows', 'linux'] as const) {
     assert.deepEqual(shortcutFor(key('KeyK', 'ctrl shift'), ON, false, system), {
-      kind: 'assist',
+      kind: 'command-palette',
     });
     assert.equal(
       shortcutFor(key('KeyK', 'ctrl'), ON, false, system),
@@ -104,8 +106,23 @@ test('the command assistant is ⌘K on the Mac and Ctrl+Shift+K elsewhere', () =
     );
     assert.equal(shortcutFor(key('KeyK', 'ctrl shift alt'), ON, false, system), null);
   }
-  assert.equal(shortcutLabel('assist', 'macos', NAMES), '⌘K');
-  assert.equal(shortcutLabel('assist', 'linux', NAMES), 'Strg+Umschalt+K');
+  assert.equal(shortcutLabel('command-palette', 'macos', NAMES), '⌘K');
+  assert.equal(shortcutLabel('command-palette', 'linux', NAMES), 'Strg+Umschalt+K');
+});
+
+test('the assistant has no key of its own, and keeps the keys someone gave it', () => {
+  assert.deepEqual(chordsFor('assist', 'mac', {}), []);
+  assert.deepEqual(chordsFor('assist', 'other', {}), []);
+  // Moved to other keys before 0.4: still there, and ⌘K is the palette's.
+  const moved = { assist: [{ meta: true, code: 'KeyJ' }] };
+  assert.deepEqual(shortcutFor(key('KeyJ', 'meta'), ON, false, 'macos', moved), { kind: 'assist' });
+  assert.deepEqual(shortcutFor(key('KeyK', 'meta'), ON, false, 'macos', moved), {
+    kind: 'command-palette',
+  });
+  // Given ⌘K again, the assistant has it and the palette loses it.
+  const back = bind({}, 'mac', 'assist', { meta: true, code: 'KeyK' });
+  assert.deepEqual(shortcutFor(key('KeyK', 'meta'), ON, false, 'macos', back), { kind: 'assist' });
+  assert.deepEqual(chordsFor('command-palette', 'mac', back), []);
 });
 
 test('⌘C copies a selection and is left alone without one', () => {

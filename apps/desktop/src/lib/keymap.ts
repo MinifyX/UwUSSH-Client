@@ -18,7 +18,8 @@
  *
  * Adding a shortcut is one row in {@link DEFAULTS}, one case in the switch in
  * App.tsx, and its name in lib/shortcuts.ts. ⌘K (Ctrl+Shift+K elsewhere —
- * plain Ctrl+K belongs to the shell) opens the command assistant.
+ * plain Ctrl+K belongs to the shell) opens the command palette; the command
+ * assistant is in there and has no key of its own unless the user gives it one.
  *
  * This file only imports types, so `node --test` can run its tests as they are.
  */
@@ -51,7 +52,15 @@ export const ACTION_GROUPS = {
     'font-reset',
     'reconnect',
   ],
-  app: ['settings', 'shortcuts', 'toggle-sidebar', 'focus-search', 'new-host', 'tunnels'],
+  app: [
+    'command-palette',
+    'settings',
+    'shortcuts',
+    'toggle-sidebar',
+    'focus-search',
+    'new-host',
+    'tunnels',
+  ],
 } as const;
 
 export type ActionGroup = keyof typeof ACTION_GROUPS;
@@ -143,8 +152,9 @@ const DEFAULTS: Record<string, { mac: Chord[]; other: Chord[] }> = {
   // xterm.js selects everything on ⌘A by itself, but only while it has the
   // keyboard; through the table it works the same from anywhere.
   'select-all': { mac: [cmd('KeyA')], other: [] },
-  // The command assistant, over the terminal it types into.
-  assist: { mac: [cmd('KeyK')], other: [ctrlShift('KeyK')] },
+  // The command palette. The assistant had ⌘K until 0.4: someone who moved it
+  // to other keys keeps them (overrides win), and it is in the palette anyway.
+  'command-palette': { mac: [cmd('KeyK')], other: [ctrlShift('KeyK')] },
   // As in VS Code. ⌘B means nothing to a terminal.
   'toggle-sidebar': { mac: [cmd('KeyB')], other: [ctrlShift('KeyB')] },
   'new-host': { mac: [cmd('KeyN')], other: [] },

@@ -145,5 +145,7 @@ export function actionName(action: BoundAction): string {
       return t('Neuer Host');
     case 'tunnels':
       return t('Tunnel');
+    case 'command-palette':
+      return t('Befehle durchsuchen');
   }
 }
