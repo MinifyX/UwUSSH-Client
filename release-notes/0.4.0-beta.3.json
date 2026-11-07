@@ -1,0 +1,4 @@
+{
+  "de": "UwUSSH 0.4.0-beta.3 ✧ Korrektur beim Sync\n\n- Sync warnt nicht mehr fälschlich, der Server halte Daten zurück, wenn ein Gerät, das länger nicht synchronisiert hat, Einträge noch auflistet, die auf einem anderen Gerät längst gelöscht wurden",
+  "en": "UwUSSH 0.4.0-beta.3 ✧ Sync fix\n\n- Sync no longer warns by mistake that the server is holding data back when a device that hasn't synced in a while still lists entries another device has since deleted"
+}
