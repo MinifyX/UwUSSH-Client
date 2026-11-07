@@ -129,6 +129,7 @@ export function FileBrowser({ host, open, onLive, compact = false }: Props) {
   remoteRef.current = remote;
   /** Still mounted: a connection that opens after the tab closed is closed again. */
   const mounted = useRef(false);
+  const root = useRef<HTMLDivElement>(null);
   const panesRef = useRef({ local, remote: remotePane });
   panesRef.current = { local, remote: remotePane };
 
@@ -237,6 +238,8 @@ export function FileBrowser({ host, open, onLive, compact = false }: Props) {
         setRemote(next);
         onLive(true);
         await list('remote', home);
+      } catch (error) {
+        if (mounted.current) setNotice(describeFilesFailure(asFilesFailure(error)));
       } finally {
         setOpening(false);
       }
@@ -373,7 +376,9 @@ export function FileBrowser({ host, open, onLive, compact = false }: Props) {
       const scale = window.devicePixelRatio || 1;
       const element = document.elementFromPoint(x / scale, y / scale);
       const pane = element?.closest<HTMLElement>('[data-file-pane]');
-      return (pane?.dataset.filePane as Side | undefined) ?? null;
+      // Every mounted browser hears the drop: only the one under the pointer takes it.
+      if (!pane || !root.current?.contains(pane)) return null;
+      return (pane.dataset.filePane as Side | undefined) ?? null;
     };
     void getCurrentWebview()
       .onDragDropEvent((event) => {
@@ -486,7 +491,7 @@ export function FileBrowser({ host, open, onLive, compact = false }: Props) {
       : `${remote?.kind === 'sftp' && remote.root ? 'root' : host.username}@${host.address}`;
 
   return (
-    <div className="file-browser" data-drop-over={dropSide ?? undefined}>
+    <div ref={root} className="file-browser" data-drop-over={dropSide ?? undefined}>
       {notice && (
         <div className="notice" data-tone="error" role="alert">
           <span>{notice}</span>

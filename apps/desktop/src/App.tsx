@@ -34,7 +34,7 @@ import type { Renderer, TerminalDriver } from './lib/driver';
 import type { PasswordPrompt } from './lib/highlight';
 import type { QuickTarget } from './lib/home';
 import { pruneSplit, splitShown, splitWith, toggleSplit, type Split } from './lib/split';
-import { openFiles, type OpenedFiles } from './lib/files';
+import { closeFiles, openFiles, type OpenedFiles } from './lib/files';
 import { runSuite, type Progress, type ScenarioResult } from './lib/m0';
 import {
   asConnectFailure,
@@ -760,7 +760,10 @@ export function App() {
         ({ secret, sudo }) => openFiles(fresh.id, id, secret, root, sudo),
         () => !tabOpen(id),
       );
-      if (!tabOpen(id)) return null;
+      if (!tabOpen(id)) {
+        if (result.ok) void closeFiles(result.value.session).catch(() => undefined);
+        return null;
+      }
       if (!result.ok) {
         patchTab(id, { status: 'failed', notice: result.notice });
         return null;
@@ -769,7 +772,7 @@ export function App() {
       return result.value;
     };
 
-  /** The files panel next to an ssh tab: a connection of its own, its failures as the tab's notice. */
+  /** The files panel next to an ssh tab: a connection of its own, its failures shown in the panel. */
   const panelOpen = (id: string) => tabOpen(id) && filesOpenRef.current.has(id);
   const openPanelFiles =
     (id: string, host: HostRecord) =>
@@ -782,10 +785,13 @@ export function App() {
         ({ secret, sudo }) => openFiles(fresh.id, attempt, secret, root, sudo),
         () => !panelOpen(id),
       );
-      if (!panelOpen(id)) return null;
+      if (!panelOpen(id)) {
+        if (result.ok) void closeFiles(result.value.session).catch(() => undefined);
+        return null;
+      }
       if (!result.ok) {
-        // Without its "reconnect": that would restart the terminal, not the panel.
-        if (result.notice) patchTab(id, { notice: { tone: 'error', text: result.notice.text } });
+        // A declined question ('info') says nothing; a failure goes in the panel, not on the live terminal.
+        if (result.notice?.tone === 'error') throw { kind: 'failed', message: result.notice.text };
         return null;
       }
       return result.value;
