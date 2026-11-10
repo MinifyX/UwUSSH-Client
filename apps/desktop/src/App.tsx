@@ -115,7 +115,7 @@ import {
   type Tab,
   type TabKind,
 } from './lib/tabs';
-import { stepTab } from './lib/tabRound';
+import { moveTo, stepTab } from './lib/tabRound';
 
 /** The files panel's connection: its own attempt, so its questions never mix with the terminal's. */
 const filesAttempt = (tabId: string) => `${tabId}-files`;
@@ -1866,6 +1866,7 @@ export function App() {
               activeId={activeId}
               onSelect={setActiveId}
               onClose={closeTab}
+              onMove={(id, to) => setTabs((current) => moveTo(current, id, to))}
               onNewShell={localShellAvailable() ? openShell : undefined}
               split={split ? [split.a, split.b] : []}
             />

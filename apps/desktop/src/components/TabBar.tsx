@@ -1,6 +1,8 @@
 import { Icon, IconButton, ICONS } from '@uwusuite/design';
+import { useEffect, useRef } from 'react';
 import { t, useLanguage } from '../lib/i18n';
 import { keysForTab, withKeysFor } from '../lib/shortcuts';
+import { dropIndex } from '../lib/tabRound';
 import type { Tab } from '../lib/tabs';
 import { OsIcon } from './OsIcon';
 
@@ -10,6 +12,8 @@ type Props = {
   /** `null` is the overview. */
   onSelect: (id: string | null) => void;
   onClose: (id: string) => void;
+  /** Dragging a tab puts it at this place among the tabs. */
+  onMove: (id: string, to: number) => void;
   /** No local shell in the Mac App Store build: then there is no "+" either. */
   onNewShell?: () => void;
   /** The two tabs shown side by side, if any. */
@@ -35,12 +39,42 @@ export function TabBar({
   activeId,
   onSelect,
   onClose,
+  onMove,
   onNewShell,
   split,
   sidebarCollapsed,
   onToggleSidebar,
 }: Props) {
   useLanguage();
+  const listRef = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ id: string; startX: number; moving: boolean } | null>(null);
+  const swallowClick = useRef(false);
+
+  // A tab that just opened or got picked by keyboard may sit outside the scrolled part.
+  useEffect(() => {
+    listRef.current
+      ?.querySelector('[data-active="true"]')
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [activeId, tabs.length]);
+
+  function dragTo(x: number) {
+    const list = listRef.current;
+    const current = drag.current;
+    if (!list || !current) return;
+    const bounds = list.getBoundingClientRect();
+    // shortcut: scrolls only while the pointer moves, enough for a short hold at the edge.
+    if (x < bounds.left + 24) list.scrollLeft -= 12;
+    else if (x > bounds.right - 24) list.scrollLeft += 12;
+    const middles = [...list.querySelectorAll<HTMLElement>('[data-tab-id]')]
+      .filter((el) => el.dataset.tabId !== current.id)
+      .map((el) => {
+        const rect = el.getBoundingClientRect();
+        return rect.left + rect.width / 2;
+      });
+    const to = dropIndex(middles, x);
+    if (tabs.findIndex((tab) => tab.id === current.id) !== to) onMove(current.id, to);
+  }
+
   return (
     <div className="tabbar">
       <IconButton
@@ -54,7 +88,48 @@ export function TabBar({
         aria-pressed={!sidebarCollapsed}
         onClick={onToggleSidebar}
       />
-      <div className="tabs" role="tablist" aria-label={t('Offene Sitzungen')}>
+      <div
+        ref={listRef}
+        className="tabs"
+        role="tablist"
+        aria-label={t('Offene Sitzungen')}
+        // Move and release are caught here, not on the tab: reordering moves the tab's
+        // element, which would drop a pointer capture held by it.
+        onPointerMove={(event) => {
+          const current = drag.current;
+          if (!current) return;
+          if (!(event.buttons & 1)) {
+            // Released somewhere we did not hear about.
+            drag.current = null;
+            return;
+          }
+          if (!current.moving) {
+            if (Math.abs(event.clientX - current.startX) < 5) return;
+            current.moving = true;
+            event.currentTarget.setPointerCapture(event.pointerId);
+          }
+          dragTo(event.clientX);
+        }}
+        onPointerUp={() => {
+          if (drag.current?.moving) swallowClick.current = true;
+          drag.current = null;
+        }}
+        onPointerCancel={() => {
+          drag.current = null;
+        }}
+        onWheel={(event) => {
+          // A plain mouse wheel only scrolls vertically; the tab row runs sideways.
+          if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
+            event.currentTarget.scrollLeft += event.deltaY;
+          }
+        }}
+        onClickCapture={(event) => {
+          if (swallowClick.current) {
+            swallowClick.current = false;
+            event.stopPropagation();
+          }
+        }}
+      >
         {/* The overview: always first, never closes. */}
         <div className="tab tab-home" data-active={activeId === null}>
           <button
@@ -82,6 +157,12 @@ export function TabBar({
               data-active={active}
               data-split={shared || undefined}
               data-status={tab.status}
+              data-tab-id={tab.id}
+              onPointerDown={(event) => {
+                if (event.button !== 0 || (event.target as Element).closest('.tab-close')) return;
+                drag.current = { id: tab.id, startX: event.clientX, moving: false };
+                swallowClick.current = false;
+              }}
               onMouseDown={(event) => {
                 // Middle click closes without selecting first.
                 if (event.button === 1) {
