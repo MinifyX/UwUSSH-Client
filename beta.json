@@ -1,43 +1,43 @@
 {
-  "version": "0.4.0-beta.4",
-  "notes": "{\"de\":\"UwUSSH 0.4.0-beta.4 ✧ Viele Tabs im Griff\\n\\n- Tabs lassen sich mit der Maus an eine andere Stelle ziehen\\n- Passen nicht alle Tabs in die Leiste, werden sie erst schmaler und lassen sich dann mit dem Mausrad durchblättern\\n- Ein neu geöffneter oder per Tastenkürzel gewählter Tab rutscht automatisch ins Bild\\n- Die Übersicht bleibt dabei immer ganz links sichtbar\",\"en\":\"UwUSSH 0.4.0-beta.4 ✧ Many tabs, under control\\n\\n- Drag a tab with the mouse to put it somewhere else\\n- When the tabs no longer fit, they first get narrower and then scroll with the mouse wheel\\n- A tab you just opened or picked with a shortcut scrolls into view by itself\\n- The overview always stays visible on the far left\"}",
-  "pub_date": "2026-11-10T09:20:27Z",
+  "version": "0.4.0-beta.5",
+  "notes": "{\"de\":\"UwUSSH 0.4.0-beta.5 ✧ Lange Links\\n\\n- Programme wie Claude Code, tmux oder vim können jetzt in die Zwischenablage kopieren (OSC 52); auslesen dürfen sie sie nicht\\n- Links, die ein Programm auf mehrere Zeilen umbricht, öffnen mit Strg-Klick (⌘-Klick auf dem Mac) wieder ganz statt nur bis zum Zeilenende\",\"en\":\"UwUSSH 0.4.0-beta.5 ✧ Long links\\n\\n- Programs like Claude Code, tmux or vim can now copy to your clipboard (OSC 52); they can't read it\\n- Links a program breaks over several lines open in full with Ctrl-click (⌘-click on a Mac) instead of stopping at the line end\"}",
+  "pub_date": "2026-11-10T10:41:08Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzJrbE5ZcElhZjdNemFJSEtjOC9ROFhsZTZFSkpTeVI1c09KK25nK3JRUkcwTVFjbGE4L2NLQnhUWU1XZW94Tk1hdEZNWmxjVGNZei9NTS8rNmZIR3dzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0MzAyMjk1CWZpbGU6VXdVU1NILVNldHVwLTAuNC4wLWJldGEuNC5leGUKbVlpdThaNVN5Vk91OUZublFaaUJ2YWFEaEQ4ZmJHaFl1bVFFMFVxNVYwQW1mOFFvY0NiUUFicUxVZGlONTVWY2pzbjhvR2dTSEdKb2oxR2owYlRSRHc9PQo=",
-      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.4.0-beta.4/UwUSSH-windows-x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzR3a0tJQzZUdERSQnhkT3pBVStHSkVjRjRlTitXblBudEthK0ZBN0NjRS94NDVqTVJvb0hoQ1ZnZDFjcUlOVElVWWxBRlBzWDZVanBpQisrWldxTkFBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0MzA3MTQ0CWZpbGU6VXdVU1NILVNldHVwLTAuNC4wLWJldGEuNS5leGUKa2hsTk9rZEhCbUhTcTFGMFRpVDFNRXVtYlhEU0VYNForREl6VmdtamhJZ3J0cHluUkZ4aXZPT1g3dnV5UTdlZnpzZkxick90M0NBdFlPenRSQzhPQWc9PQo=",
+      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.4.0-beta.5/UwUSSH-windows-x64-setup.exe"
     },
     "windows-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzFxbm40UzBieVVQbUx1d21ocjJLVnU1NEt3clpzR2JaSFN4eWJyVnJOdXJibGlRaGcrU0lUMWFMN2FFSjVQcG9qc21tWFpscm8wNzFsTmN5MGVJQXc0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0MzAyMjk2CWZpbGU6VXdVU1NILVNldHVwLTAuNC4wLWJldGEuNC13aW5kb3dzLWFybTY0LmV4ZQpVUzBBQWhPSWVJYUd1eFJNdXZ6WTRPUnNGc1dXVjdvYkVVblRVT3ZvZE00R0NZQ2FWNHcrWWsrSysxaWJVczRYV2lRcjBpSTZmb1FmK3h0QjVlMTNBUT09Cg==",
-      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.4.0-beta.4/UwUSSH-windows-arm64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6Sldob3gzQU1TMVBPWmRhNS9FWE1IOWRPTWl0UEdSL1ZBZ2FYUEkxL2hQQzVVcUw5b1ZjM1VsbmdGTXNTOFNpeGgzVWtHM1czanVUeVVDdmIxcTFrRkZodHdrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0MzA3MTQ1CWZpbGU6VXdVU1NILVNldHVwLTAuNC4wLWJldGEuNS13aW5kb3dzLWFybTY0LmV4ZQpRdlVSVFAxYzhSL2E4Tko4ZTlVRGljandkbFp5OTV6MHFNVFVJWDVQWTRzaFVBNkRVdkJvT29oL2NVNnFjM2tGSGNxK3N3WGN3dzZtVmx0MDQ5Z2RDUT09Cg==",
+      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.4.0-beta.5/UwUSSH-windows-arm64-setup.exe"
     },
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzJONVFmMStoZ25DS2VJNFNUTlBCOVRuVmpyaGMwaGd5clZOL0tOOVdOYkJ3VG5oZmhsM010QysrRG1Ccko2bm5ZcDliaVFxMHEvTzk3dFlBcnJ1bFFzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0MzAyMjk3CWZpbGU6VXdVU1NILVNldHVwLTAuNC4wLWJldGEuNC1tYWNvcy1hcm02NC11cGRhdGUKM3BXMVl6OFhVbkpTTC8xbEZVNXExcHVzaW16L0Vvd2hLQjhYbm43c2FnS2loSk8za3JhcHpXQ0ZqZVFpWWc2K2x1TTdvcGNKSDJWS2Y5ZEdINVA1RGc9PQo=",
-      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.4.0-beta.4/UwUSSH-update-macos-universal"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzJ4RmZOM0MxMjFNdlVwZ1BUSTkxUThJejQ5N3JYMzFRVThvbUVYQ0o5Tm5PTTdEMVFwNFY2djA0Q25tSGhKRXJlUFNZbUx0d0xQK1pwQ3RUakhFbVE4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0MzA3MTQ2CWZpbGU6VXdVU1NILVNldHVwLTAuNC4wLWJldGEuNS1tYWNvcy1hcm02NC11cGRhdGUKOHpRaDdZRWFFUFNHSFZ3c2ZaeGNRaldITXpWa1AvdlVoaVB5OC9lUjZLblZtWENjS0RWM2lOQjR6eitsZ0FNaTg5QVZaODBBa3pqV2d1WjlNVzFuQnc9PQo=",
+      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.4.0-beta.5/UwUSSH-update-macos-universal"
     },
     "darwin-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzVyT0t5S1A0QXdnQ0cwZVF5VEJCUUtiWWZpVk5NOWRabGd2MlpXNHI4ZHBvUDk0U3lGUzZtYUhiRmp6RnVEOVh6bC9hQ21kYjZablNZRkVmanJ2clFjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0MzAyMjk3CWZpbGU6VXdVU1NILVNldHVwLTAuNC4wLWJldGEuNC1tYWNvcy14NjQtdXBkYXRlClVEQjRjR3FRQVUyM3NmejJFZHNmYnpSRzJtOU52Uld2VU9BK2lHVUR0amRCQmNBbkhDMlBlYlJlUS9YbnpiNWRuSWQvS0tFdGFqSTRBT25LOFdSOUNRPT0K",
-      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.4.0-beta.4/UwUSSH-update-macos-universal"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzBsaFBYVU4rWnduWm5UalA2QXBkQVNxa29TZ3VVRWZMbGpEQnVNZVRJdVlUbkg0bXlDY1NCc3FLSmN5S0dQcmd4OGpTbnhSZnY0UCtTOCtJS0d4NXdFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0MzA3MTQ3CWZpbGU6VXdVU1NILVNldHVwLTAuNC4wLWJldGEuNS1tYWNvcy14NjQtdXBkYXRlCkZ6VFcyaVpnUU96YTQ2ZHduZHZwRG9WTExHUWJMS2EvMXFnWU1EZkxaN1paUmY4RGZkYWpsWWJSYkRxSnFDVVY4ckJZNFF4a2FzN1Q3Y2JUa2JoMkNRPT0K",
+      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.4.0-beta.5/UwUSSH-update-macos-universal"
     },
     "linux-x86_64-deb": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6Sldob3c1cDJqc2JVTG9ZNSt3OXNzZDdkalY0QnErdGV4SHZFOEROSzMxL3N0TGo4MzlNOVIvdFh5a1VFZTN6bi9tSkM1NFhBUEx1UVRGZHZCc3dBckhyS0FBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0MzAyMjk4CWZpbGU6VXdVU1NILTAuNC4wLWJldGEuNC1saW51eC14ODZfNjQuZGViCmR1cnNILzY2ZS9sWXR0MVJZMWNiQ0NHQlB4b3NwNUorS1FpRThXMEVpdzI4ZWNnSjJtaE9iY0ZpVytCOUl5U0RXMmd4cnJzR0s0MlNqcUhSRWE5VUNRPT0K",
-      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.4.0-beta.4/UwUSSH-linux-x64.deb"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzFiZExDOE80MU8rd0phUEVOVHhLRUJIeUJ2NzRiL21VK3RNMmZzcVllNWxQNDk3UDNJM1hwM2FQL3FNOFhsUlVQMTZ3WU1FL3NlS1dVRkNFdEhnbXdzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0MzA3MTQ3CWZpbGU6VXdVU1NILTAuNC4wLWJldGEuNS1saW51eC14ODZfNjQuZGViCmw2aEM2c3FYV1dROUtkSHpyaG5raFhMU25lalhlSUpFUmsrcnJ6LzFhampsRW5tOE1EdlVjQlZ6djg4UVBWcnZTUnJSM3FTd002dUZnbkJsazQwK0JBPT0K",
+      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.4.0-beta.5/UwUSSH-linux-x64.deb"
     },
     "linux-x86_64-rpm": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6Sldob3dBNU5FVXpxN0JjaXo5VzJ0UklJQmVqUTlUeWk4NFc2Z1NyR0RwU0xOTmI0NzF6K0VXalZoV3ZkRjRPUEJPUFJJWEpIbStMRkE5Q3pqMURkOFRDWndNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0MzAyMjk5CWZpbGU6VXdVU1NILTAuNC4wLWJldGEuNC1saW51eC14ODZfNjQucnBtCmtnb1ZSTTZUSnAvVG1jMDdhRjNqSitMdWRGTTNUWHF5WU5HMFpWU3JqRVBSUkllSzkyRFRRNDJ3K2VYSUh3R21hdER3OFhNbExmVlpiNG43aGJpOUJRPT0K",
-      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.4.0-beta.4/UwUSSH-linux-x64.rpm"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6Sldoby8vZjVwODBJcG5sMDA1T0xhd0NZc3hDV0RqVkxwRlpWT1hHM1BsV3h0R2gvR0RXKzRGd1h4TUdia1BjNUY5dFVqMlArTlRnN0lib3JXcjBXMnhhcHdRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0MzA3MTQ4CWZpbGU6VXdVU1NILTAuNC4wLWJldGEuNS1saW51eC14ODZfNjQucnBtCkVrZHRrM2hENy9sVDIzTTdNWFplM3laV1ZybTRRdDAyRDVTOGJnMWVhcFVsOFdGS3A5Uks4VTFXNjdSeXVnYjd4NWxUaXB5QlUyTWliOXlSblBkWEJ3PT0K",
+      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.4.0-beta.5/UwUSSH-linux-x64.rpm"
     },
     "linux-aarch64-deb": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzhjamJvOW9GRFpyb0tCMVJ5N2I5elQvbFNFVHZXQWdmbGZWK2lhWnBxUjRzVSs5L0ZOZEFTNmk2aEYyVXV3elNwaVh0RlRmajY4ZUFpMW1Ua3VPNVFjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0MzAyMzAwCWZpbGU6VXdVU1NILTAuNC4wLWJldGEuNC1saW51eC1hYXJjaDY0LmRlYgozQWZtZGdYcUwzRGVoRWhYeXpwbGFvSS9UWlRzT3JJQy9rMXR0cUpGYk93S1JhTWpBUUhWMW1lQnVURVowbm5ObUpOK3hTV0hDclhIaE9oc3ZVYUZDUT09Cg==",
-      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.4.0-beta.4/UwUSSH-linux-arm64.deb"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzAvbFBxUVEyYXljS2JIY3JCRERpRmhhV2lEZ1ExWlQ4OXJBbFdkVWM5UUREK3YvS1dMcnFJa3M2QmRoT29makpTekFsTUZiRDd1eGRQc256bmZYV1E4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0MzA3MTQ5CWZpbGU6VXdVU1NILTAuNC4wLWJldGEuNS1saW51eC1hYXJjaDY0LmRlYgp4b3hoQm5ucEpNQXh6WmxnQVdaYlVHRE5XWkpERWZVaCs5YS9qaDFhUmFUbkxIRHhKQ0JzSDNCVzgwWWQ0ZkQ3VHVrUGdEbGwvejhTS3J3ZzVrSGlDQT09Cg==",
+      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.4.0-beta.5/UwUSSH-linux-arm64.deb"
     },
     "linux-aarch64-rpm": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzM0eGxQcVVGZmY2a1FxUVVzZVNWdE81NHhwS29qdmo3cUV4alY4ZG10VXFGZmNVSTNRRlR2dXVxQisvaS9IMHNsdHdtemU0bkdBMXZKbzhsTlFhdGdFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0MzAyMzAxCWZpbGU6VXdVU1NILTAuNC4wLWJldGEuNC1saW51eC1hYXJjaDY0LnJwbQowK2VVWGJ6KzluL1M5NlRrNEZZQ2poSERNRWxqVG5HQVJtVC93RVNxZ2pReDZLc2piQ0tLdzQwNy80NFVDZkVEV3RHeEJ3eU5weFNGc2piWmJUUUtEQT09Cg==",
-      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.4.0-beta.4/UwUSSH-linux-arm64.rpm"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzR3SXFkN2xBTDVJdXF4eVlzZUZKTXBZVzE1UXFPQU4ra1I2L1U3TTArOEFpaVFrQkhIenJxVTBWUDFvL1g5RGpIZENKTVpveUl2bEJhRFdud0FmdUFvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0MzA3MTQ5CWZpbGU6VXdVU1NILTAuNC4wLWJldGEuNS1saW51eC1hYXJjaDY0LnJwbQo1clBwZGIxUHpBckYxSHgzZk1BVDJuSmlEMEVJOE1TOVYvVmZTR3dHUGhTekYrVnFFT0hXNUJ6NUlKSERMN2FMSC9uNFNGRjZLaE9NeXQ4cmRSUTZEZz09Cg==",
+      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.4.0-beta.5/UwUSSH-linux-arm64.rpm"
     },
     "linux-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzZEdUtMYWVpUEJiZ1RmNzU4WnlSNjJtNWRCaVZWNm16bmlQSVJkRGlQMnVtM05DWUtHMkFnL2RORXg3cHlLYm1VYUNLRlB3cFZmdXZaUytxYng1S0F3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0MzAyMzAxCWZpbGU6VXdVU1NILVNldHVwLTAuNC4wLWJldGEuNC1saW51eC14NjQuQXBwSW1hZ2UKS2lKRXZ0SzJSODFKMkVuZHVLem52YWV6OGlpbDlHT1hTSnNNSUdpdkZrOGZyWjE1Q0NBWFgveUJaUHNzUVNPZ0hRd3RIdFFlL1ROcU9Db053ZlBsQUE9PQo=",
-      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.4.0-beta.4/UwUSSH-update-linux-x64.AppImage"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRTW1XZWV6SldobzFDcnpPOEZmRXFWbGhZWE0wVHJPWjMwb2Z6cG11WEtla2xjaXUzZHlZZEVUMHBzdndmWGJHSmtrbm9ycDFqT1ByQmNuV3NUOU96MlIvUWpQak5JZlE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0MzA3MTUwCWZpbGU6VXdVU1NILVNldHVwLTAuNC4wLWJldGEuNS1saW51eC14NjQuQXBwSW1hZ2UKMTdNd09PR1lrQ0V0ZnBiQnQxcEUxKzBqL3dyTkswWnJxSGJsNjQvQ3JQOFBqdlpiRlhsUnNHK1R0TnJ1cDdacTYvbDJWakk4SkwycmZ2QktsekdZQ3c9PQo=",
+      "url": "https://github.com/MinifyX/UwUSSH-Client/releases/download/v0.4.0-beta.5/UwUSSH-update-linux-x64.AppImage"
     }
   }
 }
