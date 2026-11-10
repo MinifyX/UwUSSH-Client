@@ -114,14 +114,16 @@
   gap: 2px;
   min-width: 0;
   overflow-x: auto;
-  scrollbar-width: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--uwu-hairline) transparent;
 }
 
+/* Like a browser: tabs first shrink, then the row scrolls. */
 .tab {
   display: flex;
   align-items: center;
-  flex: none;
-  min-width: 0;
+  flex: 0 1 auto;
+  min-width: 132px;
   max-width: 220px;
   border-radius: var(--uwu-radius-control) var(--uwu-radius-control) 0 0;
   color: var(--uwu-muted);
@@ -236,6 +238,20 @@
 }
 
 /* The overview: always the first tab, an icon only. */
+.tab-home {
+  /* Stays in view while the other tabs scroll underneath. */
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  flex: none;
+  min-width: 0;
+  background: var(--uwu-surface);
+}
+
+.tab-home:hover:not([data-active='true']) {
+  background: var(--uwu-elevated);
+}
+
 .tab-home .tab-select {
   padding: 8px 12px;
 }

@@ -1,0 +1,4 @@
+{
+  "de": "UwUSSH 0.4.0-beta.4 ✧ Viele Tabs im Griff\n\n- Tabs lassen sich mit der Maus an eine andere Stelle ziehen\n- Passen nicht alle Tabs in die Leiste, werden sie erst schmaler und lassen sich dann mit dem Mausrad durchblättern\n- Ein neu geöffneter oder per Tastenkürzel gewählter Tab rutscht automatisch ins Bild\n- Die Übersicht bleibt dabei immer ganz links sichtbar",
+  "en": "UwUSSH 0.4.0-beta.4 ✧ Many tabs, under control\n\n- Drag a tab with the mouse to put it somewhere else\n- When the tabs no longer fit, they first get narrower and then scroll with the mouse wheel\n- A tab you just opened or picked with a shortcut scrolls into view by itself\n- The overview always stays visible on the far left"
+}
