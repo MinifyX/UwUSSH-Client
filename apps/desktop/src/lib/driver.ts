@@ -10,6 +10,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
+import { copyText } from './clipboard';
 import { t } from './i18n';
 import { hasPrimaryModifier } from './keymap';
 import { platform } from './platform';
@@ -31,6 +32,7 @@ import {
   type Spawner,
   type SessionId,
 } from './session';
+import { osc52Text, wrappedLinks } from './termLinks';
 
 /**
  * "Nyu" — the default terminal theme: the 16 ANSI colours translated into the
@@ -197,6 +199,18 @@ export class TerminalDriver {
     });
 
     this.term.loadAddon(this.fit);
+    // Programs that copy for you (Claude Code, tmux, vim) send the text as OSC 52.
+    // Only writes are taken: a server reading the clipboard would see passwords.
+    this.term.parser.registerOscHandler(52, (data) => {
+      const text = osc52Text(data);
+      if (text !== null) void copyText(text).catch(() => undefined);
+      return true;
+    });
+    // Addresses a program broke over several lines; registered first so it wins
+    // over the web-links addon, which only sees the first piece.
+    this.term.registerLinkProvider({
+      provideLinks: (y, callback) => callback(this.wrappedLinksAt(y)),
+    });
     // Addresses in the text itself (curl, git push, a log) are links too.
     this.term.loadAddon(
       new WebLinksAddon(openLink, {
@@ -372,6 +386,27 @@ export class TerminalDriver {
     window.clearTimeout(this.ackTimer);
     this.ackTimer = undefined;
     if (id) await closeSession(id).catch(() => undefined);
+  }
+
+  private wrappedLinksAt(y: number) {
+    const buffer = this.term.buffer.active;
+    // Enough lines around for an address of a few KB on a narrow terminal.
+    const from = Math.max(0, y - 1 - 30);
+    const to = Math.min(buffer.length, y + 30);
+    const lines: string[] = [];
+    for (let i = from; i < to; i++) lines.push(buffer.getLine(i)?.translateToString(true) ?? '');
+    return wrappedLinks(lines, this.term.cols)
+      .filter((link) => from + link.firstLine < y && y <= from + link.lastLine + 1)
+      .map((link) => ({
+        text: link.url,
+        range: {
+          start: { x: link.start + 1, y: from + link.firstLine + 1 },
+          end: { x: link.end, y: from + link.lastLine + 1 },
+        },
+        activate: openLink,
+        hover: () => this.showLinkHint(),
+        leave: () => this.hideLinkHint(),
+      }));
   }
 
   dispose() {

@@ -1,0 +1,4 @@
+{
+  "de": "UwUSSH 0.4.0-beta.5 ✧ Lange Links\n\n- Programme wie Claude Code, tmux oder vim können jetzt in die Zwischenablage kopieren (OSC 52); auslesen dürfen sie sie nicht\n- Links, die ein Programm auf mehrere Zeilen umbricht, öffnen mit Strg-Klick (⌘-Klick auf dem Mac) wieder ganz statt nur bis zum Zeilenende",
+  "en": "UwUSSH 0.4.0-beta.5 ✧ Long links\n\n- Programs like Claude Code, tmux or vim can now copy to your clipboard (OSC 52); they can't read it\n- Links a program breaks over several lines open in full with Ctrl-click (⌘-click on a Mac) instead of stopping at the line end"
+}
