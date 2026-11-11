@@ -47,7 +47,7 @@ russh = { version = "0.63", default-features = false, features = ["ring", "rsa",
 # SFTP on top of russh, from the same circle of maintainers, transport-agnostic.
 russh-sftp = "3"
 # Bundled SQLite, so the app never depends on whichever sqlite3.dll is around.
-rusqlite = { version = "0.40", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
 # The Termius import: Snappy for LevelDB tables and compressed IndexedDB values,
 # NaCl's secretbox for the fields Termius seals, and the one Win32 call that
 # reads its key from the Credential Manager.
