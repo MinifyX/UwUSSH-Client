@@ -1015,7 +1015,11 @@ function FilePane(props: PaneProps) {
             onChange={(e) => setPathInput(e.target.value)}
             onBlur={() => setPathInput(null)}
             onKeyDown={(event) => {
-              if (event.key === 'Enter' && pathInput.trim()) {
+              if (
+                event.key === 'Enter' &&
+                !(event.nativeEvent.isComposing || event.keyCode === 229) &&
+                pathInput.trim()
+              ) {
                 props.onNavigate(pathInput.trim());
                 setPathInput(null);
               }

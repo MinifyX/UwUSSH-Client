@@ -596,7 +596,11 @@ export function HostList(props: Props) {
                 onChange={(e) => setEditing({ from: null, value: e.target.value })}
                 onBlur={saveGroupName}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter') saveGroupName();
+                  if (
+                    event.key === 'Enter' &&
+                    !(event.nativeEvent.isComposing || event.keyCode === 229)
+                  )
+                    saveGroupName();
                   if (event.key === 'Escape') setEditing(null);
                 }}
                 aria-label={t('Name der neuen Gruppe')}
@@ -654,7 +658,11 @@ export function HostList(props: Props) {
                         onChange={(e) => setEditing({ from: name, value: e.target.value })}
                         onBlur={saveGroupName}
                         onKeyDown={(event) => {
-                          if (event.key === 'Enter') saveGroupName();
+                          if (
+                            event.key === 'Enter' &&
+                            !(event.nativeEvent.isComposing || event.keyCode === 229)
+                          )
+                            saveGroupName();
                           if (event.key === 'Escape') setEditing(null);
                         }}
                         aria-label={t('{name} umbenennen', { name })}
