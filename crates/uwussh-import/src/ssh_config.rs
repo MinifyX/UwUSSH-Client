@@ -188,21 +188,21 @@ fn resolve_include(pattern: &str, base: &Path) -> std::result::Result<Vec<PathBu
 fn is_local(path: &Path) -> bool {
     let text = path.as_os_str().to_string_lossy();
     let bytes = text.as_bytes();
-    if bytes.len() >= 2 && matches!(bytes[0], b'\\' | b'/') && matches!(bytes[1], b'\\' | b'/') {
-        return false;
-    }
+    let share =
+        bytes.len() >= 2 && matches!(bytes[0], b'\\' | b'/') && matches!(bytes[1], b'\\' | b'/');
     #[cfg(windows)]
     {
         use std::path::{Component, Prefix};
-        matches!(
-            path.components().next(),
-            Some(Component::Prefix(prefix))
-                if matches!(prefix.kind(), Prefix::Disk(_) | Prefix::VerbatimDisk(_))
-        )
+        !share
+            && matches!(
+                path.components().next(),
+                Some(Component::Prefix(prefix))
+                    if matches!(prefix.kind(), Prefix::Disk(_) | Prefix::VerbatimDisk(_))
+            )
     }
     #[cfg(not(windows))]
     {
-        true
+        !share
     }
 }
 
