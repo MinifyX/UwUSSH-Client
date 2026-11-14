@@ -1,0 +1,4 @@
+{
+  "de": "- Dialoge setzen den Fokus beim Öffnen nicht mehr auf das X, und Menüs schließen mit Tab\n- Hinweise unten bleiben stehen, solange die Maus oder der Tastaturfokus darauf liegt",
+  "en": "- Dialogs no longer put the focus on the X when they open, and menus close on Tab\n- Notes at the bottom stay while the pointer or keyboard focus is on them"
+}
