@@ -6,6 +6,7 @@ import {
   Icon,
   IconButton,
   ICONS,
+  NavIndicator,
   Nyu as SuiteNyu,
   Segmented,
   Select,
@@ -1231,6 +1232,7 @@ export function SettingsDialog({
     <Modal title={t('Einstellungen')} size="wide" onCancel={onClose}>
       <div className="settings">
         <nav className="settings-nav" aria-label={t('Bereiche')}>
+          <NavIndicator />
           {sections.map(({ id, label }) => (
             <button
               key={id}
@@ -1242,7 +1244,7 @@ export function SettingsDialog({
             </button>
           ))}
         </nav>
-        <div className="settings-content">
+        <div key={section} className="settings-content uwu-page">
           {section === 'appearance' && <Appearance onRestartOnboarding={onRestartOnboarding} />}
           {section === 'terminal' && <TerminalSettings />}
           {section === 'keyboard' && <KeyboardSettings />}

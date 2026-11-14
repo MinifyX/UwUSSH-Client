@@ -1,0 +1,4 @@
+{
+  "de": "UwUSSH 0.4.0-beta.6 ✧ Bewegung\n\n- Bewegung: Beim Start öffnet sich das Fenster als Kreis aus dem Logo, die Markierung in der Host-Liste und in den Einstellungen gleitet zum gewählten Eintrag, und die Übersicht blendet sanft ein. Mit „Animationen: Aus“ bleibt alles still\n- Wer Japanisch, Chinesisch oder Koreanisch tippt, kann einen Wortvorschlag wieder mit Enter bestätigen, ohne dass dabei schon verbunden oder gespeichert wird\n- SQLite auf 3.54.1 aktualisiert (Sicherheitskorrektur)",
+  "en": "UwUSSH 0.4.0-beta.6 ✧ Motion\n\n- Motion: at start the window opens as a circle from the logo, the highlight in the host list and the settings slides to the chosen entry, and the overview fades in gently. With \"Animations: Off\" everything stays still\n- If you type Japanese, Chinese or Korean, Enter confirms a word suggestion again without already connecting or saving\n- SQLite updated to 3.54.1 (security fix)"
+}
