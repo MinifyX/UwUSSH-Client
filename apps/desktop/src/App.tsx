@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { Button, Icon, IconButton, ICONS } from '@uwusuite/design';
+import { Button, Icon, IconButton, ICONS, revealFrom } from '@uwusuite/design';
 import { hideWindowOnClose, onMacQuit } from '@uwusuite/design/tauri';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
@@ -302,6 +302,10 @@ export function App() {
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [updateDismissed, setUpdateDismissed] = useState(false);
   const backgroundRef = useRef<HTMLDivElement>(null);
+  // Cold start: the window opens in a circle from the wordmark (TitleBar), once.
+  useEffect(() => {
+    if (backgroundRef.current) revealFrom(backgroundRef.current);
+  }, []);
 
   const [renderer, setRenderer] = useState<Renderer | null>(null);
   const [m0TabId, setM0TabId] = useState<string | null>(null);

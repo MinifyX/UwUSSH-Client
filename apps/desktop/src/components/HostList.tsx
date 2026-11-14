@@ -1,4 +1,4 @@
-import { Button, Icon, IconButton, ICONS } from '@uwusuite/design';
+import { Button, Icon, IconButton, ICONS, NavIndicator } from '@uwusuite/design';
 import { useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { beginDrag, edgeByHalf, type DropTarget } from '../lib/dnd';
 import { localShellAvailable } from '../lib/flavor';
@@ -550,6 +550,7 @@ export function HostList(props: Props) {
       )}
 
       <div className="host-scroll">
+        <NavIndicator />
         {/* The Mac App Store build has no local shell (lib/flavor.ts). */}
         {localShellAvailable() && (
           <ul className="host-list">

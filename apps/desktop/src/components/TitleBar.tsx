@@ -41,7 +41,11 @@ export function TitleBar({ onSettings, children }: Props) {
       <SuiteTitleBar
         platform={desktop}
         controls={controls}
-        brand={<Wordmark product="SSH" shell="terminal" className="text-body" />}
+        brand={
+          <span data-uwu-reveal-origin>
+            <Wordmark product="SSH" shell="terminal" className="text-body" />
+          </span>
+        }
         actions={
           <>
             {children}

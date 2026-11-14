@@ -208,7 +208,7 @@ export function Home(props: Props) {
   const shownHosts = sections.reduce((sum, section) => sum + section.hosts.length, 0);
 
   return (
-    <div id="pane-home" className="home" role="tabpanel" aria-label={t('Übersicht')}>
+    <div id="pane-home" className="home uwu-page" role="tabpanel" aria-label={t('Übersicht')}>
       <div className="home-main">
         <header className="home-head">
           <div className="home-title">
@@ -309,7 +309,9 @@ export function Home(props: Props) {
             {recent.length > 0 && (
               <section className="home-section" aria-labelledby="home-recent">
                 <h2 id="home-recent">{t('Zuletzt')}</h2>
-                <ul className="home-grid">{recent.map((host) => card(host, 'recent'))}</ul>
+                <ul className="home-grid uwu-stagger">
+                  {recent.map((host) => card(host, 'recent'))}
+                </ul>
               </section>
             )}
             {sections
@@ -330,7 +332,7 @@ export function Home(props: Props) {
         )}
       </div>
 
-      <aside className="home-aside" aria-label={t('Überblick')}>
+      <aside className="home-aside uwu-stagger" aria-label={t('Überblick')}>
         <section className="home-section" aria-labelledby="home-sessions">
           <h2 id="home-sessions">{t('Offene Sitzungen')}</h2>
           {tabs.length === 0 ? (
