@@ -871,7 +871,7 @@ function Vault({ onChanged }: { onChanged: () => void }) {
           <p className="text-body font-semibold">{t('SSH-Keys im Tresor')}</p>
           <span className="spacer" />
           <Button size="sm" icon={ICONS.import} onClick={() => setDialog({ kind: 'import' })}>
-            {t('Importieren…')}
+            {t('Einfügen oder importieren…')}
           </Button>
           <Button
             size="sm"

@@ -472,7 +472,7 @@ export function HostForm({
                         {t('Neuen Key erzeugen…')}
                       </Button>
                       <Button size="sm" icon={ICONS.import} onClick={() => setKeyImport(true)}>
-                        {t('Key-Datei importieren…')}
+                        {t('Key einfügen oder importieren…')}
                       </Button>
                       {selectedKey && (
                         <Button
