@@ -121,12 +121,20 @@ export function KeyImportDialog({
     t('Der Key wird dann nicht importiert.'),
   );
 
-  const readPasted = async (text: string) => {
+  const typing = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(typing.current), []);
+
+  // Read once typing pauses, not per keystroke: each call carries the whole key.
+  const onPasted = (text: string) => {
     setPasted(text);
     setPicked(null);
     setPasteError(null);
     const run = ++reading.current;
-    if (!text.trim()) return;
+    clearTimeout(typing.current);
+    if (text.trim()) typing.current = setTimeout(() => void readPasted(text, run), 300);
+  };
+
+  const readPasted = async (text: string, run: number) => {
     try {
       const key = await pasteKeyText(text);
       if (run !== reading.current) return;
@@ -149,6 +157,7 @@ export function KeyImportDialog({
       const file = await pickKeyFile();
       if (!file) return;
       reading.current++;
+      clearTimeout(typing.current);
       setPasted('');
       setPasteError(null);
       setPicked(file);
@@ -261,7 +270,7 @@ export function KeyImportDialog({
                 aria-invalid={pasteError !== null && committed}
                 onPaste={() => setCommitted(true)}
                 onBlur={() => setCommitted(true)}
-                onChange={(e) => void readPasted(e.target.value)}
+                onChange={(e) => onPasted(e.target.value)}
               />
               {pasteError && committed && (
                 <em className="field-error" id={`${ids}-error`} role="alert">

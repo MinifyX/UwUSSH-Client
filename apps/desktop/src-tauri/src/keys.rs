@@ -189,8 +189,9 @@ pub(crate) async fn pick_key_file(
 /// A private key pasted as text — from a password manager that keeps keys as
 /// fields rather than files (Vaultwarden, Bitwarden). From here on it is the
 /// same as a picked file: [`import_picked_key`] puts it into the vault.
+/// Async, so reading a large RSA key never holds up the window.
 #[tauri::command]
-pub(crate) fn paste_key_text(
+pub(crate) async fn paste_key_text(
     state: State<'_, AppState>,
     text: String,
 ) -> Result<PickedKey, KeyFailure> {

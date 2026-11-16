@@ -299,7 +299,9 @@ pub fn tidy_pasted(text: &str) -> Zeroizing<String> {
             let (body, end) = rest.rsplit_once("-----END ")?;
             Some((label, body, end))
         });
-    let Some((label, body, end)) = block.filter(|(_, body, _)| !body.contains(':')) else {
+    let Some((label, body, end)) =
+        block.filter(|(_, body, _)| body.is_ascii() && !body.contains(':'))
+    else {
         return Zeroizing::new(format!("{trimmed}\n"));
     };
     let body: Zeroizing<String> =
@@ -309,11 +311,14 @@ pub fn tidy_pasted(text: &str) -> Zeroizing<String> {
     } else {
         64
     };
-    let mut out = Zeroizing::new(String::with_capacity(trimmed.len() + 64));
+    // Room for every line break up front: growing would free a copy unzeroed.
+    let mut out = Zeroizing::new(String::with_capacity(
+        label.len() * 2 + end.len() + body.len() + body.len() / width + 32,
+    ));
     out.push_str(&format!("-----BEGIN {label}-----\n"));
     // Base64 is ASCII, so byte chunks are whole characters.
     for line in body.as_bytes().chunks(width) {
-        out.push_str(std::str::from_utf8(line).unwrap_or_default());
+        out.push_str(std::str::from_utf8(line).unwrap_or_default()); // ASCII, checked above
         out.push('\n');
     }
     out.push_str(&format!("-----END {}\n", end.trim()));
@@ -490,6 +495,8 @@ mod tests {
             }
         }
         assert_eq!(&*tidy_pasted("no key"), "no key\n");
+        let odd = "-----BEGIN OPENSSH PRIVATE KEY-----\näöü\n-----END OPENSSH PRIVATE KEY-----";
+        assert_eq!(*tidy_pasted(odd), format!("{odd}\n"));
     }
 
     #[test]
