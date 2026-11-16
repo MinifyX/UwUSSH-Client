@@ -75,7 +75,6 @@
   "Noch keine Keys im Tresor": "No keys in the vault yet",
   "Key wählen…": "Choose a key…",
   "Neuen Key erzeugen…": "Generate a new key…",
-  "Key-Datei importieren…": "Import a key file…",
   "Für ~/.ssh/authorized_keys auf dem Server": "For ~/.ssh/authorized_keys on the server",
   "Kopiert": "Copied",
   "Public Key kopieren": "Copy public key",
@@ -140,5 +139,6 @@
   "Keys auf Netzlaufwerken liest UwUSSH nicht": "UwUSSH doesn't read keys on network drives",
   "Datei wählen…": "Choose file…",
   "{server} ist gesperrt. Entsperre ihn unter Einstellungen → Sync, um Hosts umzuziehen.": "{server} is locked. Unlock it under Settings → Sync to move hosts.",
-  "Zieht beim Speichern um – mit Anmeldung, Key, Passwort, Tunneln und dem bekannten Host-Schlüssel.": "Moves when you save – with login, key, password, tunnels and the known host key."
+  "Zieht beim Speichern um – mit Anmeldung, Key, Passwort, Tunneln und dem bekannten Host-Schlüssel.": "Moves when you save – with login, key, password, tunnels and the known host key.",
+  "Key einfügen oder importieren…": "Paste or import key…"
 }

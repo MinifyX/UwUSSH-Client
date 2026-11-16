@@ -76,5 +76,6 @@
   "Das ist kein lesbarer Private Key ({reason}).": "That isn't a readable private key ({reason}).",
   "Private Key einfügen": "Paste private key",
   "OpenSSH, PEM oder PuTTY, z. B. aus Vaultwarden kopiert – oder eine Datei wählen.": "OpenSSH, PEM or PuTTY, e.g. copied from Vaultwarden – or choose a file.",
-  "Eingefügter Key": "Pasted key"
+  "Eingefügter Key": "Pasted key",
+  "Einfügen oder importieren…": "Paste or import…"
 }
