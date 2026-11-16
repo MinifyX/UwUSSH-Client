@@ -59,6 +59,11 @@ export function pickKeyFile(): Promise<PickedKey | null> {
   return invoke<PickedKey | null>('pick_key_file');
 }
 
+/** Reads a pasted private key the same way; import it with `importPickedKey`. */
+export function pasteKeyText(text: string): Promise<PickedKey> {
+  return invoke<PickedKey>('paste_key_text', { text });
+}
+
 /** Drops the picked key file from memory; the import dialog closed. */
 export function forgetPickedKey(): Promise<void> {
   return invoke('forget_picked_key');

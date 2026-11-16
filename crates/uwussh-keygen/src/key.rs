@@ -285,6 +285,46 @@ pub fn load(text: &str, passphrase: Option<&str>) -> Result<KeyPair> {
     }
 }
 
+/// A key pasted from a password manager, as [`load`] wants it: Windows line
+/// ends gone, and a PEM block whose lines were joined (Vaultwarden shows the
+/// key as one line, some copy paths keep it that way) wrapped again at the
+/// width its writer uses. Old PEM with `Proc-Type:` headers is left alone.
+pub fn tidy_pasted(text: &str) -> Zeroizing<String> {
+    let text = Zeroizing::new(text.replace('\r', ""));
+    let trimmed = text.trim();
+    let block = trimmed
+        .strip_prefix("-----BEGIN ")
+        .and_then(|rest| rest.split_once("-----"))
+        .and_then(|(label, rest)| {
+            let (body, end) = rest.rsplit_once("-----END ")?;
+            Some((label, body, end))
+        });
+    let Some((label, body, end)) =
+        block.filter(|(_, body, _)| body.is_ascii() && !body.contains(':'))
+    else {
+        return Zeroizing::new(format!("{trimmed}\n"));
+    };
+    let body: Zeroizing<String> =
+        Zeroizing::new(body.chars().filter(|c| !c.is_whitespace()).collect());
+    let width = if label == "OPENSSH PRIVATE KEY" {
+        70
+    } else {
+        64
+    };
+    // Room for every line break up front: growing would free a copy unzeroed.
+    let mut out = Zeroizing::new(String::with_capacity(
+        label.len() * 2 + end.len() + body.len() + body.len() / width + 32,
+    ));
+    out.push_str(&format!("-----BEGIN {label}-----\n"));
+    // Base64 is ASCII, so byte chunks are whole characters.
+    for line in body.as_bytes().chunks(width) {
+        out.push_str(std::str::from_utf8(line).unwrap_or_default()); // ASCII, checked above
+        out.push('\n');
+    }
+    out.push_str(&format!("-----END {}\n", end.trim()));
+    out
+}
+
 fn is_encrypted(text: &str, err: &keys::Error) -> bool {
     // OpenSSH, and the old `Proc-Type: 4,ENCRYPTED` PEM files.
     if matches!(err, keys::Error::KeyIsEncrypted) {
@@ -419,6 +459,44 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_key_pasted_on_one_line_reads_again() {
+        let kinds = [KeyKind::Ed25519, KeyKind::Rsa { bits: 2048 }];
+        for kind in kinds {
+            let pair = key(kind, "paste@uwussh");
+            for format in [
+                PrivateFormat::OpenSsh,
+                PrivateFormat::Pem,
+                PrivateFormat::PuttyV3,
+            ] {
+                for passphrase in [None, Some(PASSPHRASE)] {
+                    let case = format!("{} as {format:?}, {passphrase:?}", kind.label());
+                    let text = pair.encode(format, passphrase).unwrap();
+                    let crlf = text.replace('\n', "\r\n");
+                    let joined = text.lines().collect::<Vec<_>>().join(" ");
+                    // PuTTY files are line-based; only line ends get tidied.
+                    let pasted = if format == PrivateFormat::PuttyV3 {
+                        vec![crlf]
+                    } else {
+                        vec![crlf, joined, text.lines().collect()]
+                    };
+                    for paste in pasted {
+                        let loaded = load(&tidy_pasted(&format!("  {paste}\n\n")), passphrase)
+                            .unwrap_or_else(|err| panic!("{case}: {err}"));
+                        assert_eq!(
+                            loaded.public_key().key_data(),
+                            pair.public_key().key_data(),
+                            "{case}"
+                        );
+                    }
+                }
+            }
+        }
+        assert_eq!(&*tidy_pasted("no key"), "no key\n");
+        let odd = "-----BEGIN OPENSSH PRIVATE KEY-----\näöü\n-----END OPENSSH PRIVATE KEY-----";
+        assert_eq!(*tidy_pasted(odd), format!("{odd}\n"));
     }
 
     #[test]

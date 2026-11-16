@@ -24,7 +24,7 @@ mod ppk;
 
 pub use costs::check_costs;
 pub use generate::{generate, generate_with_rng, GenerateOptions};
-pub use key::{load, KeyInfo, KeyKind, KeyPair, PrivateFormat, RSA_BITS};
+pub use key::{load, tidy_pasted, KeyInfo, KeyKind, KeyPair, PrivateFormat, RSA_BITS};
 pub use zeroize::Zeroizing;
 
 use serde::Serialize;

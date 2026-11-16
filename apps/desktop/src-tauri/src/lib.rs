@@ -303,6 +303,7 @@ pub fn run() {
             keys::pick_key_path,
             keys::grant_ssh_folder,
             keys::import_picked_key,
+            keys::paste_key_text,
             keys::forget_picked_key,
             keys::export_key_file,
             keys::key_public_line,

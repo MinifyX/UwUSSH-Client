@@ -68,3 +68,33 @@ Alle Fixes liegen auf `feat/redesign`.
 | N3     | Die Palette füllt „Befehl aus Worten“ nur noch vor. Gefragt wird erst, wenn im Assistenten Enter gedrückt wird.                                                                                                                       | 7b8efe7 |
 | I2     | Teilweise: Der Überschreiben-Dialog zeigt den vollen Zielpfad. Fehlt der lokale Ordner (Store-Sandbox), ist der Download im Panel aus und es erscheint ein Hinweis. Ziel bleibt der Benutzerordner.                                   | 31ada7d |
 | I1     | Offen: Das ist suite-weit zu lösen (SHA-256 der Design-Tarballs in CI prüfen).                                                                                                                                                        | –       |
+
+## 0.4.0-beta.8 – Private Key einfügen
+
+Geprüft: `git diff v0.4.0-beta.7..HEAD` auf `feat/paste-private-key` (`tidy_pasted`, `paste_key_text`/`hold_key`, `KeyImportDialog`). Keine Befunde der Stufe Hoch oder Mittel.
+
+### P1 – Niedrig: Bei jedem Tastendruck geht der ganze Key per IPC an Rust und wird dort auf dem Main-Thread geparst
+
+- **Ort:** `apps/desktop/src/components/keygen/KeyDialogs.tsx:264` (`onChange` → `readPasted` → `pasteKeyText`), `apps/desktop/src-tauri/src/keys.rs:193` (sync `#[tauri::command]`)
+- **Ursache:** Wer den Key tippt oder bearbeitet, löst für jedes Zeichen einen IPC-Aufruf mit dem ganzen Text aus. Dabei entstehen viele Kopien in WebView-, IPC- und serde-Puffern, die nicht genullt werden. Außerdem führt der synchrone Befehl `decode_secret_key` auf dem Main-Thread aus. Bei bis zu 64 KiB oder großen RSA-Keys ruckelt die UI dann spürbar. `import_picked_key` nutzt dafür schon `off_the_main_thread`.
+- **Fix:** Erst bei `onPaste` und `onBlur` lesen (oder mit ~300 ms Debounce). Den Befehl `async` machen und `hold_key` per `off_the_main_thread` ausführen, für Paste und Datei gleich.
+
+### P2 – Niedrig: `tidy_pasted` reserviert zu wenig Platz, beim Wachsen bleibt eine ungenullte Teilkopie auf dem Heap
+
+- **Ort:** `crates/uwussh-keygen/src/key.rs:312`
+- **Ursache:** Reserviert wird `trimmed.len() + 64`. Ein Body ohne Leerraum bekommt aber `body.len()/width` neue Zeilenumbrüche, z. B. RSA ab ~8192 Bit, ohne Umbrüche eingefügt. Dann wird `out` neu alloziert, und der alte Puffer mit dem Anfang des Keys wird freigegeben, ohne genullt zu werden.
+- **Fix:** Mit `trimmed.len() + trimmed.len() / width + 4` (oder der exakten Länge) reservieren, und zwar erst nachdem `width` berechnet ist.
+
+### I3 – Info: Ein Body mit Nicht-ASCII-Zeichen wird stillschweigend gekürzt
+
+- **Ort:** `crates/uwussh-keygen/src/key.rs:315`
+- **Ursache:** `chunks(width)` schneidet Bytes. Enthält der Body Mehrbyte-Zeichen, schlägt `from_utf8` fehl und `unwrap_or_default` lässt das Stück weg. Das führt nicht zu einem Panic: `strip_prefix`, `split_once` und `rsplit_once` schneiden nur an Mustergrenzen. Danach scheitert `load` sauber.
+- **Fix (optional):** Bei `!body.is_ascii()` den unveränderten Text zurückgeben, so wie im Fall ohne PEM-Block. Dann bekommt der Nutzer die passende Fehlermeldung.
+
+### Geprüft, ohne Befund
+
+- **Panics/UTF-8:** In `tidy_pasted` gibt es kein Index-Slicing. Alle Schnitte kommen von `str`-Mustermethoden. Leere, abgeschnittene oder verschachtelte `-----BEGIN`/`END`-Texte landen im Fallback.
+- **Größe/KDF:** `paste_key_text` lehnt Texte über 64 KiB ab, bevor `tidy_pasted` läuft. Ohne Passphrase leitet `load` nichts ab (`PassphraseRequired`). Beim Import prüft `check_costs` die KDF-Parameter vor dem Ableiten, wie beim Datei-Weg.
+- **Zeroize/Logs:** Eingabe, Zwischen-Body und Ausgabe liegen in `Zeroizing`. Formatiert werden nur Label und END-Zeile. Es gibt kein Logging. Fehlermeldungen enthalten nur den russh-Grund (Position/Zeichen eines Base64-Fehlers), kein Schlüsselmaterial. Die Kopie im IPC-JSON lässt sich nicht vermeiden (gilt auch für die Passphrase).
+- **Race Datei/Einfügen:** Es gibt einen gemeinsamen Slot `picked_key`. `import_picked_key` übernimmt nur bei gleichem Token, sonst kommt ein Fehler. Wer den Slot zuletzt überschreibt, kann also nie einen anderen Key importieren lassen als den angezeigten. `reading.current` verwirft veraltete Antworten im UI. Der ersetzte Eintrag wird beim Drop genullt.
+- **React-State/DOM:** `pasted` steht nur, solange der Dialog offen ist. Nach dem Import oder Abbrechen wird er per Unmount verworfen, und `forgetPickedKey` leert den Rust-Slot. Bei der Dateiwahl wird `pasted` geleert. Rechtschreibprüfung und Autocomplete sind aus. JS-Strings lassen sich grundsätzlich nicht nullen. Das ist bekannt und akzeptiert.
