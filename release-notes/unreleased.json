@@ -1,0 +1,4 @@
+{
+  "de": "- Private Keys lassen sich jetzt auch als Text einfügen, z. B. aus Vaultwarden oder Bitwarden kopiert – nicht nur als Datei\n- Ein einzeilig kopierter Key (ohne Zeilenumbrüche) wird dabei automatisch wieder lesbar",
+  "en": "- Private keys can now be pasted as text, e.g. copied from Vaultwarden or Bitwarden – not only picked as a file\n- A key copied onto one line (without line breaks) is read correctly"
+}

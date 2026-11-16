@@ -1,11 +1,12 @@
 import { Button, ICONS } from '@uwusuite/design';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { t, useLanguage } from '../../lib/i18n';
 import {
   forgetPickedKey,
   asKeyFailure,
   importPickedKey,
   keygenStore,
+  pasteKeyText,
   pickKeyFile,
   type KeyRecord,
   type PickedKey,
@@ -90,7 +91,10 @@ export function KeygenDialog({
   );
 }
 
-/** Put an existing private key file into the vault. */
+/**
+ * Put an existing private key into the vault: a file, or the key pasted as
+ * text (password managers such as Vaultwarden keep keys as fields, not files).
+ */
 export function KeyImportDialog({
   onImported,
   onClose,
@@ -105,21 +109,48 @@ export function KeyImportDialog({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [vault, setVault] = useState(false);
-  const started = useRef(false);
+  const [pasted, setPasted] = useState('');
+  // A paste error shows once the field was left or pasted into, not mid-typing.
+  const [committed, setCommitted] = useState(false);
+  const [pasteError, setPasteError] = useState<string | null>(null);
+  const reading = useRef(0);
+  const ids = useId();
   const guard = useCloseGuard(
-    picked !== null,
+    picked !== null || pasted.trim() !== '',
     onClose,
-    t('Die gewählte Key-Datei wird dann nicht importiert.'),
+    t('Der Key wird dann nicht importiert.'),
   );
+
+  const readPasted = async (text: string) => {
+    setPasted(text);
+    setPicked(null);
+    setPasteError(null);
+    const run = ++reading.current;
+    if (!text.trim()) return;
+    try {
+      const key = await pasteKeyText(text);
+      if (run !== reading.current) return;
+      setPicked(key);
+      setLabel((current) => current || key.info?.comment || '');
+    } catch (e) {
+      if (run !== reading.current) return;
+      const failure = asKeyFailure(e);
+      setPasteError(
+        t('Das ist kein lesbarer Private Key ({reason}).', {
+          reason: failure.kind === 'error' ? failure.message : failure.kind,
+        }),
+      );
+    }
+  };
 
   const pick = async () => {
     setError(null);
     try {
       const file = await pickKeyFile();
-      if (!file) {
-        if (!picked) onClose();
-        return;
-      }
+      if (!file) return;
+      reading.current++;
+      setPasted('');
+      setPasteError(null);
       setPicked(file);
       setLabel(file.fileName.replace(/\.(ppk|pem|key)$/i, ''));
     } catch (e) {
@@ -129,14 +160,6 @@ export function KeyImportDialog({
       );
     }
   };
-
-  useEffect(() => {
-    // Straight to the file dialog; StrictMode must not open it twice.
-    if (started.current) return;
-    started.current = true;
-    void pick();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // The key file stays in memory only while this dialog is open.
   useEffect(() => () => void forgetPickedKey().catch(() => {}), []);
@@ -188,10 +211,11 @@ export function KeyImportDialog({
               variant="ghost"
               data-secondary
               className="mr-auto"
+              icon={ICONS.file}
               onClick={() => void pick()}
               disabled={busy}
             >
-              {t('Andere Datei…')}
+              {t('Datei wählen…')}
             </Button>
             <Button data-secondary onClick={guard.request} disabled={busy}>
               {t('Abbrechen')}
@@ -208,45 +232,78 @@ export function KeyImportDialog({
           </>
         }
       >
-        {!picked ? (
-          <p className="import-note">{t('Wähle eine Key-Datei aus …')}</p>
-        ) : (
-          <form
-            className="form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void submit();
-            }}
-          >
+        <form
+          className="form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submit();
+          }}
+        >
+          {!picked?.fileName && (
+            <label className="field">
+              <span>{t('Private Key einfügen')}</span>
+              <em className="field-hint" id={`${ids}-hint`}>
+                {t(
+                  'OpenSSH, PEM oder PuTTY, z. B. aus Vaultwarden kopiert – oder eine Datei wählen.',
+                )}
+              </em>
+              <textarea
+                className="sync-code-input"
+                rows={6}
+                value={pasted}
+                autoComplete="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                aria-describedby={
+                  pasteError && committed ? `${ids}-hint ${ids}-error` : `${ids}-hint`
+                }
+                aria-invalid={pasteError !== null && committed}
+                onPaste={() => setCommitted(true)}
+                onBlur={() => setCommitted(true)}
+                onChange={(e) => void readPasted(e.target.value)}
+              />
+              {pasteError && committed && (
+                <em className="field-error" id={`${ids}-error`} role="alert">
+                  {pasteError}
+                </em>
+              )}
+            </label>
+          )}
+          {picked && (
             <p className="dialog-lead">
-              <code>{picked.fileName}</code>
+              {picked.fileName ? <code>{picked.fileName}</code> : t('Eingefügter Key')}
               {picked.info ? ` · ${picked.info.label}` : ` · ${t('mit Passphrase geschützt')}`}
             </p>
-            {picked.info && (
-              <p className="field-hint">
-                <code className="fingerprint">{picked.info.fingerprintSha256}</code>
-              </p>
-            )}
-            <label className="field">
-              <span>{t('Name im Tresor')}</span>
-              <input value={label} onChange={(e) => setLabel(e.target.value)} />
-            </label>
-            {picked.encrypted && (
+          )}
+          {picked && (
+            <>
+              {picked.info && (
+                <p className="field-hint">
+                  <code className="fingerprint">{picked.info.fingerprintSha256}</code>
+                </p>
+              )}
               <label className="field">
-                <span>{t('Passphrase')}</span>
-                <input
-                  type="password"
-                  data-autofocus
-                  value={passphrase}
-                  autoComplete="off"
-                  onChange={(e) => setPassphrase(e.target.value)}
-                />
-                <em className="field-hint">{t('Wird mit dem Key im Tresor gespeichert.')}</em>
+                <span>{t('Name im Tresor')}</span>
+                <input value={label} onChange={(e) => setLabel(e.target.value)} />
               </label>
-            )}
-            <button type="submit" hidden />
-          </form>
-        )}
+              {picked.encrypted && (
+                <label className="field">
+                  <span>{t('Passphrase')}</span>
+                  <input
+                    type="password"
+                    data-autofocus
+                    value={passphrase}
+                    autoComplete="off"
+                    onChange={(e) => setPassphrase(e.target.value)}
+                  />
+                  <em className="field-hint">{t('Wird mit dem Key im Tresor gespeichert.')}</em>
+                </label>
+              )}
+            </>
+          )}
+          <button type="submit" hidden />
+        </form>
         {error && (
           <p className="field-error" role="alert">
             {error}

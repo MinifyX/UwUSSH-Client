@@ -2,11 +2,9 @@
   "Unverschlüsselt – wer die Datei hat, hat den Schlüssel.": "Unencrypted – whoever has the file has the key.",
   "Verschlüsselt, aber schwach: .ppk v2 schützt die Passphrase kaum gegen Raten. Nimm .ppk v3, wenn das Programm es kann.": "Encrypted, but weakly: .ppk v2 barely protects the passphrase against guessing. Use .ppk v3 if your program supports it.",
   "Verschlüsselt mit deiner Passphrase.": "Encrypted with your passphrase.",
-
   "Zufallsfeld": "Randomness pad",
   "Gesammelter Zufall": "Randomness collected",
   "{pct} %": "{pct}%",
-
   "Der Schlüssel ließ sich nicht erzeugen.": "The key couldn't be generated.",
   "Der Tresor ist gesperrt.": "The vault is locked.",
   "Fehler ({kind})": "Error ({kind})",
@@ -55,7 +53,6 @@
   "Name im Tresor": "Name in the vault",
   "In den Tresor legen": "Save to vault",
   "Noch einen erzeugen": "Generate another",
-
   "Der neue Schlüssel ist noch nicht gespeichert und geht dabei verloren.": "The new key isn't saved yet and will be lost.",
   "Der gesammelte Zufall geht dabei verloren.": "The collected randomness will be lost.",
   "Dein neuer Schlüssel": "Your new key",
@@ -63,20 +60,21 @@
   "Zufall sammeln": "Collect randomness",
   "Schließen": "Close",
   "Der neue Schlüssel wird verschlüsselt im Tresor abgelegt.": "The new key is stored encrypted in the vault.",
-  "Die gewählte Key-Datei wird dann nicht importiert.": "The chosen key file won't be imported.",
   "Diese Datei ist kein lesbarer Key.": "This file isn't a readable key.",
   "Die Passphrase passt nicht zu diesem Key.": "The passphrase doesn't match this key.",
   "Der Key wird verschlüsselt im Tresor abgelegt.": "The key is stored encrypted in the vault.",
   "Key importieren": "Import key",
-  "Andere Datei…": "Other file…",
   "Abbrechen": "Cancel",
-  "Wähle eine Key-Datei aus …": "Choose a key file…",
   "mit Passphrase geschützt": "protected by a passphrase",
   "Passphrase": "Passphrase",
   "Wird mit dem Key im Tresor gespeichert.": "Saved in the vault along with the key.",
-
   "Neuer SSH-Schlüssel": "New SSH key",
   "Helles Farbschema": "Light color scheme",
   "Dunkles Farbschema": "Dark color scheme",
-  "Teil von UwUSSH · Keys entstehen nur auf diesem Rechner und werden nirgends hochgeladen.": "Part of UwUSSH · Keys are made only on this computer and never uploaded anywhere."
+  "Teil von UwUSSH · Keys entstehen nur auf diesem Rechner und werden nirgends hochgeladen.": "Part of UwUSSH · Keys are made only on this computer and never uploaded anywhere.",
+  "Der Key wird dann nicht importiert.": "The key won't be imported.",
+  "Das ist kein lesbarer Private Key ({reason}).": "That isn't a readable private key ({reason}).",
+  "Private Key einfügen": "Paste private key",
+  "OpenSSH, PEM oder PuTTY, z. B. aus Vaultwarden kopiert – oder eine Datei wählen.": "OpenSSH, PEM or PuTTY, e.g. copied from Vaultwarden – or choose a file.",
+  "Eingefügter Key": "Pasted key"
 }

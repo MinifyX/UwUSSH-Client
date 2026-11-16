@@ -179,27 +179,52 @@ pub(crate) async fn pick_key_file(
         return Err(failure("this file is too large to be a private key"));
     }
     let text = Zeroizing::new(std::fs::read_to_string(&path).map_err(failure)?);
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    hold_key(&state, name, text).map(Some)
+}
+
+/// A private key pasted as text — from a password manager that keeps keys as
+/// fields rather than files (Vaultwarden, Bitwarden). From here on it is the
+/// same as a picked file: [`import_picked_key`] puts it into the vault.
+#[tauri::command]
+pub(crate) fn paste_key_text(
+    state: State<'_, AppState>,
+    text: String,
+) -> Result<PickedKey, KeyFailure> {
+    let text = Zeroizing::new(text);
+    if text.len() > 64 * 1024 {
+        return Err(failure("this text is too long to be a private key"));
+    }
+    hold_key(&state, String::new(), uwussh_keygen::tidy_pasted(&text))
+}
+
+/// Read the key without a passphrase where it has none, and keep it in memory
+/// for [`import_picked_key`].
+fn hold_key(
+    state: &AppState,
+    name: String,
+    text: Zeroizing<String>,
+) -> Result<PickedKey, KeyFailure> {
     let (encrypted, info) = match uwussh_keygen::load(&text, None) {
         Ok(key) => (false, Some(key.info())),
         Err(uwussh_keygen::KeygenError::PassphraseRequired) => (true, None),
         Err(other) => return Err(other.into()),
     };
-    let name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
     let token = Uuid::now_v7().to_string();
     *state.picked_key.0.lock() = Some(PickedFile {
         token: token.clone(),
         name: name.clone(),
         text,
     });
-    Ok(Some(PickedKey {
+    Ok(PickedKey {
         token,
         file_name: name,
         encrypted,
         info,
-    }))
+    })
 }
 
 /// `~/.ssh`, where the panels for key files start. The real one in the Mac App
