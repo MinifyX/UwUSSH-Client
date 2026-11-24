@@ -1,4 +1,4 @@
 {
-  "de": "- Im Host-Formular heißt der Knopf jetzt „Key einfügen oder importieren…“, damit klar ist, dass man den Key dort auch als Text einfügen kann",
-  "en": "- The host form button is now called “Paste or import key…”, so it is clear a key can be pasted there as text too"
+  "de": "- Im Host-Formular heißt der Knopf jetzt „Key einfügen oder importieren…“, damit klar ist, dass man den Key dort auch als Text einfügen kann\n- Die SSH-Bibliothek ist aktualisiert: Ein Server kann den Speicher nicht mehr über übergroße Erweiterungsangaben füllen, und Kanäle mit Paketgröße 0 hängen nicht mehr",
+  "en": "- The host form button is now called “Paste or import key…”, so it is clear a key can be pasted there as text too\n- The SSH library is updated: a server can no longer fill memory with oversized extension info, and channels with a packet size of 0 no longer hang"
 }

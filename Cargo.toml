@@ -43,7 +43,10 @@ zeroize = { version = "1", features = ["derive"] }
 
 # `ring` instead of the default `aws-lc-rs`: aws-lc needs CMake and NASM to
 # build on Windows, ring needs nothing beyond MSVC.
-russh = { version = "0.63", default-features = false, features = ["ring", "rsa", "flate2"] }
+# 0.65 at least: earlier versions let a server fill memory through EXT_INFO
+# (GHSA-4p9f-7p9m-5vfg) and hang a channel with a maximum packet size of 0
+# (GHSA-fw5c-8223-6h42).
+russh = { version = "0.65", default-features = false, features = ["ring", "rsa", "flate2"] }
 # SFTP on top of russh, from the same circle of maintainers, transport-agnostic.
 russh-sftp = "3"
 # Bundled SQLite, so the app never depends on whichever sqlite3.dll is around.
@@ -67,7 +70,10 @@ p256 = { version = "0.14", default-features = false, features = ["alloc", "arith
 p384 = { version = "0.14", default-features = false, features = ["alloc", "arithmetic", "pkcs8"] }
 p521 = { version = "0.14", default-features = false, features = ["alloc", "arithmetic", "pkcs8"] }
 pkcs8 = { version = "0.11", features = ["encryption", "pem"] }
-rsa = { version = "=0.10.0-rc.18", default-features = false, features = ["std", "encoding"] }
+# rsa from 0.10.0-rc.18 on, not only the release: russh 0.65.2 and later take
+# 0.10.0, but IronRDP (picky, sspi) still pins rc.18, and an app that embeds
+# both UwUSSH and UwURDP can then resolve to russh 0.65.1 with rc.18.
+rsa = { version = ">=0.10.0-rc.18, <0.11", default-features = false, features = ["std", "encoding"] }
 sha1 = "0.11"
 
 # Still not pinned, because their milestone has not come yet:

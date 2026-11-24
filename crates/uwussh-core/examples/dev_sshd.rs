@@ -104,8 +104,9 @@ impl server::Handler for DevShell {
     async fn auth_publickey(
         &mut self,
         user: &str,
-        public_key: &PublicKey,
+        verified: server::VerifiedPublicKey<'_>,
     ) -> Result<Auth, Self::Error> {
+        let public_key = verified.public_key;
         let accepted = user == USER && self.authorized.iter().any(|key| key == public_key);
         println!(
             "publickey for {user}: {}",
