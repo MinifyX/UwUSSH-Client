@@ -52,6 +52,9 @@ pub(crate) fn encode(key: &PrivateKey, passphrase: Option<&str>) -> Result<Zeroi
 
 fn pkcs8_der(key: &PrivateKey) -> Result<SecretDocument> {
     let der = match key.key_data() {
+        // `RsaPrivateKey` is a deprecated alias in rsa 0.10.0, but rc.18, which
+        // an app embedding IronRDP still resolves to, has only that name.
+        #[allow(deprecated)]
         KeypairData::Rsa(pair) => rsa::RsaPrivateKey::try_from(pair)
             .map_err(encode_error)?
             .to_pkcs8_der(),

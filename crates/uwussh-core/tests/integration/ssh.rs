@@ -77,10 +77,14 @@ impl server::Handler for TestSshd {
         })
     }
 
-    async fn auth_publickey(&mut self, user: &str, key: &PublicKey) -> Result<Auth, Self::Error> {
+    async fn auth_publickey(
+        &mut self,
+        user: &str,
+        key: server::VerifiedPublicKey<'_>,
+    ) -> Result<Auth, Self::Error> {
         self.log.lock().auth_attempts += 1;
         Ok(
-            if user == USER && key.key_data() == self.accepted_key.key_data() {
+            if user == USER && key.public_key.key_data() == self.accepted_key.key_data() {
                 Auth::Accept
             } else {
                 reject()
